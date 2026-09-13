@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>You've been invited to Lock-In</title>
+    
+    <meta property="og:title" content="You've been invited to Lock-In"/>
+    <meta property="og:description" content="Join the hardcore focus vault. Download Lock-In and get locked in together."/>
+    <meta property="og:url" content="https://lockinme.com/invite.html"/>
+    <meta name="twitter:card" content="summary_large_image"/>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@900&family=Barlow:wght@400;500;600&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-cream: #F2EDE4;
+            --navy: #0F1E35;
+            --gold: #F5C842;
+            --white: #FAFAF8;
+            --font-display: 'Barlow Condensed', sans-serif;
+            --font-body: 'Barlow', sans-serif;
+            --font-mono: 'Space Mono', monospace;
+        }
+
+        html { scroll-behavior: smooth; }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-cream);
+            color: var(--navy);
+            font-family: var(--font-body);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        .fade-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Nav */
+        nav {
+            padding: 24px 0;
+            border-bottom: 2px solid var(--navy);
+            position: sticky;
+            top: 0;
+            background-color: var(--bg-cream);
+            z-index: 100;
+        }
+
+        .nav-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: var(--font-mono);
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-decoration: none;
+            color: var(--navy);
+            letter-spacing: -1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .logo span {
+            color: var(--gold);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            border: 2px solid var(--navy);
+            font-family: var(--font-body);
+            text-transform: uppercase;
+        }
+
+        .btn-lg {
+            padding: 16px 32px;
+            font-size: 1.1rem;
+        }
+
+        .btn-navy {
+            background-color: var(--navy);
+            color: var(--white);
+            border-color: var(--navy);
+        }
+
+        .btn-navy:hover {
+            transform: translateY(-2px);
+            box-shadow: 4px 4px 0 var(--gold);
+        }
+
+        .btn-gold {
+            background-color: var(--gold);
+            color: var(--navy);
+            border-color: var(--navy);
+        }
+
+        .btn-gold:hover {
+            transform: translateY(-2px);
+            box-shadow: 4px 4px 0 var(--navy);
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 2px solid var(--white);
+            color: var(--white);
+        }
+
+        .btn-outline:hover {
+            background-color: var(--white);
+            color: var(--navy);
+        }
+
+        .btn-outline-navy {
+            background-color: transparent;
+            border: 2px solid var(--navy);
+            color: var(--navy);
+        }
+
+        .btn-outline-navy:hover {
+            background-color: var(--navy);
+            color: var(--bg-cream);
+        }
+
+        /* Hero */
+        .hero {
+            padding: 80px 0;
+            border-bottom: 2px solid var(--navy);
+        }
+
+        .hero-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 40px;
+        }
+
+        .hero-text {
+            flex: 1;
+        }
+
+        .hero-tag {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--gold);
+            margin-bottom: 24px;
+            display: inline-block;
+            font-weight: 700;
+            background: var(--navy);
+            padding: 4px 12px;
+        }
+
+        .hero-title {
+            font-family: var(--font-display);
+            font-size: clamp(4rem, 8vw, 7rem);
+            line-height: 0.9;
+            margin-bottom: 24px;
+            color: var(--navy);
+            text-transform: uppercase;
+        }
+
+        .hero-title span {
+            color: var(--gold);
+            -webkit-text-stroke: 2px var(--navy);
+            text-shadow: 4px 4px 0 var(--navy);
+        }
+
+        .hero-desc {
+            font-size: 1.25rem;
+            max-width: 500px;
+            color: var(--navy);
+            font-weight: 500;
+        }
+
+        .hero-card {
+            flex: 1;
+            background-color: var(--navy);
+            border: 2px solid var(--navy);
+            padding: 40px;
+            color: var(--white);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            box-shadow: 12px 12px 0 rgba(15, 30, 53, 0.1);
+        }
+
+        .card-label {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: rgba(250, 250, 248, 0.5);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+        }
+
+        .uid-display {
+            font-family: var(--font-mono);
+            font-size: clamp(1.5rem, 3vw, 2.5rem);
+            color: var(--gold);
+            font-weight: 700;
+            margin-bottom: 32px;
+            word-break: break-all;
+            line-height: 1.2;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--white);
+            margin-bottom: 40px;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            background-color: var(--gold);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(245, 200, 66, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(245, 200, 66, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 200, 66, 0); }
+        }
+
+        .card-footer {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: var(--gold);
+            border-top: 1px solid rgba(250, 250, 248, 0.2);
+            padding-top: 16px;
+        }
+
+        /* Steps */
+        .steps-section {
+            padding: 100px 0;
+            background-color: var(--bg-cream);
+        }
+
+        .section-label {
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            color: var(--navy);
+            margin-bottom: 16px;
+            font-weight: 700;
+        }
+
+        .section-title {
+            font-family: var(--font-display);
+            font-size: 4.5rem;
+            margin-bottom: 64px;
+            color: var(--navy);
+            line-height: 1;
+            text-transform: uppercase;
+        }
+
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+
+        .step-card {
+            background-color: var(--bg-cream);
+            border: 2px solid var(--navy);
+            padding: 40px 32px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 8px 8px 0 rgba(15, 30, 53, 0.1);
+        }
+
+        .step-number {
+            position: absolute;
+            top: -20px;
+            right: 24px;
+            background-color: var(--gold);
+            border: 2px solid var(--navy);
+            color: var(--navy);
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 1.2rem;
+            padding: 4px 12px;
+        }
+
+        .step-icon-wrapper {
+            width: 64px;
+            height: 64px;
+            background-color: var(--gold);
+            border: 2px solid var(--navy);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+
+        .step-icon {
+            width: 32px;
+            height: 32px;
+            stroke: var(--navy);
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: square;
+            stroke-linejoin: miter;
+        }
+
+        .step-title {
+            font-family: var(--font-display);
+            font-size: 2rem;
+            color: var(--navy);
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            line-height: 1.1;
+        }
+
+        .step-desc {
+            font-size: 1.1rem;
+            color: var(--navy);
+            margin-bottom: 32px;
+            flex: 1;
+        }
+
+        .step-card .btn {
+            width: 100%;
+        }
+
+        /* Copy Card Section */
+        .copy-section {
+            padding: 80px 0 120px;
+            background-color: var(--bg-cream);
+        }
+
+        .copy-container {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .copy-label {
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--navy);
+            margin-bottom: 8px;
+        }
+
+        .copy-subtext {
+            font-size: 1.1rem;
+            color: var(--navy);
+            margin-bottom: 32px;
+        }
+
+        .copy-card {
+            border: 2px solid var(--navy);
+            background-color: var(--bg-cream);
+            display: flex;
+            text-align: left;
+            box-shadow: 8px 8px 0 rgba(15, 30, 53, 0.1);
+        }
+
+        .copy-left {
+            flex: 1;
+            padding: 24px;
+            border-right: 2px solid var(--navy);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .copy-card-label {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: rgba(15, 30, 53, 0.6);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            font-weight: 700;
+        }
+
+        .copy-uid {
+            font-family: var(--font-mono);
+            font-size: 1.5rem;
+            color: var(--gold);
+            font-weight: 700;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-shadow: 1px 1px 0 var(--navy), -1px -1px 0 var(--navy), 1px -1px 0 var(--navy), -1px 1px 0 var(--navy);
+            cursor: pointer;
+        }
+
+        .copy-uid:hover {
+            white-space: normal;
+            word-break: break-all;
+        }
+
+        .copy-btn {
+            background-color: var(--navy);
+            color: var(--white);
+            border: none;
+            padding: 0 32px;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+
+        .copy-btn:hover {
+            background-color: var(--gold);
+            color: var(--navy);
+        }
+
+        .copy-footer-text {
+            font-size: 0.9rem;
+            color: rgba(15, 30, 53, 0.7);
+            margin-top: 24px;
+        }
+
+        /* Download CTA */
+        .cta-section {
+            padding: 120px 0;
+            background-color: var(--navy);
+            color: var(--white);
+            text-align: center;
+        }
+
+        .cta-title {
+            font-family: var(--font-display);
+            font-size: clamp(4rem, 8vw, 7rem);
+            color: var(--white);
+            margin-bottom: 24px;
+            line-height: 0.9;
+        }
+
+        .cta-subtext {
+            font-size: 1.25rem;
+            margin-bottom: 48px;
+            color: rgba(250, 250, 248, 0.8);
+        }
+
+        .cta-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+
+        .sys-req {
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            color: rgba(250, 250, 248, 0.5);
+            text-transform: uppercase;
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--bg-cream);
+            color: var(--navy);
+            padding: 48px 0;
+            border-top: 2px solid var(--navy);
+        }
+
+        .footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer-logo {
+            font-family: var(--font-mono);
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--navy);
+            letter-spacing: -1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .footer-logo span {
+            color: var(--gold);
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 32px;
+        }
+
+        .footer-links a {
+            color: var(--navy);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--gold);
+        }
+
+        .footer-copyright {
+            color: rgba(15, 30, 53, 0.6);
+            font-size: 0.9rem;
+            font-family: var(--font-mono);
+        }
+
+        /* Responsive */
+        @media (max-width: 992px) {
+            .steps-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero-content {
+                flex-direction: column;
+            }
+
+            .hero-card {
+                width: 100%;
+            }
+
+            .steps-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .copy-card {
+                flex-direction: column;
+            }
+
+            .copy-left {
+                border-right: none;
+                border-bottom: 2px solid var(--navy);
+            }
+
+            .copy-btn {
+                padding: 24px;
+                width: 100%;
+            }
+
+            .cta-buttons {
+                flex-direction: column;
+                padding: 0 24px;
+            }
+
+            .footer-content {
+                flex-direction: column;
+                gap: 24px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="container nav-content">
+            <a href="/" class="logo">LOCK<span>-</span>IN</a>
+            <a href="https://github.com/tufflord11111/Lockin-website/releases/download/v1.1.0/Lock-In_1.1.0_x64_en-US.msi" class="btn btn-navy">Download App</a>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="container hero-content">
+            <div class="hero-text fade-in">
+                <span class="hero-tag">// OPERATOR INVITE</span>
+                <h1 class="hero-title">YOU'VE BEEN<br><span>RECRUITED.</span></h1>
+                <p class="hero-desc">An operator has invited you to join Lock-In — the hardcore focus vault. Build your accountability pack and get locked in together.</p>
+            </div>
+            <div class="hero-card fade-in">
+                <div class="card-label" id="hero-label">INVITED BY OPERATOR</div>
+                <div class="uid-display" id="hero-uid">...</div>
+                <div class="status-indicator" id="hero-status-container">
+                    <div class="dot"></div>
+                    <span id="hero-status">ACTIVE INVITE</span>
+                </div>
+                <div class="card-footer" id="hero-footer">// INVITE VALID — CLAIM NOW</div>
+            </div>
+        </div>
+    </header>
+
+    <section class="steps-section">
+        <div class="container">
+            <div class="section-label fade-in">// DEPLOYMENT PROTOCOL</div>
+            <h2 class="section-title fade-in">GET LOCKED IN</h2>
+            
+            <div class="steps-grid">
+                <!-- Step 01 -->
+                <div class="step-card fade-in">
+                    <div class="step-number">01</div>
+                    <div class="step-icon-wrapper">
+                        <svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                    </div>
+                    <h3 class="step-title">DOWNLOAD THE VAULT</h3>
+                    <p class="step-desc">Run the Lock-In Windows installer. Create your permanent Operator handle — it cannot be changed.</p>
+                    <a href="https://github.com/tufflord11111/Lockin-website/releases/download/v1.1.0/Lock-In_1.1.0_x64_en-US.msi" class="btn btn-navy">&darr; Download for Windows</a>
+                </div>
+
+                <!-- Step 02 -->
+                <div class="step-card fade-in">
+                    <div class="step-number">02</div>
+                    <div class="step-icon-wrapper">
+                        <svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+                            <path d="M10 3v2a3 3 0 0 1-3 3H5a2 2 0 0 0-2 2v2a3 3 0 0 1-3 3v4a2 2 0 0 0 2 2h4a3 3 0 0 1 3 3h2a3 3 0 0 1 3-3h4a2 2 0 0 0 2-2v-4a3 3 0 0 1 3-3v-2a2 2 0 0 0-2-2h-2a3 3 0 0 1-3-3V5a2 2 0 0 0-2-2h-4z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="step-title">ADD THE WEB GUARD</h3>
+                    <p class="step-desc">Install Lock-In from the Chrome Web Store. Sign in with the same account. The vault and extension pair automatically.</p>
+                    <a href="https://chrome.google.com/webstore/detail/pcmcaccnegefcjhdabjjfhaakjfeocea" class="btn btn-outline-navy">Add to Chrome</a>
+                </div>
+
+                <!-- Step 03 -->
+                <div class="step-card fade-in">
+                    <div class="step-number">03</div>
+                    <div class="step-icon-wrapper">
+                        <svg class="step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" stroke-linejoin="miter">
+                            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 00-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 010 7.75"></path>
+                        </svg>
+                    </div>
+                    <h3 class="step-title">ADD YOUR OPERATOR</h3>
+                    <p class="step-desc">Open THE PACK tab in Lock-In. Copy the operator code below and paste it to add your friend as your accountability partner.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="copy-section">
+        <div class="container copy-container fade-in">
+            <div class="copy-label">// YOUR OPERATOR'S CODE</div>
+            <p class="copy-subtext">Copy this and paste it in THE PACK tab after installing</p>
+            
+            <div class="copy-card">
+                <div class="copy-left">
+                    <div class="copy-card-label" id="copy-label">OPERATOR CODE</div>
+                    <div class="copy-uid" id="copy-uid" title="Click to see full code">...</div>
+                </div>
+                <button class="copy-btn" id="copy-btn">COPY CODE</button>
+            </div>
+            
+            <p class="copy-footer-text">This code links you to your operator in The Pack leaderboard</p>
+        </div>
+    </section>
+
+    <section class="cta-section">
+        <div class="container fade-in">
+            <h2 class="cta-title">READY TO LOCK IN?</h2>
+            <p class="cta-subtext">Free forever. Windows 10+. No subscription.</p>
+            <div class="cta-buttons">
+                <a href="https://github.com/tufflord11111/Lockin-website/releases/download/v1.1.0/Lock-In_1.1.0_x64_en-US.msi" class="btn btn-gold btn-lg">&darr; Download for Windows &mdash; Free</a>
+                <a href="https://chrome.google.com/webstore/detail/pcmcaccnegefcjhdabjjfhaakjfeocea" class="btn btn-outline btn-lg">Add to Chrome &mdash; Free</a>
+            </div>
+            <p class="sys-req">// Requires Windows 10+ &middot; Chrome 114+ &middot; Free Account Required</p>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container footer-content">
+            <div class="footer-logo">LOCK<span>-</span>IN</div>
+            <div class="footer-copyright">&copy; 2026 Lock-In. All rights reserved.</div>
+            <div class="footer-links">
+                <a href="https://pastebin.com/6RESYZQk">Privacy</a>
+                <a href="mailto:support@lock-in.app">Contact</a>
+                <a href="https://github.com/openclawtuff-dotcom/lock-in">GitHub</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            // Intersection Observer for fade-in animations
+            const observerOptions = {
+                root: null,
+                rootMargin: '0px',
+                threshold: 0.1
+            };
+
+            const observer = new IntersectionObserver((entries, observer) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, observerOptions);
+
+            document.querySelectorAll('.fade-in').forEach(element => {
+                observer.observe(element);
+            });
+
+            // Logic for query parameter processing
+            const params = new URLSearchParams(window.location.search);
+            const uid = params.get('uid') || params.get('code') || null;
+
+            const heroLabel = document.getElementById('hero-label');
+            const heroUid = document.getElementById('hero-uid');
+            const copyLabel = document.getElementById('copy-label');
+            const copyUid = document.getElementById('copy-uid');
+            const copyBtn = document.getElementById('copy-btn');
+            
+            if (uid) {
+                heroUid.textContent = uid;
+                copyUid.textContent = uid;
+            } else {
+                heroLabel.textContent = "DIRECT INVITE";
+                heroUid.textContent = "No Code Provided";
+                document.getElementById('hero-status-container').style.display = 'none';
+                
+                copyLabel.textContent = "NO CODE — DOWNLOAD DIRECTLY";
+                copyUid.textContent = "No Operator Code Found";
+                copyBtn.style.display = 'none';
+                
+                document.getElementById('hero-footer').textContent = "// DIRECT DOWNLOAD — CLAIM NOW";
+            }
+
+            // Copy logic
+            copyBtn.addEventListener('click', () => {
+                if (!uid) return;
+                navigator.clipboard.writeText(uid)
+                    .then(() => {
+                        copyBtn.textContent = '✓ COPIED!';
+                        copyBtn.style.background = '#F5C842';
+                        copyBtn.style.color = '#0F1E35';
+                        setTimeout(() => {
+                            copyBtn.textContent = 'COPY CODE';
+                            copyBtn.style.background = '#0F1E35';
+                            copyBtn.style.color = '#FAFAF8';
+                        }, 2000);
+                    })
+                    .catch(err => {
+                        console.error('Failed to copy text: ', err);
+                    });
+            });
+        });
+    </script>
+</body>
+</html>

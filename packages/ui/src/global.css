@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply h-full w-full overflow-hidden m-0 p-0;
+    background-color: #F5F5F0;
+    color: #002855;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+body {
+  background-color: #F5F5F0;
+  color: #002855;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+::selection {
+  background-color: rgba(0, 40, 85, 0.2);
+}
+

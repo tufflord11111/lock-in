@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="main-card">
+    <div id="loginView" class="view hidden">
+      <h1>LOCK-IN</h1>
+      <p class="subtitle">Authenticate to Engage</p>
+      <div class="input-group">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="operator@secure.net">
+      </div>
+      <div class="input-group">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="••••••••">
+      </div>
+      <div id="error" class="error-msg hidden"></div>
+      <button id="loginBtn">Login</button>
+      <p class="aux-line">
+        No account yet?
+        <a class="aux-link" href="https://lock-in-mobile.vercel.app/#register" target="_blank" rel="noopener">Create account</a>
+      </p>
+    </div>
+
+    <div id="menuView" class="view hidden">
+      <h1>LOCK-IN</h1>
+      <div id="status" class="status locked">LOCKED</div>
+      <div id="userInfo" class="user-info"></div>
+      <div id="sessionHint" class="session-hint hidden">
+        No active session. Start one from the Lock-In desktop app or at
+        <a class="aux-link" href="https://lock-in-mobile.vercel.app" target="_blank" rel="noopener">lock-in-mobile.vercel.app</a>
+      </div>
+      <button id="sync">Manual Sync</button>
+      <button id="logoutBtn">Logout</button>
+      <p id="logoutWarning" style="
+        display: none;
+        font-family: 'Space Mono', monospace;
+        font-size: 0.55rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #cc0000;
+        text-align: center;
+        margin-top: 4px;
+      ">
+        ⚠ SESSION ACTIVE — LOGOUT DISABLED
+      </p>
+    </div>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

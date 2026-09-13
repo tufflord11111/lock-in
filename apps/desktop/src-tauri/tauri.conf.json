@@ -1,0 +1,43 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Lock-In",
+  "version": "1.2.0",
+  "identifier": "com.lockin.app",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm --filter @lock-in/web dev",
+    "beforeBuildCommand": "pnpm --filter @lock-in/web build"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' tauri: https://synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app wss://synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app https://*.firebaseapp.com https://*.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebasedatabase.app https://*.firebaseio.com; frame-src https://calendar.google.com https://*.firebasedatabase.app https://*.firebaseio.com; img-src 'self' data: https:; connect-src 'self' https: wss:"
+    },
+    "windows": [
+      {
+        "title": "@lock-in",
+        "devtools": false,
+        "width": 800,
+        "height": 600,
+        "resizable": true,
+        "visible": false,
+        "focus": true,
+        "center": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../extension/dist/**/*": "extension/dist/"
+    }
+  }
+}

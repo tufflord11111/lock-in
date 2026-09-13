@@ -1,0 +1,268 @@
+import { useState, useEffect } from "react";
+import { auth, db } from "@lock-in/firebase";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail as firebaseSendPasswordResetEmail,
+  signOut,
+} from "firebase/auth";
+import type { User } from "firebase/auth";
+import { ref, update, get, child } from "firebase/database";
+
+/** Translates Firebase error codes into operator-friendly messages */
+export function parseAuthError(err: any): string {
+  const code: string = err?.code ?? "";
+  
+  if (code === 'PERMISSION_DENIED' || 
+      err?.message?.includes('Permission denied') ||
+      err?.message?.includes('permission_denied')) {
+    return 'Account created. Please log in with your credentials.';
+  }
+
+  if (code === "auth/invalid-credential" || code === "auth/wrong-password")
+    return "Incorrect password. Try again or reset your access key.";
+  if (code === "auth/user-not-found")
+    return "No account found for that comm link. Register first.";
+  if (code === "auth/email-already-in-use")
+    return "This email is already in use. Switch to login mode.";
+  if (code === "auth/weak-password")
+    return "Password must be at least 6 characters.";
+  if (code === "auth/invalid-email")
+    return "Invalid email format. Double-check your comm link.";
+  if (code === "auth/network-request-failed")
+    return "Network error. Check your connection and retry.";
+  if (code === "auth/too-many-requests")
+    return "Too many attempts. Wait a moment before retrying.";
+  if (code === "auth/username-taken")
+    return "This username is already taken. Choose another handle.";
+  return err?.message ?? "Authentication protocol failed.";
+}
+
+export function useAuth() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  /** emailVerified is a snapshot separate from `user` so we can force-refresh it */
+  const [emailVerified, setEmailVerified] = useState(false);
+  /** Set to true immediately after a successful registration — triggers onboarding */
+  const [isNewUser, setIsNewUser] = useState(false);
+  /** True when the auth listener never fired within the 6 s ceiling */
+  const [authDegraded, setAuthDegraded] = useState(false);
+
+  useEffect(() => {
+    // `settled` ensures setLoading(false) fires exactly once regardless of
+    // which path — normal callback, error callback, or hard timeout — wins.
+    const startMs = performance.now();
+    let settled = false;
+    const finish = (hasUser: boolean, degraded: boolean) => {
+      if (!settled) {
+        settled = true;
+        const ms = Math.round(performance.now() - startMs);
+        console.info('[LOCK-IN] auth settled in', ms, 'ms', { hasUser, degraded });
+        setLoading(false);
+      }
+    };
+
+    // Hard ceiling: if onAuthStateChanged never fires (IndexedDB hang in
+    // WebView2, total network outage, etc.) force the app past the loading
+    // gate so the user sees the retry screen instead of spinning forever.
+    const authTimeout = setTimeout(() => {
+      console.error('[LOCK-IN] auth listener never fired within 6 s — booting degraded');
+      setAuthDegraded(true);
+      finish(false, true);
+    }, 6000);
+
+    const unsubscribe = onAuthStateChanged(
+      auth,
+      async (u) => {
+        clearTimeout(authTimeout);
+        setUser(u);
+        setEmailVerified(u?.emailVerified ?? false);
+
+        if (u) {
+          try {
+            const configRef = child(ref(db), `users/${u.uid}/config`);
+
+            // Race the Firebase RTDB read against a 5 s timeout.
+            // get() can hang indefinitely when the network is not ready.
+            const networkTimeout = new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error('Network timeout')), 5000)
+            );
+            const snapshot = await Promise.race([get(configRef), networkTimeout]);
+
+            if (snapshot && !snapshot.exists()) {
+              const fallbackName = u.email?.split('@')[0].toUpperCase() || "OPERATOR";
+              await update(ref(db), {
+                [`users/${u.uid}/config`]: {
+                  userName: fallbackName,
+                  email: u.email,
+                  createdAt: new Date().toISOString(),
+                  emailVerified: u.emailVerified,
+                  onboardingComplete: false,
+                  usernameSet: false,
+                },
+                // Seed the friend-visible name alongside the private config so
+                // a recovered profile is renderable in The Pack immediately.
+                [`users/${u.uid}/public`]: { userName: fallbackName },
+              });
+            }
+          } catch (err) {
+            console.warn('[LOCK-IN] config fetch failed (network or timeout):', err);
+          }
+        }
+
+        finish(!!u, false);
+      },
+      (err) => {
+        // onAuthStateChanged error callback — fired when the listener itself
+        // errors (permission denied on the auth stream, etc.)
+        clearTimeout(authTimeout);
+        console.error('[LOCK-IN] auth listener error:', err);
+        setAuthDegraded(true);
+        finish(false, true);
+      }
+    );
+
+    return () => {
+      clearTimeout(authTimeout);
+      unsubscribe();
+    };
+  }, []);
+
+  const login = (email: string, pass: string) =>
+    signInWithEmailAndPassword(auth, email, pass);
+
+  const register = async (email: string, pass: string, username: string) => {
+    // Step 1: Create auth account
+    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    const u = result.user;
+
+    // Step 2: Send verification email
+    // Don't await — let it send in background
+    sendEmailVerification(u).catch(err => 
+      console.warn('[Register] Email verification failed:', err)
+    );
+
+    // Step 3: Force token refresh with retry
+    let tokenRefreshed = false;
+    for (let i = 0; i < 3; i++) {
+      try {
+        await u.getIdToken(true);
+        tokenRefreshed = true;
+        break;
+      } catch {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+    
+    console.log('[Register] Token refreshed:', tokenRefreshed);
+
+    // Step 4: Write to database with retry
+    const normalizedUsername = username.trim().toUpperCase();
+    let dbWriteSuccess = false;
+    
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await new Promise(r => setTimeout(r, attempt * 500));
+        
+        const updates: Record<string, any> = {};
+        updates[`users/${u.uid}/config`] = {
+          userName: normalizedUsername,
+          email: u.email,
+          createdAt: new Date().toISOString(),
+          emailVerified: false,
+          onboardingComplete: false,
+          usernameSet: true,
+          username: normalizedUsername,
+        };
+        // Friend-visible name. public holds ONLY this field — the rules
+        // reject anything else under it.
+        updates[`users/${u.uid}/public`] = { userName: normalizedUsername };
+        updates[`usernames/${normalizedUsername}`] = u.uid;
+        
+        await update(ref(db), updates);
+        dbWriteSuccess = true;
+        console.log('[Register] DB write success on attempt', attempt);
+        break;
+      } catch (err) {
+        console.warn('[Register] DB write attempt', attempt, 'failed:', err);
+        if (attempt === 3) {
+          console.error('[Register] All DB write attempts failed');
+        }
+      }
+    }
+
+    // Step 5: Even if DB write failed, sign the user in
+    // The onAuthStateChanged will handle profile creation on next login
+    if (!dbWriteSuccess) {
+      console.warn('[Register] Proceeding without DB profile');
+    }
+
+    // Flag as new so App.tsx shows the WelcomeSequence after verification
+    setIsNewUser(true);
+    return u;
+  };
+
+  /**
+   * Forces a reload of the Firebase Auth user token so emailVerified
+   * reflects the latest server state. Call this when the operator clicks
+   * "Check Status" in the VerificationGate.
+   */
+  const reloadUser = async (): Promise<boolean> => {
+    if (!auth.currentUser) return false;
+    await auth.currentUser.reload();
+    const verified = auth.currentUser.emailVerified;
+    setEmailVerified(verified);
+
+    if (verified) {
+      // Patch the DB flag so other parts of the system can trust it
+      const configRef = ref(db, `users/${auth.currentUser.uid}/config`);
+      await update(configRef, { emailVerified: true }).catch(() => {});
+    }
+
+    return verified;
+  };
+
+  const resendVerificationEmail = async () => {
+    if (!auth.currentUser) return;
+    await sendEmailVerification(auth.currentUser);
+  };
+
+  const sendPasswordResetEmail = async (email: string) => {
+    await firebaseSendPasswordResetEmail(auth, email);
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error("[Auth] Logout failed:", err);
+    }
+  };
+
+  /** Called by App once onboarding has been shown so it never fires again */
+  const clearNewUserFlag = () => setIsNewUser(false);
+
+  /** Let the UI explicitly declare "we're going offline" — clears degraded flag */
+  const forceOfflineMode = () => {
+    setAuthDegraded(false);
+    setLoading(false);
+  };
+
+  return {
+    user,
+    loading,
+    emailVerified,
+    isNewUser,
+    authDegraded,
+    clearNewUserFlag,
+    login,
+    register,
+    logout,
+    reloadUser,
+    resendVerificationEmail,
+    sendPasswordResetEmail,
+    forceOfflineMode,
+  };
+}

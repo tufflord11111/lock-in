@@ -1,0 +1,118 @@
+/* Lock-In mobile — brand palette from the desktop app. Plain CSS, no build step. */
+:root {
+  --navy: #002855;
+  --paper: #f9f8f4;
+  --gold: #ffd166;
+  --red: #b3261e;
+  --green: #0f7b45;
+  --ink-40: rgba(0, 40, 85, 0.4);
+  --ink-20: rgba(0, 40, 85, 0.2);
+  --ink-10: rgba(0, 40, 85, 0.1);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--navy);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+}
+
+.screen { flex: 1; display: flex; flex-direction: column; gap: 16px; max-width: 480px; width: 100%; margin: 0 auto; }
+.center { align-items: center; justify-content: center; text-align: center; }
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark { width: 40px; height: 40px; background: var(--navy); display: grid; place-items: center; color: white; font-weight: 900; }
+.brand h1 { margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.03em; text-transform: uppercase; font-style: italic; }
+
+.eyebrow { font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.25em; color: var(--ink-40); margin: 0; }
+.muted { color: var(--ink-40); font-size: 12px; font-weight: 700; }
+
+.card {
+  background: white;
+  border: 3px solid var(--navy);
+  box-shadow: 6px 6px 0 var(--navy);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.card.danger { border-color: var(--red); box-shadow: 6px 6px 0 #7f1d1d; }
+
+label { display: flex; flex-direction: column; gap: 6px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.15em; color: var(--ink-40); }
+input {
+  width: 100%;
+  border: 3px solid var(--navy);
+  background: white;
+  padding: 14px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--navy);
+  box-shadow: 4px 4px 0 var(--navy);
+  outline: none;
+}
+input:focus { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--navy); }
+
+.btn {
+  width: 100%;
+  min-height: 56px;
+  border: 3px solid var(--navy);
+  background: var(--navy);
+  color: white;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  box-shadow: 6px 6px 0 var(--navy);
+  cursor: pointer;
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.btn:active { transform: translate(4px, 4px); box-shadow: 2px 2px 0 var(--navy); }
+.btn:disabled { opacity: 0.4; }
+.btn.gold { background: var(--gold); color: var(--navy); }
+.btn.red { background: var(--red); border-color: #7f1d1d; box-shadow: 6px 6px 0 #7f1d1d; }
+.btn.ghost { background: white; color: var(--navy); box-shadow: none; }
+.btn.small { min-height: 40px; font-size: 11px; box-shadow: 3px 3px 0 var(--navy); }
+
+.chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.chip {
+  border: 3px solid var(--navy);
+  background: white;
+  padding: 14px 0;
+  font: inherit;
+  font-weight: 900;
+  font-size: 18px;
+  color: var(--navy);
+  cursor: pointer;
+}
+.chip.on { background: var(--gold); }
+.chip small { display: block; font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-40); margin-top: 2px; }
+
+.countdown { font-size: 64px; font-weight: 900; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; line-height: 1; margin: 8px 0; }
+.status { display: inline-block; padding: 6px 12px; border: 2px solid var(--navy); font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.2em; }
+.status.live { background: var(--red); border-color: #7f1d1d; color: white; }
+
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.list li { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border: 2px solid var(--ink-10); font-weight: 700; font-size: 14px; }
+.list li .rank { font-weight: 900; color: var(--ink-40); width: 28px; }
+.list li .hours { font-weight: 900; }
+
+.error { padding: 12px; background: #fee2e2; border: 2px solid var(--red); color: var(--red); font-size: 12px; font-weight: 800; }
+
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; padding-top: 8px; }
+.tab { border: 3px solid var(--navy); background: white; padding: 14px; font: inherit; font-weight: 900; font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em; color: var(--navy); }
+.tab.on { background: var(--navy); color: white; }
+
+.spinner { width: 32px; height: 32px; border: 4px solid var(--ink-20); border-top-color: var(--navy); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

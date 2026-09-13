@@ -1,0 +1,16 @@
+{
+  "name": "lock-in",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @lock-in/mobile start --clear",
+    "web": "pnpm --filter @lock-in/web dev",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "pnpm": "^10.33.0",
+    "turbo": "^2.9.5",
+    "typescript": "^5.9.2"
+  }
+}
