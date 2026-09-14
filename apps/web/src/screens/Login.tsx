@@ -18,6 +18,8 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // dotted handle made that multi-path write fail, leaving the account with no
 // profile and no reservation, with nothing surfaced to the user.
 const USERNAME_REGEX = /^[A-Za-z0-9_]+$/;
+// Mirrors the {1,20} bound in the usernames/$name security rule.
+const USERNAME_MAX = 20;
 
 export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
   const [view, setView] = useState<AuthView>("login");
@@ -58,6 +60,14 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
         }
         if (!USERNAME_REGEX.test(username.trim())) {
           setError("Handle can use letters, numbers and underscore only.");
+          setIsLoading(false);
+          return;
+        }
+        // Must match the {1,20} bound in the usernames/$name rule. Without
+        // this the rule rejects the write and U5 reads that refusal as
+        // "handle taken", rolling back a perfectly good registration.
+        if (username.trim().length > USERNAME_MAX) {
+          setError(`Handle must be ${USERNAME_MAX} characters or fewer.`);
           setIsLoading(false);
           return;
         }

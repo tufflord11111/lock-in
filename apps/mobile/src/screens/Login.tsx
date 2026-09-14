@@ -11,6 +11,9 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // usernames/{NAME}, and keys may not contain . # $ [ ] or /, so the charset is
 // deliberately tighter than the desktop's.
 const USERNAME_REGEX = /^[A-Za-z0-9_]+$/;
+// Mirrors the {1,20} bound in the usernames/$name security rule. maxLength on
+// the input is a UI hint only — paste and autofill can exceed it.
+const USERNAME_MAX = 20;
 
 export function Login({ onLogin, onRegister }: Props) {
   // Deep link: the extension's "Create account" link lands on #register.
@@ -49,6 +52,10 @@ export function Login({ onLogin, onRegister }: Props) {
       }
       if (!USERNAME_REGEX.test(username.trim())) {
         setError("Handle can use letters, numbers and underscore only.");
+        return;
+      }
+      if (username.trim().length > USERNAME_MAX) {
+        setError(`Handle must be ${USERNAME_MAX} characters or fewer.`);
         return;
       }
       if (password.length < 6) {

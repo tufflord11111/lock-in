@@ -71,7 +71,12 @@ export function useAuth() {
       }
     }
 
-    const normalizedUsername = username.trim().toUpperCase();
+    // Two forms, deliberately. `displayName` keeps the shouty operator styling
+    // the UI renders. `handleKey` is the canonical identity and the ONLY thing
+    // written to usernames/: the rules reject any key that is not lowercase
+    // [a-z0-9_], matching the client charset validator after normalisation.
+    const displayName = username.trim().toUpperCase();
+    const handleKey = username.trim().toLowerCase();
     let dbWriteSuccess = false;
     let lastWriteError: unknown = null;
 
@@ -81,17 +86,18 @@ export function useAuth() {
 
         const updates: Record<string, unknown> = {};
         updates[`users/${u.uid}/config`] = {
-          userName: normalizedUsername,
+          userName: displayName,
           email: u.email,
           createdAt: new Date().toISOString(),
           emailVerified: false,
           onboardingComplete: false,
           usernameSet: true,
-          username: normalizedUsername,
+          // The reservation key, so the profile records what it actually owns.
+          username: handleKey,
         };
         // public holds ONLY userName — the rules reject any other field.
-        updates[`users/${u.uid}/public`] = { userName: normalizedUsername };
-        updates[`usernames/${normalizedUsername}`] = u.uid;
+        updates[`users/${u.uid}/public`] = { userName: displayName };
+        updates[`usernames/${handleKey}`] = u.uid;
 
         await update(ref(db), updates);
         dbWriteSuccess = true;
@@ -99,8 +105,8 @@ export function useAuth() {
       } catch (err) {
         lastWriteError = err;
         console.warn("[Register] DB write attempt", attempt, "failed:", err);
-        // Deterministic refusal — the handle is taken or the per-account cap
-        // rejected it. Retrying cannot help.
+        // Deterministic refusal — the handle is already claimed by someone.
+        // (There is no per-account handle cap.) Retrying cannot help.
         if (isPermissionDenied(err)) break;
       }
     }
@@ -128,8 +134,8 @@ export function useAuth() {
 
 /**
  * True when a Realtime Database write was refused by the security rules rather
- * than failing transiently. During registration this means the handle is taken
- * or the per-account claim cap rejected it.
+ * than failing transiently. During registration this means the handle is
+ * already claimed by someone.
  */
 function isPermissionDenied(err: unknown): boolean {
   const code = (err as { code?: string })?.code ?? "";

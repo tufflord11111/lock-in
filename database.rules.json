@@ -6,7 +6,7 @@
     "users": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid && newData.child('emergencyUnlock/expiry').val() === data.child('emergencyUnlock/expiry').val()",
+        ".write": "auth != null && auth.uid === $uid && (!newData.exists() || newData.child('emergencyUnlock/expiry').val() === data.child('emergencyUnlock/expiry').val())",
 
         "public": {
           ".read": "auth != null",
@@ -20,9 +20,11 @@
     },
 
     "usernames": {
+      ".read": "auth != null && query.orderByValue && query.equalTo == auth.uid",
+      ".indexOn": ".value",
       "$name": {
         ".read": "auth != null",
-        ".write": "auth != null && newData.val() === auth.uid && (!data.exists() || data.val() === auth.uid)"
+        ".write": "auth != null && ((!newData.exists() && (!data.exists() || data.val() === auth.uid)) || (newData.val() === auth.uid && (!data.exists() || data.val() === auth.uid) && $name.matches(/^[a-z0-9_]{1,20}$/)))"
       }
     },
 

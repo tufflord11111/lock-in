@@ -1,15 +1,23 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { auth, db } from "@lock-in/firebase";
-import { ref, get, update } from "firebase/database";
+import { ref, get, update, query, orderByValue, equalTo } from "firebase/database";
+import type { DataSnapshot } from "firebase/database";
 import { signOut, deleteUser } from "firebase/auth";
+import { guardWrite } from "../writeFailures";
 
 /**
  * F6 — account deletion.
  *
- * Removes everything under users/{uid} and releases the usernames/{NAME}
- * reservation, then signs out (and deletes the auth user when the session is
+ * Removes everything under users/{uid} and releases EVERY usernames/{key} this
+ * account owns, then signs out (and deletes the auth user when the session is
  * recent enough). Two-step confirm so a stray click can't wipe an account.
+ *
+ * The reservation keys are found by reverse-querying the index by value, never
+ * by deriving them from config.username. Those two drifted in production —
+ * different case, dots the index key never had, and accounts holding several
+ * handles — and because this is one atomic multi-path write, a single wrong or
+ * missing key made the ENTIRE delete fail, leaving the account fully intact.
  */
 export function DeleteAccountButton({ userId }: { userId: string }) {
   const [confirming, setConfirming] = useState(false);
@@ -20,19 +28,32 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
     setBusy(true);
     setError(null);
     try {
-      // Find the username reservation to release. It is stored uppercased.
-      let name: string | null = null;
-      const top = await get(ref(db, `users/${userId}/username`));
-      if (typeof top.val() === "string") name = top.val();
-      if (!name) {
-        const cfg = await get(ref(db, `users/${userId}/config/username`));
-        if (typeof cfg.val() === "string") name = cfg.val();
-      }
+      // Every handle this account owns, straight from the index. The rules
+      // permit exactly this query shape (orderByValue + equalTo own uid).
+      const owned = await get(
+        query(ref(db, "usernames"), orderByValue(), equalTo(userId))
+      );
 
-      // One multi-path write removes the whole subtree and the reservation.
+      // One multi-path write removes the whole subtree and every reservation.
       const updates: Record<string, null> = { [`users/${userId}`]: null };
-      if (name) updates[`usernames/${name.toUpperCase()}`] = null;
-      await update(ref(db), updates);
+      owned.forEach((entry: DataSnapshot) => {
+        if (entry.key) updates[`usernames/${entry.key}`] = null;
+      });
+
+      // Must stay atomic: the subtree and the reservations go together or
+      // nothing goes. `.then(() => true)` gives guardWrite a truthy success
+      // value to report, since update() itself resolves undefined.
+      const wrote = await guardWrite(
+        update(ref(db), updates).then(() => true as const),
+        "Couldn't delete your account. Nothing was removed — your data and handle are both still there. Check your connection and try again."
+      );
+
+      // Do NOT delete the auth user if the data write failed: that would
+      // orphan the subtree with no signed-in account left to retry from.
+      if (!wrote) {
+        setBusy(false);
+        return;
+      }
 
       // Best-effort auth-user deletion; falls back to sign-out if Firebase
       // requires a recent login. Either way the app returns to Login.

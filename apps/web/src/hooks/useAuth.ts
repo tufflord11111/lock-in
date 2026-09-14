@@ -15,8 +15,8 @@ import { ref, update, get, child } from "firebase/database";
 /**
  * True when a Realtime Database write was refused by the security rules, as
  * opposed to failing transiently. For registration this means the handle is
- * taken or the per-account claim cap rejected it — deterministic, so there is
- * no point retrying and the operator must be told.
+ * already claimed — deterministic, so there is no point retrying and the
+ * operator must be told.
  */
 function isPermissionDenied(err: unknown): boolean {
   const code = (err as { code?: string })?.code ?? "";
@@ -176,7 +176,14 @@ export function useAuth() {
     console.log('[Register] Token refreshed:', tokenRefreshed);
 
     // Step 4: Write to database with retry
-    const normalizedUsername = username.trim().toUpperCase();
+    // Two forms, deliberately. `displayName` keeps the shouty operator styling
+    // the UI renders. `handleKey` is the canonical identity and the ONLY thing
+    // written to usernames/: the rules reject any key that is not lowercase
+    // [a-z0-9_], matching the client charset validator after normalisation.
+    // Writing the display form as the key is what produced the live index
+    // drift (XIAOHONGLOVER next to lowercase handles), so never reuse it here.
+    const displayName = username.trim().toUpperCase();
+    const handleKey = username.trim().toLowerCase();
     let dbWriteSuccess = false;
     
     let lastWriteError: unknown = null;
@@ -187,18 +194,19 @@ export function useAuth() {
 
         const updates: Record<string, any> = {};
         updates[`users/${u.uid}/config`] = {
-          userName: normalizedUsername,
+          userName: displayName,
           email: u.email,
           createdAt: new Date().toISOString(),
           emailVerified: false,
           onboardingComplete: false,
           usernameSet: true,
-          username: normalizedUsername,
+          // The reservation key, so the profile records what it actually owns.
+          username: handleKey,
         };
         // Friend-visible name. public holds ONLY this field — the rules
         // reject anything else under it.
-        updates[`users/${u.uid}/public`] = { userName: normalizedUsername };
-        updates[`usernames/${normalizedUsername}`] = u.uid;
+        updates[`users/${u.uid}/public`] = { userName: displayName };
+        updates[`usernames/${handleKey}`] = u.uid;
         
         await update(ref(db), updates);
         dbWriteSuccess = true;
@@ -207,8 +215,9 @@ export function useAuth() {
       } catch (err) {
         lastWriteError = err;
         console.warn('[Register] DB write attempt', attempt, 'failed:', err);
-        // A permission denial is deterministic: the handle is already claimed,
-        // or the one-handle-per-account cap rejected it. Retrying cannot help.
+        // A permission denial is deterministic: the handle is already claimed
+        // by someone. (There is no per-account handle cap — the rules cannot
+        // express one without a full index read.) Retrying cannot help.
         if (isPermissionDenied(err)) break;
         if (attempt === 3) {
           console.error('[Register] All DB write attempts failed');
