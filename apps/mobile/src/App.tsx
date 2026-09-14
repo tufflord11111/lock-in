@@ -3,6 +3,7 @@ import { useAuth } from "./hooks/useAuth";
 import { Login } from "./screens/Login";
 import { Session } from "./screens/Session";
 import { Pack } from "./screens/Pack";
+import { WriteFailureToasts } from "./components/WriteFailureToasts";
 
 type Tab = "session" | "pack";
 
@@ -34,6 +35,8 @@ export function App() {
       </div>
 
       {tab === "session" ? <Session uid={user.uid} /> : <Pack />}
+
+      <WriteFailureToasts />
 
       <nav className="tabs">
         <button className={`tab ${tab === "session" ? "on" : ""}`} onClick={() => setTab("session")}>

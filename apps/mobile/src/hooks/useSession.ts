@@ -3,6 +3,7 @@ import { db } from "@lock-in/firebase";
 import { ref, onValue, update, push, increment, serverTimestamp } from "firebase/database";
 import { getDeviceId } from "../deviceId";
 import { WEB_BLOCKLIST } from "../constants";
+import { guardWrite } from "../writeFailures";
 
 /** Exactly the node shape the desktop writes and its cross-device mirror reads. */
 export type SessionState = {
@@ -107,16 +108,23 @@ export function useSession(uid: string) {
           [`users/${uid}/config/focusActive`]: false,
         });
 
-        // History is fire-and-forget, matching the desktop.
-        push(ref(db, `users/${uid}/sessionHistory`), {
-          objective,
-          minutes,
-          timestamp: serverTimestamp(),
-          status: completed ? "completed" : "aborted",
-        }).catch(() => {});
+        // History is fire-and-forget, matching the desktop — but a failure is
+        // now surfaced instead of being discarded by a bare catch.
+        guardWrite(
+          push(ref(db, `users/${uid}/sessionHistory`), {
+            objective,
+            minutes,
+            timestamp: serverTimestamp(),
+            status: completed ? "completed" : "aborted",
+          }),
+          "Your session wasn't added to your history. Check your connection."
+        );
         if (minutes > 0) {
           const today = new Date().toLocaleDateString("en-CA");
-          update(ref(db, `users/${uid}/history`), { [today]: increment(minutes) }).catch(() => {});
+          guardWrite(
+            update(ref(db, `users/${uid}/history`), { [today]: increment(minutes) }),
+            "Your session minutes didn't save, so your streak won't count this session. Check your connection."
+          );
         }
       } finally {
         endingRef.current = false;

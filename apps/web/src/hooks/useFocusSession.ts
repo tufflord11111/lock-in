@@ -3,6 +3,7 @@ import { ref, update, push, serverTimestamp, set, increment, onValue, get } from
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getDeviceId } from "../deviceId";
+import { guardWrite, reportWriteFailure } from "../writeFailures";
 import type { EnforcerState } from "../components/EnforcerDisarmPanel";
 import {
   useCallback,
@@ -207,33 +208,44 @@ export function useFocusSession(
       // These complete in background — UI is already unfrozen
       const sessionStateRef = ref(db, `users/${userId}/sessionState`);
       // originDeviceId lets the cross-device mirror skip this write's echo.
-      set(sessionStateRef, { isActive: false, originDeviceId: deviceId })
-        .catch(err => console.error('[SESSION] sessionState write failed:', err));
+      guardWrite(
+        set(sessionStateRef, { isActive: false, originDeviceId: deviceId }),
+        "Couldn't save the end of your session. Other devices may still show it running. Check your connection."
+      );
 
       const configRef = ref(db, `users/${userId}/config`);
-      update(configRef, { focusActive: false })
-        .catch(err => console.error('[SESSION] config write failed:', err));
+      guardWrite(
+        update(configRef, { focusActive: false }),
+        "Couldn't clear your session flag. Your browser extension may keep blocking sites. Check your connection."
+      );
 
       // STEP 7: Log session history in background (only if time was spent)
       if (minutesToLog > 0) {
         setTotalMinutesFocused((prev) => prev + minutesToLog);
 
         const historyRef = ref(db, `users/${userId}/sessionHistory`);
-        push(historyRef, {
-          objective: taskLabel,
-          minutes: minutesToLog,
-          timestamp: serverTimestamp(),
-          status: success ? "completed" : "aborted"
-        }).catch(err => console.error('[SESSION] history write failed:', err));
+        guardWrite(
+          push(historyRef, {
+            objective: taskLabel,
+            minutes: minutesToLog,
+            timestamp: serverTimestamp(),
+            status: success ? "completed" : "aborted"
+          }),
+          "Your session wasn't added to your history. Check your connection."
+        );
 
         try {
           const today = new Date().toLocaleDateString('en-CA');
           const dailyHistoryRef = ref(db, `users/${userId}/history`);
-          update(dailyHistoryRef, {
-            [today]: increment(minutesToLog)
-          }).catch(err => console.error('[SESSION] daily history failed:', err));
+          guardWrite(
+            update(dailyHistoryRef, { [today]: increment(minutesToLog) }),
+            "Your session minutes didn't save, so your streak won't count this session. Check your connection."
+          );
         } catch (err) {
-          console.error("[useFocusSession] Failed to increment daily history:", err);
+          reportWriteFailure(
+            "Your session minutes didn't save, so your streak won't count this session.",
+            err
+          );
         }
       }
 

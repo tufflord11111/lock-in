@@ -22,6 +22,8 @@ import { ThePack } from "./screens/ThePack";
 import { useAuth } from "./hooks/useAuth";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
+import { guardWrite } from "./writeFailures";
+import { WriteFailureToasts } from "./components/WriteFailureToasts";
 import { Login } from "./screens/Login";
 
 type ConnectionGateProps = {
@@ -230,10 +232,13 @@ export function App() {
   // can never drift. public holds ONLY this field; the rules reject any other.
   useEffect(() => {
     if (userName && user?.uid) {
-      update(ref(db), {
-        [`users/${user.uid}/config/userName`]: userName,
-        [`users/${user.uid}/public/userName`]: userName,
-      }).catch((err: any) => console.error("Sync name failed", err));
+      guardWrite(
+        update(ref(db), {
+          [`users/${user.uid}/config/userName`]: userName,
+          [`users/${user.uid}/public/userName`]: userName,
+        }),
+        "Couldn't save your operator handle. Friends may still see your old name."
+      );
     }
   }, [userName, user?.uid]);
 
@@ -532,6 +537,7 @@ export function App() {
       </AnimatePresence>
 
       <KillFeed />
+      <WriteFailureToasts />
 
       {/* GLOBAL HEADER */}
       <header className="shrink-0 px-10 py-8 border-b border-royal-blue/5 bg-white/50 backdrop-blur-2xl z-20">

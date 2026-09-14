@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{Manager, State, Emitter};
 use tauri_plugin_autostart::ManagerExt;
 use serde::{Serialize, Deserialize};
+use sysinfo::{ProcessRefreshKind, System};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread;
 use std::path::PathBuf;
@@ -230,21 +231,39 @@ fn classify_block_entry(raw: String) -> BlockEntryVerdict {
     }
 }
 
-/// Build the kill command for one term.
+/// Kill every running process whose name contains `term`, in-process.
 ///
-/// The protected list is re-applied inside PowerShell as well as at the entry
-/// boundary, so even a term that passed validation cannot take down a critical
-/// process through an unforeseen wildcard match.
-fn build_kill_script(safe_name: &str, protected: &[String]) -> String {
-    let list = protected
-        .iter()
-        .map(|p| format!("'{}'", p))
-        .collect::<Vec<_>>()
-        .join(",");
-    format!(
-        "$protected = @({}); Get-Process | Where-Object {{ $_.Name -like '*{}*' -and $protected -notcontains $_.Name.ToLower() }} | Stop-Process -Force -ErrorAction SilentlyContinue",
-        list, safe_name
-    )
+/// Replaces the old PowerShell `Get-Process | Where-Object { $_.Name -like
+/// '*term*' } | Stop-Process -Force` spawn. Semantics are preserved exactly:
+///
+///   * substring match on the process name, the `*term*` wildcard;
+///   * case-insensitive, as PowerShell's `-like` was. sysinfo's own
+///     `processes_by_name` is case-SENSITIVE `contains`, so it is deliberately
+///     not used — it would silently stop matching `Spotify.exe`;
+///   * matched against the name without its `.exe` suffix, which is what
+///     PowerShell's `$_.Name` exposed;
+///   * the protected list is re-applied here by exact name, mirroring the old
+///     `$protected -notcontains $_.Name.ToLower()` clause, so this stays a
+///     second boundary behind sanitize_block_entry rather than replacing it.
+///
+/// Caller must refresh `sys` first. Returns the names actually terminated.
+fn kill_processes_matching(sys: &System, term: &str, protected: &[String]) -> Vec<String> {
+    let mut killed = Vec::new();
+    for process in sys.processes().values() {
+        let lowered = process.name().to_lowercase();
+        let stem = lowered.strip_suffix(".exe").unwrap_or(&lowered);
+        if !stem.contains(term) {
+            continue;
+        }
+        if protected.iter().any(|p| p == stem) {
+            println!("[Guard] skipped protected process '{}'", stem);
+            continue;
+        }
+        if process.kill() {
+            killed.push(stem.to_string());
+        }
+    }
+    killed
 }
 
 struct AppState {
@@ -1142,6 +1161,9 @@ pub fn run() {
             // trees — handles multi-process Electron apps like Discord.
             thread::spawn(move || {
                 println!("[Enforcer] Background thread STARTED");
+                // One long-lived process table, refreshed in place only on ticks
+                // that actually have something to kill (S3).
+                let mut sys = System::new();
                 loop {
                     println!("[Enforcer] Tick...");
                     thread::sleep(std::time::Duration::from_secs(2));
@@ -1185,8 +1207,8 @@ pub fn run() {
 
                     let enforcer_active = is_locked || focus_active;
 
-                    // Protected-process list, rebuilt per tick so the PowerShell
-                    // exclusion clause below always carries the current binary name.
+                    // Protected-process list, rebuilt per tick so the kill pass
+                    // below always carries the current binary name.
                     let protected = protected_process_names();
 
                     // NOTE: is_locked is currently UNREACHABLE — permanently false.
@@ -1215,58 +1237,38 @@ pub fn run() {
                         }
                     }
 
-                    // Always kill permanent exe blocks regardless of session state
+                    // ── Kill pass ──────────────────────────────────────────
+                    // Permanent blocks always apply; session targets only while
+                    // the enforcer is armed. Both are re-validated here as well
+                    // as at the IPC boundary, because a state file written by an
+                    // older build could hold terms that predate the guards.
+                    let mut terms: Vec<String> = Vec::new();
                     for blocked in &permanent_exe_list {
-                        // Re-validated here as well as at the IPC boundary — a
-                        // state file written by an older build could hold terms
-                        // that predate the guards.
-                        let safe_name = match sanitize_block_entry(blocked) {
-                            Some(s) => s,
-                            None => continue,
-                        };
-                        let ps_script = build_kill_script(&safe_name, &protected);
-                        let _ = std::process::Command::new("powershell")
-                            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_script])
-                            .creation_flags(0x08000000)
-                            .output();
-                        println!("[Permanent] Kill attempt for '*{}*'", safe_name);
+                        if let Some(t) = sanitize_block_entry(blocked) {
+                            terms.push(t);
+                        }
                     }
-
-                    // Taskkill each blocked app (entire process tree)
                     if enforcer_active {
                         for blocked in &exe_list {
-                            // Length + protected-process validation, same as the
-                            // IPC boundary. Rejections are logged by the helper.
-                            let safe_name = match sanitize_block_entry(blocked) {
-                                Some(s) => s,
-                                None => continue,
-                            };
-                            let clean_name = safe_name.clone();
+                            if let Some(t) = sanitize_block_entry(blocked) {
+                                terms.push(t);
+                            }
+                        }
+                    }
+                    terms.sort();
+                    terms.dedup();
 
-                            let ps_script = build_kill_script(&safe_name, &protected);
-
-                            let output = std::process::Command::new("powershell")
-                                .args([
-                                    "-NoProfile",
-                                    "-NonInteractive", 
-                                    "-WindowStyle", "Hidden",
-                                    "-Command", 
-                                    &ps_script
-                                ])
-                                .creation_flags(0x08000000)
-                                .output();
-
-                            println!("[Enforcer] PowerShell kill attempt for pattern '*{}*'", clean_name);
-
-                            match &output {
-                                Ok(out) => println!(
-                                    "[Enforcer] Result for {}: status={}", 
-                                    clean_name, out.status
-                                ),
-                                Err(e) => println!(
-                                    "[Enforcer] Error for {}: {}", 
-                                    clean_name, e
-                                ),
+                    if !terms.is_empty() {
+                        // One cheap refresh per tick, not one process spawn per
+                        // term. ProcessRefreshKind::new() collects names and pids
+                        // only — no CPU, memory, disk or user lookups.
+                        sys.refresh_processes_specifics(ProcessRefreshKind::new());
+                        for term in &terms {
+                            let killed = kill_processes_matching(&sys, term, &protected);
+                            if killed.is_empty() {
+                                println!("[Enforcer] no match for '*{}*'", term);
+                            } else {
+                                println!("[Enforcer] 💀 terminated {:?} for '*{}*'", killed, term);
                             }
                         }
                     }

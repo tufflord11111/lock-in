@@ -7,9 +7,26 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail as firebaseSendPasswordResetEmail,
   signOut,
+  deleteUser,
 } from "firebase/auth";
 import type { User } from "firebase/auth";
 import { ref, update, get, child } from "firebase/database";
+
+/**
+ * True when a Realtime Database write was refused by the security rules, as
+ * opposed to failing transiently. For registration this means the handle is
+ * taken or the per-account claim cap rejected it — deterministic, so there is
+ * no point retrying and the operator must be told.
+ */
+function isPermissionDenied(err: unknown): boolean {
+  const code = (err as { code?: string })?.code ?? "";
+  const message = (err as { message?: string })?.message ?? "";
+  return (
+    code === "PERMISSION_DENIED" ||
+    /permission[_ ]denied/i.test(code) ||
+    /permission[_ ]denied/i.test(message)
+  );
+}
 
 /** Translates Firebase error codes into operator-friendly messages */
 export function parseAuthError(err: any): string {
@@ -162,10 +179,12 @@ export function useAuth() {
     const normalizedUsername = username.trim().toUpperCase();
     let dbWriteSuccess = false;
     
+    let lastWriteError: unknown = null;
+
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         await new Promise(r => setTimeout(r, attempt * 500));
-        
+
         const updates: Record<string, any> = {};
         updates[`users/${u.uid}/config`] = {
           userName: normalizedUsername,
@@ -186,17 +205,33 @@ export function useAuth() {
         console.log('[Register] DB write success on attempt', attempt);
         break;
       } catch (err) {
+        lastWriteError = err;
         console.warn('[Register] DB write attempt', attempt, 'failed:', err);
+        // A permission denial is deterministic: the handle is already claimed,
+        // or the one-handle-per-account cap rejected it. Retrying cannot help.
+        if (isPermissionDenied(err)) break;
         if (attempt === 3) {
           console.error('[Register] All DB write attempts failed');
         }
       }
     }
 
-    // Step 5: Even if DB write failed, sign the user in
-    // The onAuthStateChanged will handle profile creation on next login
     if (!dbWriteSuccess) {
-      console.warn('[Register] Proceeding without DB profile');
+      if (isPermissionDenied(lastWriteError)) {
+        // Do not strand a signed-in account with no profile and no handle.
+        // Roll the auth user back so the operator can pick another handle.
+        try {
+          await deleteUser(u);
+        } catch (rollbackErr) {
+          console.error('[Register] Rollback of auth user failed:', rollbackErr);
+        }
+        const taken = new Error('Operator handle unavailable') as Error & { code?: string };
+        taken.code = 'auth/username-taken';
+        throw taken;
+      }
+      // Transient failure (network). The account exists; onAuthStateChanged
+      // backfills a profile on next sign-in.
+      console.warn('[Register] Proceeding without DB profile (transient write failure)');
     }
 
     // Flag as new so App.tsx shows the WelcomeSequence after verification
@@ -218,6 +253,11 @@ export function useAuth() {
     if (verified) {
       // Patch the DB flag so other parts of the system can trust it
       const configRef = ref(db, `users/${auth.currentUser.uid}/config`);
+      // KNOWN AND ACCEPTED DRIFT: this mirrors the auth record's verified flag
+      // into the profile for other surfaces to read. If it fails, the database
+      // flag stays false while Firebase Auth says verified. Nothing gates on
+      // the database copy — the app reads emailVerified from the auth user —
+      // so the drift is cosmetic and deliberately not surfaced to the user.
       await update(configRef, { emailVerified: true }).catch(() => {});
     }
 

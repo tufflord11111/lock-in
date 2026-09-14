@@ -6,6 +6,7 @@ import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
   signOut,
+  deleteUser,
 } from "firebase/auth";
 import type { User } from "firebase/auth";
 import { ref, update } from "firebase/database";
@@ -72,6 +73,7 @@ export function useAuth() {
 
     const normalizedUsername = username.trim().toUpperCase();
     let dbWriteSuccess = false;
+    let lastWriteError: unknown = null;
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -95,12 +97,28 @@ export function useAuth() {
         dbWriteSuccess = true;
         break;
       } catch (err) {
+        lastWriteError = err;
         console.warn("[Register] DB write attempt", attempt, "failed:", err);
+        // Deterministic refusal — the handle is taken or the per-account cap
+        // rejected it. Retrying cannot help.
+        if (isPermissionDenied(err)) break;
       }
     }
 
     if (!dbWriteSuccess) {
-      console.warn("[Register] Proceeding without DB profile");
+      if (isPermissionDenied(lastWriteError)) {
+        // Roll the auth user back rather than stranding a signed-in account
+        // with no profile and no handle.
+        try {
+          await deleteUser(u);
+        } catch (rollbackErr) {
+          console.error("[Register] Rollback of auth user failed:", rollbackErr);
+        }
+        const taken = new Error("Operator handle unavailable") as Error & { code?: string };
+        taken.code = "auth/username-taken";
+        throw taken;
+      }
+      console.warn("[Register] Proceeding without DB profile (transient write failure)");
     }
     return u;
   };
@@ -108,9 +126,26 @@ export function useAuth() {
   return { user, loading, login, logout, register };
 }
 
+/**
+ * True when a Realtime Database write was refused by the security rules rather
+ * than failing transiently. During registration this means the handle is taken
+ * or the per-account claim cap rejected it.
+ */
+function isPermissionDenied(err: unknown): boolean {
+  const code = (err as { code?: string })?.code ?? "";
+  const message = (err as { message?: string })?.message ?? "";
+  return (
+    code === "PERMISSION_DENIED" ||
+    /permission[_ ]denied/i.test(code) ||
+    /permission[_ ]denied/i.test(message)
+  );
+}
+
 /** Same operator-facing messages as the desktop's parseAuthError. */
 export function parseAuthError(err: unknown): string {
   const code = (err as { code?: string })?.code ?? "";
+  if (code === "auth/username-taken")
+    return "That operator handle is taken. Choose another.";
   if (code === "auth/invalid-credential" || code === "auth/wrong-password")
     return "Incorrect password. Try again.";
   if (code === "auth/user-not-found") return "No account found for that email.";
