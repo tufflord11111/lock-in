@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, update, set, forceWebSockets } from "firebase/database";
-import { getAuth, onAuthStateChanged } from "firebase/auth/web-extension";
+import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extension";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -46,19 +46,28 @@ let isLocked = false;
 let activeDynamicBlacklist = [...STATIC_BLACKLIST];
 let permanentBlocklist = [];
 let userUnsub = null;
-let signalUnsub = null;
 let heartbeatInterval = null;
+// True only once a server snapshot has shown users/{uid}/config. Nothing is
+// written under the user's node until then: a heartbeat sent before that
+// check recreated users/{uid} after Delete Account removed it.
+let profileConfirmed = false;
+let checkingProfile = false;
+
+// Auth errors that mean the account itself is gone or unusable, as opposed to
+// a transient failure (offline, rate-limited) that must NOT sign anyone out.
+const ACCOUNT_GONE_CODES = new Set([
+  "auth/user-not-found",
+  "auth/user-disabled",
+  "auth/user-token-expired",
+  "auth/invalid-user-token",
+]);
 
 // ─── Session Management ───────────────────────────────────────────────────────
 function startLockInSession(uid) {
   if (activeUid === uid) return;
-  
+
   stopLockInSession();
   activeUid = uid;
-
-  // Start Heartbeat
-  pulseHeartbeat();
-  heartbeatInterval = setInterval(pulseHeartbeat, 30000);
 
   // 1. Firebase Listener: users/{id} (full lock state + session blocklist)
   //    global_session/state was a single node shared by every user — the last
@@ -68,7 +77,20 @@ function startLockInSession(uid) {
   const userRef = ref(db, `users/${activeUid}`);
   userUnsub = onValue(userRef, (snapshot) => {
     const data = snapshot.val();
-    if (!data) return;
+
+    // No profile: the account was deleted, or it was never provisioned.
+    // Find out which before doing anything, and write nothing meanwhile.
+    if (!data?.config) {
+      handleMissingProfile(uid);
+      return;
+    }
+
+    // Profile confirmed by the server — only now start writing heartbeats.
+    if (!profileConfirmed) {
+      profileConfirmed = true;
+      pulseHeartbeat();
+      heartbeatInterval = setInterval(pulseHeartbeat, 30000);
+    }
 
     const thresholdLimit = data.config?.thresholdLimit || 360;
     const devices = data.devices || {};
@@ -125,26 +147,52 @@ function startLockInSession(uid) {
     console.log("[Blocker] Full active list:", activeDynamicBlacklist);
     updateBadge();
   });
+}
 
-  // 2. Signal Listener: users/{uid}/signals/refreshTabs
-  const signalRef = ref(db, `users/${activeUid}/signals/refreshTabs`);
-  signalUnsub = onValue(signalRef, async (snapshot) => {
-    if (snapshot.val()) {
-      console.log('[Tabs] Refresh signal received');
-      await syncOpenTabs(activeUid);
+// Called when users/{uid} has no config. Distinguishes a deleted account from
+// one that simply has no profile yet by forcing a token refresh: Firebase does
+// not push server-side deletions to signed-in clients, so without this the
+// extension stays signed in until its ID token lapses (up to an hour).
+async function handleMissingProfile(uid) {
+  if (checkingProfile) return;
+  checkingProfile = true;
+  try {
+    // Stop writing immediately either way.
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+    profileConfirmed = false;
+
+    const user = auth.currentUser;
+    if (!user || user.uid !== uid || activeUid !== uid) return;
+
+    try {
+      await user.getIdToken(true);
+    } catch (err) {
+      if (ACCOUNT_GONE_CODES.has(err?.code)) {
+        console.warn("[Lock-In] Account no longer exists — signing out:", err.code);
+        stopLockInSession();
+        await signOut(auth).catch(() => {});
+      } else {
+        console.warn("[Lock-In] Profile missing; token check inconclusive:", err?.code ?? err);
+      }
+      return;
     }
-  });
+    // Token refreshed: the account exists but has no profile. Stay signed in,
+    // write nothing; the listener starts heartbeats once config appears.
+    console.log("[Lock-In] Signed in, but no profile yet — holding writes.");
+  } finally {
+    checkingProfile = false;
+  }
 }
 
 function stopLockInSession() {
   console.log("[Lock-In] Securing vault. Session stopped.");
   if (userUnsub) userUnsub();
-  if (signalUnsub) signalUnsub();
   if (heartbeatInterval) clearInterval(heartbeatInterval);
-  
+
   userUnsub = null;
-  signalUnsub = null;
   heartbeatInterval = null;
+  profileConfirmed = false;
   activeUid = null;
   isLocked = false;
   activeDynamicBlacklist = [...STATIC_BLACKLIST];
@@ -154,7 +202,7 @@ function stopLockInSession() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function pulseHeartbeat() {
-  if (!activeUid) return;
+  if (!activeUid || !profileConfirmed) return;
   const extensionStateRef = ref(db, `users/${activeUid}/extension_state`);
   update(extensionStateRef, {
     last_seen: Date.now(),
@@ -163,14 +211,9 @@ function pulseHeartbeat() {
   }).catch(err => console.error("[Heartbeat Error]:", err));
 }
 
-// DISABLED (F5). This used to enumerate every open tab's domain and write the
-// list to users/{uid}/openTabs in Firebase — the user's live browsing surface,
-// readable by anything with the account. It is no longer collected or sent.
-// The "block open tabs" picker in the desktop app is therefore empty; blocking
-// a site is done by typing the domain, which needs no browsing-history upload.
-async function syncOpenTabs(_uid) {
-  return;
-}
+// Open-tab upload (F5) has been removed entirely: nothing enumerates tabs or
+// writes users/{uid}/openTabs, the desktop no longer asks for it, and the
+// rules reject any openTabs write from older builds.
 
 function getBlockUrl() {
   return chrome.runtime.getURL("block.html");
@@ -248,10 +291,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     // in the rules and would return permission_denied.
     const pingRef = ref(db, `users/${activeUid}/extension_state`);
     onValue(pingRef, () => {}, { onlyOnce: true });
-    
-    const heartbeatRef = ref(db, `users/${activeUid}/extension_state/last_seen`);
-    set(heartbeatRef, Date.now()).catch(() => {});
-    syncOpenTabs(activeUid);
+
+    // Write only once the profile is confirmed, same gate as pulseHeartbeat.
+    if (profileConfirmed) {
+      const heartbeatRef = ref(db, `users/${activeUid}/extension_state/last_seen`);
+      set(heartbeatRef, Date.now()).catch(() => {});
+    }
     console.log("[Lock-In] Keep-alive ping for:", activeUid);
   }
 });
