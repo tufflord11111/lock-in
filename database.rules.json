@@ -15,6 +15,11 @@
         },
         "presence": {
           ".read": "auth != null"
+        },
+        "openTabs": { ".validate": false, "$k": { ".validate": false } },
+        "extension_state": {
+          ".validate": "newData.parent().child('config').exists()",
+          "$k": { ".validate": "newData.parent().parent().child('config').exists()" }
         }
       }
     },
