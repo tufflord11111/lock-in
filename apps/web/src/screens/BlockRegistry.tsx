@@ -65,12 +65,9 @@ export function BlockRegistry({
   const [now, setNow] = useState(Date.now());
 
   // Web Blocker Registry state
-  const [openTabs, setOpenTabs] = useState<Record<string, { domain: string; title: string; favIconUrl: string }>>({});
   const [customWebBlocks, setCustomWebBlocks] = useState<Record<string, boolean>>({});
   const [removedDefaults, setRemovedDefaults] = useState<string[]>([]);
   const [newWebDomain, setNewWebDomain] = useState('');
-  const [showAllTabs, setShowAllTabs] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 10000);
@@ -122,17 +119,14 @@ export function BlockRegistry({
 
   const webGuardStatus = extensionLastSeen !== null && (now - extensionLastSeen) < 300000;
 
-  // Web Blocker Registry — Firebase reads
+  // Web Blocker Registry — Firebase reads. The open-tabs scanner that used to
+  // subscribe to users/{uid}/openTabs is gone: tab lists are no longer uploaded
+  // (F5) and the rules now reject openTabs writes outright.
   useEffect(() => {
     if (!userId) return;
-    const u1 = onValue(ref(db, `users/${userId}/openTabs`), s => {
-      const data = s.val();
-      console.log('[OpenTabs] received:', data);
-      setOpenTabs(data || {});
-    });
     const u2 = onValue(ref(db, `users/${userId}/customBlocks`), s => setCustomWebBlocks(s.val() || {}));
     const u3 = onValue(ref(db, `users/${userId}/removedDefaults`), s => setRemovedDefaults(s.val() || []));
-    return () => { u1(); u2(); u3(); };
+    return () => { u2(); u3(); };
   }, [userId]);
 
   // ── Add-entry gate ────────────────────────────────────────────────────────
@@ -256,35 +250,7 @@ export function BlockRegistry({
   };
 
   // Web Blocker helpers
-  const uniqueOpenDomains = [...new Set(
-    Object.values(openTabs).map((t: any) => t.domain).filter(Boolean)
-  )];
-  const visibleTabs = showAllTabs ? uniqueOpenDomains : uniqueOpenDomains.slice(0, 5);
   const visibleDefaultDomains = DEFAULT_WEB_BLOCKS.filter(d => !removedDefaults.includes(d));
-  const isWebDomainBlocked = (domain: string) =>
-    Object.keys(customWebBlocks).includes(domain.replace(/\./g, '_')) ||
-    (DEFAULT_WEB_BLOCKS.includes(domain) && !removedDefaults.includes(domain));
-
-  const handleBlockTab = async (domain: string) => {
-    if (!userId) {
-      console.warn('[Block] No userId — cannot block');
-      return;
-    }
-    if (!domain) {
-      console.warn('[Block] No domain provided');
-      return;
-    }
-    
-    
-    try {
-      const safeKey = domain.replace(/\./g, '_');
-      const blockRef = ref(db, `users/${userId}/customBlocks/${safeKey}`);
-      await set(blockRef, domain);
-      console.log('[Block] Successfully blocked:', domain);
-    } catch (err) {
-      console.error('[Block] Failed to block:', domain, err);
-    }
-  };
 
   const removeDefaultBlock = async (domain: string) => {
     await set(ref(db, `users/${userId}/removedDefaults`), [...removedDefaults, domain]);
@@ -305,24 +271,6 @@ export function BlockRegistry({
     const safeKey = domain.replace(/\./g, '_');
     await set(ref(db, `users/${userId}/customBlocks/${safeKey}`), domain);
     setNewWebDomain('');
-  };
-
-  const handleRefreshTabs = async () => {
-    if (!userId || isRefreshing) {
-      if (!userId) console.warn('[Refresh] No userId available');
-      return;
-    }
-    console.log('[Refresh] Sending refresh signal...');
-    setIsRefreshing(true);
-    try {
-      const refreshRef = ref(db, `users/${userId}/signals/refreshTabs`);
-      await set(refreshRef, Date.now());
-      console.log('[Refresh] Signal sent successfully');
-    } catch (err) {
-      console.error('[Refresh] Failed:', err);
-    } finally {
-      setTimeout(() => setIsRefreshing(false), 3000);
-    }
   };
 
   const handleToggleAutostart = async () => {
@@ -516,42 +464,7 @@ export function BlockRegistry({
             <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#1B2A4A]/60">Web Blocker Registry</h2>
           </div>
 
-          {/* A: LIVE TAB SCANNER */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[9px] font-black uppercase tracking-widest text-[#1B2A4A]/50">OPEN TABS</span>
-              <button 
-                onClick={handleRefreshTabs}
-                disabled={isRefreshing}
-                className={`transition-all duration-500 ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'hover:rotate-180'}`}
-              >
-                <RefreshCcw size={12} className={`text-[#1B2A4A]/30 ${isRefreshing ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-            {uniqueOpenDomains.length === 0 ? (
-              <div className="text-[9px] font-black uppercase tracking-wider text-[#1B2A4A]/30 py-3 text-center border border-dashed border-[#1B2A4A]/20 rounded-xl">NO TABS DETECTED — OPEN CHROME</div>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {visibleTabs.map(domain => (
-                  <div key={domain} className="flex items-center justify-between px-3 py-2 bg-white border border-[#1B2A4A]/20 rounded-xl">
-                    <span className="text-[10px] font-bold text-[#1B2A4A] font-mono truncate max-w-[160px]">{domain}</span>
-                    {isWebDomainBlocked(domain) ? (
-                      <span className="text-[8px] font-black uppercase bg-[#F5C842] text-[#1B2A4A] px-2 py-0.5 rounded-full border border-[#1B2A4A]">BLOCKED</span>
-                    ) : (
-                      <button onClick={() => handleBlockTab(domain)} className="text-[8px] font-black uppercase bg-[#1B2A4A] text-white px-2 py-0.5 rounded-full hover:bg-[#002855] transition-colors">+ BLOCK</button>
-                    )}
-                  </div>
-                ))}
-                {uniqueOpenDomains.length > 5 && (
-                  <button onClick={() => setShowAllTabs(v => !v)} className="text-[9px] font-black uppercase tracking-widest text-[#1B2A4A]/40 hover:text-[#1B2A4A] text-center mt-1 transition-colors">
-                    {showAllTabs ? 'SHOW LESS' : `SEE MORE (${uniqueOpenDomains.length - 5})`}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* B: BLOCKED SITES REGISTRY */}
+          {/* BLOCKED SITES REGISTRY */}
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[9px] font-black uppercase tracking-widest text-[#1B2A4A]/50">BLOCKED SITES</span>
