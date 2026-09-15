@@ -9,3 +9,4 @@
 - Delete Account now removes every handle an account owns and works even while an emergency unlock is active; previously it could silently delete nothing at all.
 - Handles are stored in one canonical lowercase form, so the same name can no longer be claimed twice with different capitalisation.
 - Handles are capped at 20 characters, checked before anything is saved rather than rejected afterwards.
+- Sign-in and registration screens now scroll on small windows; the register button was unreachable at the default window size.

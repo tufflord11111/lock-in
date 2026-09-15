@@ -58,7 +58,7 @@ export function VerificationGate({
   };
 
   return (
-    <div className="min-h-screen bg-[#F9F8F4] flex flex-col items-center justify-center p-8 font-outfit overflow-y-auto">
+    <div className="h-screen bg-[#F9F8F4] flex flex-col items-center [justify-content:safe_center] p-8 font-outfit overflow-y-auto">
 
       {/* ── Background watermarks ── */}
       <div className="fixed bottom-12 left-12 opacity-5 transform -rotate-12 pointer-events-none select-none">

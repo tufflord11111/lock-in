@@ -1157,8 +1157,12 @@ pub fn run() {
             let sniper_state_path = state_path.clone();
 
             // ── Sniper Thread ──────────────────────────────────────────────
-            // Uses Windows taskkill /F /T to force-terminate entire process
-            // trees — handles multi-process Electron apps like Discord.
+            // Every 2 s: ends expired sessions, then kills blocklisted
+            // processes in-process via sysinfo (kill_processes_matching). Every
+            // process whose name matches is killed individually, so
+            // multi-process Electron apps like Discord go down one process at
+            // a time rather than as a taskkill /T tree. The only remaining
+            // taskkill call is the dormant Task Manager kill gated on is_locked.
             thread::spawn(move || {
                 println!("[Enforcer] Background thread STARTED");
                 // One long-lived process table, refreshed in place only on ticks

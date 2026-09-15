@@ -109,7 +109,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
     "w-full bg-white border-[3px] border-[#002855] p-4 font-bold text-[#002855] shadow-[4px_4px_0px_#002855] outline-none focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-[2px_2px_0px_#002855] transition-all placeholder:text-[#002855]/20";
 
   return (
-    <div className="min-h-screen bg-[#F9F8F4] flex flex-col items-center justify-center p-8 font-outfit overflow-y-auto">
+    <div className="h-screen bg-[#F9F8F4] flex flex-col items-center [justify-content:safe_center] p-8 font-outfit overflow-y-auto">
 
       {/* HEADER BADGE */}
       <div className="w-full max-w-[400px] bg-white border-[4px] border-[#002855] p-8 shadow-[8px_8px_0px_#002855] mb-8 transform -rotate-1">
