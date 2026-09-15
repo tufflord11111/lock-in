@@ -5,12 +5,10 @@
   "description": "Enforces your lock-in sessions by blocking distracting sites.",
   "permissions": [
     "storage",
-    "tabs",
     "webNavigation",
     "alarms"
   ],
   "host_permissions": [
-    "https://*.firebasedatabase.app/*",
     "<all_urls>"
   ],
   "background": {
