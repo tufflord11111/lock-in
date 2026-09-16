@@ -3,8 +3,13 @@ import { Trash2 } from "lucide-react";
 import { auth, db } from "@lock-in/firebase";
 import { ref, get, update, query, orderByValue, equalTo } from "firebase/database";
 import type { DataSnapshot } from "firebase/database";
-import { signOut, deleteUser } from "firebase/auth";
-import { guardWrite } from "../writeFailures";
+import {
+  signOut,
+  deleteUser,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+} from "firebase/auth";
+import { guardWrite, reportWriteFailure } from "../writeFailures";
 
 /**
  * F6 — account deletion.
@@ -23,6 +28,48 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when Firebase refuses the auth-user delete on a stale sign-in. The
+  // data is already gone at that point; only the credential is left.
+  const [needsReauth, setNeedsReauth] = useState(false);
+  const [password, setPassword] = useState("");
+  const [reauthError, setReauthError] = useState<string | null>(null);
+
+  /**
+   * Delete the auth user, dealing with the two ways Firebase can refuse.
+   *
+   * The data write has already committed by the time this runs, so every path
+   * here ends with the operator signed out — but a silent sign-out used to
+   * make a refused delete look identical to a successful one, leaving the
+   * email quietly registered and unable to re-register.
+   */
+  const removeAuthUser = async () => {
+    const current = auth.currentUser;
+    if (!current) {
+      await signOut(auth);
+      return;
+    }
+    try {
+      await deleteUser(current);
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? "unknown";
+
+      // Recoverable: the sign-in is simply too old. Stay signed in — the
+      // credential is the only thing that can authorise the retry.
+      if (code === "auth/requires-recent-login") {
+        setNeedsReauth(true);
+        setBusy(false);
+        return;
+      }
+
+      // Everything else: the data is gone and we cannot delete the account, so
+      // say which error it was instead of dropping it into the console.
+      reportWriteFailure(
+        `Your data is deleted, but your account couldn't be removed (${code}). The sign-in email is still registered — contact support if you need it released.`,
+        err
+      );
+      await signOut(auth);
+    }
+  };
 
   const handleDelete = async () => {
     setBusy(true);
@@ -55,18 +102,50 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
         return;
       }
 
-      // Best-effort auth-user deletion; falls back to sign-out if Firebase
-      // requires a recent login. Either way the app returns to Login.
-      try {
-        if (auth.currentUser) await deleteUser(auth.currentUser);
-        else await signOut(auth);
-      } catch {
-        await signOut(auth);
-      }
+      await removeAuthUser();
     } catch (err) {
       setError(String((err as { message?: string })?.message ?? err));
       setBusy(false);
     }
+  };
+
+  /** Re-authenticate with the password just entered, then retry the delete. */
+  const confirmReauth = async () => {
+    const current = auth.currentUser;
+    if (!current?.email) {
+      await cancelReauth();
+      return;
+    }
+    setBusy(true);
+    setReauthError(null);
+    try {
+      await reauthenticateWithCredential(
+        current,
+        EmailAuthProvider.credential(current.email, password)
+      );
+      await deleteUser(current);
+      // Signed out implicitly by the delete; nothing left to clean up.
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? "unknown";
+      setBusy(false);
+      setPassword("");
+      // Wrong password is worth another try, so keep the prompt open.
+      setReauthError(
+        code === "auth/wrong-password" || code === "auth/invalid-credential"
+          ? "That password didn't match. Try again."
+          : `Couldn't confirm your password (${code}).`
+      );
+    }
+  };
+
+  /** Give up on removing the credential, but be explicit about what remains. */
+  const cancelReauth = async () => {
+    setNeedsReauth(false);
+    setPassword("");
+    reportWriteFailure(
+      "Your data is deleted, but your sign-in email is still registered. Sign in again and delete within a few minutes of signing in to remove it."
+    );
+    await signOut(auth);
   };
 
   return (
@@ -87,7 +166,46 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
         </p>
       )}
 
-      {confirming ? (
+      {needsReauth ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-[9px] font-bold text-[#002855]/60 leading-relaxed">
+            Your data is already deleted. Confirm your password to remove the
+            account itself — Firebase requires a recent sign-in for this.
+          </p>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && password && !busy) confirmReauth();
+            }}
+            placeholder="Password"
+            autoFocus
+            className="w-full px-4 py-3 border-2 border-[#002855] rounded-xl text-[11px] font-bold text-[#002855] placeholder:text-[#002855]/30 focus:outline-none"
+          />
+          {reauthError && (
+            <p className="text-[9px] font-bold text-[#B3261E] break-words">
+              {reauthError}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              onClick={cancelReauth}
+              disabled={busy}
+              className="flex-1 py-3 border-2 border-[#002855] bg-white text-[#002855] font-black text-[10px] uppercase tracking-widest rounded-xl disabled:opacity-40"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmReauth}
+              disabled={busy || !password}
+              className="flex-1 py-3 bg-[#B3261E] border-2 border-[#7f1d1d] text-white font-black text-[10px] uppercase tracking-widest rounded-xl disabled:opacity-40"
+            >
+              {busy ? "Deleting…" : "Confirm & delete"}
+            </button>
+          </div>
+        </div>
+      ) : confirming ? (
         <div className="flex gap-3">
           <button
             onClick={() => setConfirming(false)}

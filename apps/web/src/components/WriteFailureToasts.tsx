@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, X } from "lucide-react";
-import { onWriteFailure, type WriteFailure } from "../writeFailures";
+import {
+  onWriteFailure,
+  recentWriteFailures,
+  type WriteFailure,
+} from "../writeFailures";
 
 const AUTO_DISMISS_MS = 10000;
 const MAX_VISIBLE = 3;
@@ -12,7 +16,11 @@ const MAX_VISIBLE = 3;
  * operator exactly what did not save.
  */
 export function WriteFailureToasts() {
-  const [items, setItems] = useState<WriteFailure[]>([]);
+  // Seeded from the replay buffer so a failure reported moments before this
+  // host mounted (a sign-out swapping the tree) is still shown.
+  const [items, setItems] = useState<WriteFailure[]>(() =>
+    recentWriteFailures().slice(-MAX_VISIBLE)
+  );
 
   useEffect(
     () =>

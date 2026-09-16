@@ -18,10 +18,35 @@ type Listener = (failure: WriteFailure) => void;
 const listeners = new Set<Listener>();
 let nextId = 1;
 
+/**
+ * Failures reported in the last few seconds, replayed to a toast host that
+ * mounts just after one.
+ *
+ * Some failures are reported by code that then tears the toast host down — the
+ * account-delete fallback signs out, which swaps the whole app back to Login.
+ * Without this the operator is told nothing at exactly the moment the message
+ * matters most.
+ */
+const REPLAY_WINDOW_MS = 12000;
+const recent: WriteFailure[] = [];
+
+function pruneRecent(): void {
+  const cutoff = Date.now() - REPLAY_WINDOW_MS;
+  while (recent.length > 0 && recent[0].at < cutoff) recent.shift();
+}
+
+/** Failures still inside the replay window, oldest first. */
+export function recentWriteFailures(): WriteFailure[] {
+  pruneRecent();
+  return [...recent];
+}
+
 /** Report a failed background write. Safe to call from anywhere, never throws. */
 export function reportWriteFailure(message: string, err?: unknown): void {
   console.error(`[LOCK-IN] write failed — ${message}`, err);
   const failure: WriteFailure = { id: nextId++, message, at: Date.now() };
+  pruneRecent();
+  recent.push(failure);
   for (const listener of listeners) {
     try {
       listener(failure);
