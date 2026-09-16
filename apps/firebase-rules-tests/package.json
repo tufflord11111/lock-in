@@ -1,0 +1,13 @@
+{
+  "name": "@lock-in/firebase-rules-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "firebase emulators:exec --only database \"node rules.test.cjs\""
+  },
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.11.0"
+  }
+}
