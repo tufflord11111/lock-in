@@ -31,6 +31,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,6 +41,17 @@
     ],
     "resources": {
       "../../extension/dist/**/*": "extension/dist/"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJDNzgyRTUxQkMyMkIzMEQKUldRTnN5SzhVUzU0TEZaRmRGMldONVUwaTRmb1lOZWNPbDBIQkJLZ2h6cnBSMFNIc2FWRTM3QkMK",
+      "endpoints": [
+        "https://github.com/tufflord11111/lock-in/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

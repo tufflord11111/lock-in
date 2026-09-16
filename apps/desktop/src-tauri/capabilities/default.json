@@ -15,6 +15,7 @@
     "fs:allow-resource-read",
     "fs:allow-resource-write",
     "dialog:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "updater:default"
   ]
 }

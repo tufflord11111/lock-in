@@ -1336,6 +1336,14 @@ pub fn run() {
 
             app.handle().plugin(tauri_plugin_dialog::init())?;
 
+            // The updater plugin only exposes the check/download commands to
+            // JS; nothing here downloads or installs. The decision to fetch is
+            // made in the webview (UpdateBanner), which defers while a focus
+            // session is armed — an install restarts the app, and a restart
+            // mid-session is exactly the escape hatch the enforcer exists to
+            // deny.
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -17,6 +17,7 @@ import WelcomeSequence from "./components/WelcomeSequence";
 import { VerificationGate } from "./components/VerificationGate";
 import { EnforcerDisarmPanel } from "./components/EnforcerDisarmPanel";
 import { PendingPermanentBanner } from "./components/PendingPermanentBanner";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 import { ThePack } from "./screens/ThePack";
 import { useAuth } from "./hooks/useAuth";
@@ -56,11 +57,11 @@ function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
 
   let message = "";
   if (extensionStale && engineOffline) {
-    message = "⚠ System engine offline & Web Guard not detected — restart Lock-In and ensure Chrome extension is active";
+    message = "âš  System engine offline & Web Guard not detected â€” restart Lock-In and ensure Chrome extension is active";
   } else if (extensionStale) {
-    message = "⚠ Web Guard not detected — open Chrome and ensure Lock-In extension is active";
+    message = "âš  Web Guard not detected â€” open Chrome and ensure Lock-In extension is active";
   } else if (engineOffline) {
-    message = "⚠ System engine offline — restart Lock-In to restore full blocking";
+    message = "âš  System engine offline â€” restart Lock-In to restore full blocking";
   }
 
   return (
@@ -89,7 +90,7 @@ function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
  * Offline/degraded boot screen.
  *
  * The disarm control itself lives in EnforcerDisarmPanel, shared with the
- * Login screen — in practice a broken login lands on Login, not here, and the
+ * Login screen â€” in practice a broken login lands on Login, not here, and the
  * enforcer keeps running throughout. failOpen is correct on THIS screen: a
  * trapped operator with no button is worse than a spare button.
  */
@@ -163,7 +164,7 @@ export function App() {
   const [usernameSubmitting, setUsernameSubmitting] = useState(false);
   /**
    * Read from DB once after email verification.
-   * If true, the operator has already completed onboarding — skip WelcomeSequence.
+   * If true, the operator has already completed onboarding â€” skip WelcomeSequence.
    * null = still loading from DB (show nothing until resolved).
    */
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
@@ -197,7 +198,7 @@ export function App() {
     return () => unsub();
   }, [user?.uid, emailVerified]);
 
-  // One-time read of onboardingComplete flag — drives WelcomeSequence gate
+  // One-time read of onboardingComplete flag â€” drives WelcomeSequence gate
   useEffect(() => {
     if (!user?.uid || !emailVerified) return;
     const flagRef = ref(db, `users/${user.uid}/config/onboardingComplete`);
@@ -210,7 +211,7 @@ export function App() {
     return () => unsub();
   }, [user?.uid, emailVerified]);
 
-  // Default website blocklist — must match extension's STATIC_BLACKLIST
+  // Default website blocklist â€” must match extension's STATIC_BLACKLIST
   const WEB_BLOCKLIST = [
     "youtube.com", "tiktok.com", "netflix.com",
     "facebook.com", "instagram.com", "twitter.com",
@@ -228,7 +229,7 @@ export function App() {
   }, [intentions]);
 
   // Sync userName to Firebase. Multi-path so config/userName (private) and
-  // public/userName (readable by any signed-in user — The Pack renders it)
+  // public/userName (readable by any signed-in user â€” The Pack renders it)
   // can never drift. public holds ONLY this field; the rules reject any other.
   useEffect(() => {
     if (userName && user?.uid) {
@@ -242,7 +243,7 @@ export function App() {
     }
   }, [userName, user?.uid]);
 
-  // Stable per-install id — same one sessionState uses. Stamped onto every
+  // Stable per-install id â€” same one sessionState uses. Stamped onto every
   // blockedApps entry this device creates, so the enforcer can auto-approve
   // our own blocks (H1) and only stage entries added elsewhere.
   const deviceId = useMemo(getDeviceId, []);
@@ -254,8 +255,8 @@ export function App() {
   const [blockedAppsRaw, setBlockedAppsRaw] = useState<Record<string, string>>({});
   const [blockedAppsMeta, setBlockedAppsMeta] = useState<Record<string, string>>({});
   // False until the blockedApps listener has fired at least once. An empty
-  // blockedApps array is ambiguous — "no blocks configured" or "Firebase hasn't
-  // answered yet" — so this distinguishes them for the start-button advisory.
+  // blockedApps array is ambiguous â€” "no blocks configured" or "Firebase hasn't
+  // answered yet" â€” so this distinguishes them for the start-button advisory.
   const [blocklistHydrated, setBlocklistHydrated] = useState(false);
   useEffect(() => {
     if (!user?.uid) return;
@@ -281,8 +282,8 @@ export function App() {
   }, [user?.uid]);
 
   // H1/H2: push blockedApps to the enforcer with an approved subset.
-  //   H1 — entries stamped with THIS device's origin auto-approve.
-  //   H2 — on the first run after upgrade (per-device localStorage flag) the
+  //   H1 â€” entries stamped with THIS device's origin auto-approve.
+  //   H2 â€” on the first run after upgrade (per-device localStorage flag) the
   //        whole existing set is approved, so nobody's blocks stage as pending.
   // Everything else (added from another device, or absent origin post-upgrade)
   // is left for Rust to stage behind the approval banner.
@@ -301,13 +302,13 @@ export function App() {
     const allValues = entries.map(([, v]) => v);
     let approved: string[];
     if (!exeMigratedRef.current) {
-      // First hydrated sync after upgrade — trust the current set as-is.
+      // First hydrated sync after upgrade â€” trust the current set as-is.
       approved = allValues;
       exeMigratedRef.current = true;
       try {
         localStorage.setItem("lockin_exe_migrated_v1", "1");
       } catch {
-        /* private mode — falls back to origin-only next run, one approval */
+        /* private mode â€” falls back to origin-only next run, one approval */
       }
     } else {
       approved = entries
@@ -364,7 +365,7 @@ export function App() {
     const val = usernameInput.trim().toUpperCase();
     if (!val) { setUsernameError("Handle cannot be empty."); return; }
     // Letters, numbers and underscore only. A handle becomes a Firebase key at
-    // usernames/{NAME}, and keys may not contain . # $ [ ] or / — a dot made
+    // usernames/{NAME}, and keys may not contain . # $ [ ] or / â€” a dot made
     // that write fail silently.
     if (!/^[A-Za-z0-9_]+$/.test(val)) { setUsernameError("Only letters, numbers, and underscores allowed."); return; }
     if (!user?.uid) return;
@@ -419,12 +420,12 @@ export function App() {
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   };
 
-  // Safety-net: 8 s hard ceiling — dep array [] so the timer is set once and never
+  // Safety-net: 8 s hard ceiling â€” dep array [] so the timer is set once and never
   // cancelled early by a loading->false transition (the old [loading] dep bug).
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => {
-      console.warn('[LOCK-IN] Loading screen 8 s hard ceiling — showing offline UI');
+      console.warn('[LOCK-IN] Loading screen 8 s hard ceiling â€” showing offline UI');
       setLoadingTimedOut(true);
     }, 8000);
     return () => clearTimeout(t);
@@ -455,7 +456,7 @@ export function App() {
     return <Login onLogin={login} onRegister={register} onForgotPassword={sendPasswordResetEmail} />;
   }
 
-  // ── EMAIL VERIFICATION GATE ─────────────────────────────────────────────
+  // â”€â”€ EMAIL VERIFICATION GATE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // User is authenticated but hasn't clicked the verification link yet.
   // Nothing beyond this point renders until emailVerified is true.
   if (!emailVerified) {
@@ -592,6 +593,8 @@ export function App() {
       <ConnectionGate userId={user.uid} engineOffline={engineOffline} />
 
       <PendingPermanentBanner userId={user.uid} />
+
+      <UpdateBanner />
 
       <main className="flex-1 overflow-hidden relative">
         <div className="h-full w-full max-w-[1600px] mx-auto px-10 pt-10 pb-10 overflow-hidden">
