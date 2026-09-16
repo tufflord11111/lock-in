@@ -201,7 +201,7 @@ export function Dashboard({
         .intentions-scroll::-webkit-scrollbar-thumb { background: #1B2A4A; border-radius: 2px; }
       `}</style>
 
-      <div className="flex flex-row gap-8 shrink-0 w-full">
+      <div className="flex flex-col min-[1100px]:flex-row gap-8 shrink-0 w-full">
         {/* LEFT COLUMN: MISSION & INTENTIONS */}
         <div className="flex-1 flex flex-col gap-8 min-w-0">
           {/* STRATEGIC OBJECTIVE */}
@@ -294,7 +294,7 @@ export function Dashboard({
         </div>
 
         {/* RIGHT COLUMN: TIMER & ENFORCEMENT */}
-        <div className="w-[400px] flex flex-col gap-8 shrink-0">
+        <div className="w-full min-[1100px]:w-[400px] flex flex-col gap-8 shrink-0">
           {/* TIMER UNIT */}
           <section className="bg-white border-2 border-[#002855] rounded-[2.5rem] px-8 py-8 shadow-[6px_6px_0px_#002855] flex flex-col items-center justify-center text-center relative">
             {isActive ? (
