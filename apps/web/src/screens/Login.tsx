@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Shield, Zap, User, Mail, Key, RotateCcw, ArrowLeft, CheckCircle } from "lucide-react";
 import { parseAuthError } from "../hooks/useAuth";
@@ -21,8 +21,36 @@ const USERNAME_REGEX = /^[A-Za-z0-9_]+$/;
 // Mirrors the {1,20} bound in the usernames/$name security rule.
 const USERNAME_MAX = 20;
 
+// The footer build stamp. Under Tauri this is the real bundle version from
+// tauri.conf.json, so a shipped build can never disagree with the release it
+// came from — the previous hardcoded "v0.1.5 Alpha" survived six releases.
+// The browser build has no bundle version of its own, hence "web".
+const isTauri =
+  typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
+
+function useAppVersion(): string {
+  const [version, setVersion] = useState("web");
+  useEffect(() => {
+    if (!isTauri) return;
+    let alive = true;
+    import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .then((v) => {
+        if (alive) setVersion("v" + v);
+      })
+      .catch(() => {
+        /* keep "web" rather than showing a version we could not confirm */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return version;
+}
+
 export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
   const [view, setView] = useState<AuthView>("login");
+  const appVersion = useAppVersion();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
@@ -332,7 +360,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
               </div>
               <div className="w-px h-4 bg-[#002855]/10" />
               <div className="text-[#002855]/40 font-black text-[10px] uppercase tracking-widest">
-                v0.1.5 Alpha
+                {appVersion}
               </div>
             </div>
           </motion.form>

@@ -1,6 +1,6 @@
 {
   "name": "@lock-in/desktop",
-  "version": "0.0.0",
+  "version": "1.2.2",
   "private": true,
   "scripts": {
     "tauri": "tauri",
