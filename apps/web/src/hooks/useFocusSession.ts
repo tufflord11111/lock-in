@@ -403,6 +403,61 @@ export function useFocusSession(
     };
   }, [userId, resetLocalSession, startCountdown, updatePresence]);
 
+  // (3) RECONCILE — clear a session this device ended but never told Firebase
+  // about. Session-end writes made offline only queue in memory; closing the
+  // app before reconnecting drops them, leaving config/focusActive:true and
+  // sessionState.isActive:true on the server. Rust expires its own copy on
+  // restore, but nothing else rewrites the flags, so the Chrome extension kept
+  // blocking indefinitely.
+  //
+  // Only this device's own, provably expired session is cleared:
+  //   - originDeviceId === deviceId → endTime came from THIS machine's clock,
+  //     so there is no cross-device skew, and another device's live session is
+  //     never touched.
+  //   - endTime < now → a session with no deadline is left alone.
+  //   - isActiveRef → a session started here since boot is never clobbered.
+  //     A start made before the snapshot is delivered is also safe: its
+  //     optimistic write is already in the local view, so the snapshot shows
+  //     the new, unexpired session.
+  //
+  // onValue(onlyOnce), not get(): get() rejects on an offline boot with nothing
+  // cached, whereas onValue waits for the server — so an offline boot still
+  // reconciles once the connection comes up.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    const unsub = onValue(
+      ref(db, `users/${userId}/sessionState`),
+      (snap) => {
+        if (cancelled) return;
+        const s = snap.val();
+        if (!s || s.isActive !== true) return;
+        if (s.originDeviceId !== deviceId) return;
+        if (typeof s.endTime !== "number" || s.endTime >= Date.now()) return;
+        if (isActiveRef.current) {
+          console.info("[LOCK-IN] reconcile: stale session found, but a local session has started — skipping");
+          return;
+        }
+
+        console.info("[LOCK-IN] reconcile: clearing a session that ended without reaching Firebase");
+        // One atomic write: the two flags go together or not at all.
+        guardWrite(
+          update(ref(db), {
+            [`users/${userId}/config/focusActive`]: false,
+            [`users/${userId}/sessionState/isActive`]: false,
+          }),
+          "Couldn't clear a session that ended while you were offline. Your browser extension may keep blocking sites."
+        );
+      },
+      (err) => console.warn("[LOCK-IN] reconcile: sessionState read failed:", err),
+      { onlyOnce: true }
+    );
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [userId, deviceId]);
+
   useEffect(() => () => clearTimer(), [clearTimer]);
 
   return {
