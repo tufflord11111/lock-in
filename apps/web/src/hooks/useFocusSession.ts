@@ -15,6 +15,42 @@ import {
   type SetStateAction,
 } from "react";
 
+/** How long a session-end write may go unacknowledged before we say so. */
+const SESSION_END_ACK_MS = 5000;
+
+/**
+ * Tell the operator when the end of a session hasn't reached Firebase.
+ *
+ * .info/connected is read only to pick the wording, never to decide whether to
+ * warn: the SDK's keepalive has no ack timeout, so on a half-open connection
+ * (resume from sleep, captive portal) it can report connected for a long time
+ * while writes sit in the queue. The missing ack is the signal.
+ */
+function warnIfSessionEndUnsaved(write: Promise<void>): void {
+  let settled = false;
+  write.then(
+    () => { settled = true; },
+    () => { settled = true; } // rejections are guardWrite's to report
+  );
+  setTimeout(() => {
+    if (settled) return;
+    onValue(
+      ref(db, ".info/connected"),
+      (snap) => {
+        if (settled) return;
+        reportWriteFailure(
+          snap.val() === true
+            ? "Still saving the end of your session…"
+            : "You're offline — your session ended locally but your extension may keep blocking sites until you reconnect.",
+          undefined,
+          "info"
+        );
+      },
+      { onlyOnce: true }
+    );
+  }, SESSION_END_ACK_MS);
+}
+
 export function useFocusSession(
   userId: string | undefined,
   setTotalMinutesFocused: Dispatch<SetStateAction<number>>,
@@ -204,50 +240,60 @@ export function useFocusSession(
         (window as any).chrome.storage.local.set({ timeLeft: null });
       }
 
-      // STEP 6: Fire all Firebase writes WITHOUT await
-      // These complete in background — UI is already unfrozen
-      const sessionStateRef = ref(db, `users/${userId}/sessionState`);
-      // originDeviceId lets the cross-device mirror skip this write's echo.
-      guardWrite(
-        set(sessionStateRef, { isActive: false, originDeviceId: deviceId }),
-        "Couldn't save the end of your session. Other devices may still show it running. Check your connection."
-      );
+      // STEP 6: ONE atomic write for everything the end of a session records —
+      // the session flag, the extension's flag, the history entry and the
+      // daily minutes. Fired WITHOUT await; the UI is already unfrozen.
+      //
+      // Atomic so they can never partly land: previously four separate writes,
+      // and offline they queued (and could be lost) independently. The history
+      // key is generated client-side (push() with no value writes nothing) so
+      // it can ride in the same update.
+      const updates: Record<string, unknown> = {
+        // Whole-node, as the previous set() was: clears endTime, blockedUrls
+        // and objective. originDeviceId lets the cross-device mirror skip
+        // this write's echo.
+        [`users/${userId}/sessionState`]: { isActive: false, originDeviceId: deviceId },
+        [`users/${userId}/config/focusActive`]: false,
+      };
 
-      const configRef = ref(db, `users/${userId}/config`);
-      guardWrite(
-        update(configRef, { focusActive: false }),
-        "Couldn't clear your session flag. Your browser extension may keep blocking sites. Check your connection."
-      );
-
-      // STEP 7: Log session history in background (only if time was spent)
+      // STEP 7: History, only if time was spent.
       if (minutesToLog > 0) {
         setTotalMinutesFocused((prev) => prev + minutesToLog);
-
-        const historyRef = ref(db, `users/${userId}/sessionHistory`);
-        guardWrite(
-          push(historyRef, {
-            objective: taskLabel,
-            minutes: minutesToLog,
-            timestamp: serverTimestamp(),
-            status: success ? "completed" : "aborted"
-          }),
-          "Your session wasn't added to your history. Check your connection."
-        );
-
-        try {
-          const today = new Date().toLocaleDateString('en-CA');
-          const dailyHistoryRef = ref(db, `users/${userId}/history`);
-          guardWrite(
-            update(dailyHistoryRef, { [today]: increment(minutesToLog) }),
-            "Your session minutes didn't save, so your streak won't count this session. Check your connection."
-          );
-        } catch (err) {
-          reportWriteFailure(
-            "Your session minutes didn't save, so your streak won't count this session.",
-            err
-          );
-        }
+        const historyKey = push(ref(db, `users/${userId}/sessionHistory`)).key;
+        const today = new Date().toLocaleDateString('en-CA');
+        updates[`users/${userId}/sessionHistory/${historyKey}`] = {
+          objective: taskLabel,
+          minutes: minutesToLog,
+          timestamp: serverTimestamp(),
+          status: success ? "completed" : "aborted",
+        };
+        updates[`users/${userId}/history/${today}`] = increment(minutesToLog);
       }
+
+      let write: Promise<void>;
+      try {
+        write = update(ref(db), updates);
+      } catch (err) {
+        // update() validates synchronously and throws before returning a
+        // promise, which guardWrite would never see.
+        reportWriteFailure(
+          "Couldn't save the end of your session. Your browser extension may keep blocking sites, and this session's minutes weren't recorded.",
+          err
+        );
+        write = Promise.resolve();
+      }
+
+      // A server refusal (PERMISSION_DENIED) still surfaces as an error.
+      guardWrite(
+        write,
+        "Couldn't save the end of your session. Other devices may still show it running, your browser extension may keep blocking sites, and this session's minutes weren't recorded."
+      );
+
+      // Offline, the write neither resolves nor rejects — it queues until the
+      // connection returns (and is lost if the app closes first), so guardWrite
+      // alone says nothing. Race the ack against a timer instead. A connected
+      // write acks well under a second. The write stays queued either way.
+      warnIfSessionEndUnsaved(write);
 
       console.log('[SESSION] endSession complete — UI reset, Firebase writes firing');
     },
