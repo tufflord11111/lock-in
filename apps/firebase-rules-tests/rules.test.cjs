@@ -8,7 +8,7 @@ const path = require("node:path");
 const {
   initializeTestEnvironment, assertSucceeds, assertFails,
 } = require("@firebase/rules-unit-testing");
-const { ref, set, update, remove, get } = require("firebase/database");
+const { ref, set, update, remove, get, push, increment, serverTimestamp } = require("firebase/database");
 
 const RULES_FILE =
   process.env.RULES_FILE || path.join(__dirname, "../../database.rules.json");
@@ -48,6 +48,17 @@ async function check(name, expect, fn) {
       emergencyUnlock: { expiry: Date.now() + 3600000 },
     });
     await set(ref(db, "usernames/dave"), "dave");
+    // erin: a session that ended offline and never reached the server —
+    // focusActive and sessionState still true, endTime in the past.
+    await set(ref(db, "users/erin"), {
+      config: cfg("erin"), public: { userName: "ERIN" },
+      sessionState: {
+        isActive: true, endTime: Date.now() - 60000, originDeviceId: "dev-erin",
+        blockedUrls: ["x.com"], objective: "stranded",
+      },
+      history: { "2026-09-17": 10 },
+      emergencyUnlock: { expiry: Date.now() + 3600000 },
+    });
     // bob: authenticated, but no users/bob node at all (no config).
   });
 
@@ -55,6 +66,7 @@ async function check(name, expect, fn) {
   const bob   = env.authenticatedContext("bob").database();
   const carol = env.authenticatedContext("carol").database();
   const dave  = env.authenticatedContext("dave").database();
+  const erin  = env.authenticatedContext("erin").database();
   const hb = () => ({ last_seen: Date.now(), version: "1.2.1", status: "online" });
 
   // ── uid WITH config ────────────────────────────────────────────────────────
@@ -97,6 +109,31 @@ async function check(name, expect, fn) {
   await check("AFTER delete: stale heartbeat update extension_state must not recreate node", "fail",
     () => update(ref(dave, "users/dave/extension_state"), hb()));
 
+  // ── 1.2.3 boot reconciliation: useFocusSession.ts RECONCILE effect ─────────
+  await check("Reconcile stale session: {config/focusActive:false, sessionState/isActive:false} (emergencyUnlock present)", "pass",
+    () => update(ref(erin), {
+      "users/erin/config/focusActive": false,
+      "users/erin/sessionState/isActive": false,
+    }));
+
+  // ── 1.2.3 session end: useFocusSession.ts endSession, one atomic update ─────
+  // History key generated client-side; push() with no value writes nothing.
+  const erinHistoryKey = push(ref(erin, "users/erin/sessionHistory")).key;
+  await check("Session end: 4-path atomic update (client key, serverTimestamp, increment)", "pass",
+    () => update(ref(erin), {
+      "users/erin/sessionState": { isActive: false, originDeviceId: "dev-erin" },
+      "users/erin/config/focusActive": false,
+      [`users/erin/sessionHistory/${erinHistoryKey}`]: {
+        objective: "stranded", minutes: 5, timestamp: serverTimestamp(), status: "completed",
+      },
+      "users/erin/history/2026-09-17": increment(5),
+    }));
+  await check("Session end shape written by ANOTHER uid is denied", "fail",
+    () => update(ref(alice), {
+      "users/erin/config/focusActive": false,
+      "users/erin/sessionState": { isActive: false, originDeviceId: "dev-alice" },
+    }));
+
   // State assertions (admin read)
   let state = {};
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -108,6 +145,13 @@ async function check(name, expect, fn) {
       carol_key: (await get(ref(db, "usernames/carol"))).val(),
       dave_node: (await get(ref(db, "users/dave"))).val(),
       dave_key: (await get(ref(db, "usernames/dave"))).val(),
+      erin_focusActive: (await get(ref(db, "users/erin/config/focusActive"))).val(),
+      erin_sessionState: (await get(ref(db, "users/erin/sessionState"))).val(),
+      erin_history_today: (await get(ref(db, "users/erin/history/2026-09-17"))).val(),
+      erin_history_entry_timestamp_is_number:
+        typeof (await get(ref(db, `users/erin/sessionHistory/${erinHistoryKey}/timestamp`))).val() === "number",
+      erin_emergencyUnlock_kept:
+        typeof (await get(ref(db, "users/erin/emergencyUnlock/expiry"))).val() === "number",
     };
   });
 
