@@ -42,7 +42,21 @@ const STATIC_BLACKLIST = ["youtube.com", "tiktok.com", "netflix.com", "facebook.
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let activeUid = null;
-let isLocked = false;
+// The lock decision is recomputed at the moment it is needed (isLockedNow),
+// from these inputs, never stored as a boolean. A stored boolean was computed
+// only when the users/{uid} snapshot changed — and nothing changes when a
+// session's endTime passes, so a session whose end never reached Firebase
+// (offline, app closed) kept the extension blocking indefinitely (U6).
+let manualLock = false;
+let thresholdReached = false;
+let focusActive = false;
+// sessionState.endTime (epoch ms) of the current session, or null if none.
+let sessionEndTime = null;
+// emergencyUnlock.expiry (epoch ms), or null.
+let unlockExpiry = null;
+// Set by the popup's FORCE_UNLOCK; cleared by the next snapshot, the same
+// lifetime the previous stored-boolean override had.
+let forceUnlocked = false;
 let activeDynamicBlacklist = [...STATIC_BLACKLIST];
 let permanentBlocklist = [];
 let userUnsub = null;
@@ -100,10 +114,14 @@ function startLockInSession(uid) {
       totalMinutesToday += (device.minutesToday || 0);
     });
 
-    const now = Date.now();
-    const isUnlocked = data.emergencyUnlock?.expiry && now < data.emergencyUnlock.expiry;
-    const manualLock = data.isLocked === true;
-    const focusActive = data.config?.focusActive === true;
+    unlockExpiry =
+      typeof data.emergencyUnlock?.expiry === "number" ? data.emergencyUnlock.expiry : null;
+    manualLock = data.isLocked === true;
+    focusActive = data.config?.focusActive === true;
+    sessionEndTime =
+      typeof data.sessionState?.endTime === "number" ? data.sessionState.endTime : null;
+    thresholdReached = totalMinutesToday >= thresholdLimit;
+    forceUnlocked = false;
 
     // Build final dynamic blocklist:
     // DEFAULT_BLOCKS + customBlocks - removedDefaults
@@ -140,10 +158,11 @@ function startLockInSession(uid) {
       ? Object.values(data.permanentBlocks).filter(v => typeof v === 'string')
       : [];
 
-    const activeLock = manualLock || focusActive || totalMinutesToday >= thresholdLimit;
-    isLocked = activeLock && !isUnlocked;
-
-    console.log("[Lock-In] Session state -> locked:", isLocked, "| blocks:", activeDynamicBlacklist.length);
+    console.log(
+      "[Lock-In] Session state -> locked:", isLockedNow(),
+      "| session ends:", sessionEndTime ? new Date(sessionEndTime).toISOString() : "none",
+      "| blocks:", activeDynamicBlacklist.length
+    );
     console.log("[Blocker] Full active list:", activeDynamicBlacklist);
     updateBadge();
   });
@@ -194,13 +213,34 @@ function stopLockInSession() {
   heartbeatInterval = null;
   profileConfirmed = false;
   activeUid = null;
-  isLocked = false;
+  manualLock = false;
+  thresholdReached = false;
+  focusActive = false;
+  sessionEndTime = null;
+  unlockExpiry = null;
+  forceUnlocked = false;
   activeDynamicBlacklist = [...STATIC_BLACKLIST];
   permanentBlocklist = [];
   updateBadge();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+/**
+ * Whether session blocking applies right now.
+ *
+ * Expiry only cancels the focus-session term: a manual lock and the daily
+ * threshold still lock after endTime. A session with no endTime keeps the old
+ * behaviour and locks for as long as focusActive is true.
+ */
+function isLockedNow() {
+  if (forceUnlocked) return false;
+  const now = Date.now();
+  if (unlockExpiry != null && now < unlockExpiry) return false;
+  const sessionLive =
+    focusActive && (sessionEndTime == null || now < sessionEndTime);
+  return manualLock || thresholdReached || sessionLive;
+}
+
 function pulseHeartbeat() {
   if (!activeUid || !profileConfirmed) return;
   const extensionStateRef = ref(db, `users/${activeUid}/extension_state`);
@@ -220,8 +260,9 @@ function getBlockUrl() {
 }
 
 function updateBadge() {
-  chrome.action.setBadgeText({ text: isLocked ? "LOCK" : "" });
-  chrome.action.setBadgeBackgroundColor({ color: isLocked ? "#FF0000" : "#002855" });
+  const locked = isLockedNow();
+  chrome.action.setBadgeText({ text: locked ? "LOCK" : "" });
+  chrome.action.setBadgeBackgroundColor({ color: locked ? "#FF0000" : "#002855" });
 }
 
 function isDomainBlocked(url, blockList) {
@@ -257,7 +298,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
       return;
     }
     // Block session sites only when locked
-    if (isLocked && isDomainBlocked(details.url, activeDynamicBlacklist)) {
+    if (isLockedNow() && isDomainBlocked(details.url, activeDynamicBlacklist)) {
       chrome.tabs.update(details.tabId, { url: getBlockUrl() });
     }
   } catch (_) {}
@@ -275,7 +316,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       return;
     }
     // Block session sites only when locked
-    if (isLocked && isDomainBlocked(currentUrl, activeDynamicBlacklist)) {
+    if (isLockedNow() && isDomainBlocked(currentUrl, activeDynamicBlacklist)) {
       const urlObj = new URL(currentUrl);
       console.log(`[Lock-In] THREAT BLOCKED: ${urlObj.hostname}`);
       chrome.tabs.remove(tabId);
@@ -286,6 +327,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // ─── Keep-Alive Alarm ─────────────────────────────────────────────────────────
 chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
 chrome.alarms.onAlarm.addListener((alarm) => {
+  // The badge is otherwise only redrawn on a snapshot, and endTime passing
+  // produces none. Every period, so it clears within ~24 s of a session's end.
+  if (alarm.name === "keepAlive") updateBadge();
   if (alarm.name === "keepAlive" && activeUid) {
     // Keep-alive read against this user's own node — global_session is locked
     // in the rules and would return permission_denied.
@@ -304,9 +348,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ─── Message Handler ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "checkStatus") {
-    sendResponse({ isLocked, blocklist: activeDynamicBlacklist });
+    sendResponse({ isLocked: isLockedNow(), blocklist: activeDynamicBlacklist });
   } else if (request.action === "FORCE_UNLOCK") {
-    isLocked = false;
+    forceUnlocked = true;
     updateBadge();
     sendResponse({ status: "unlocked" });
   } else if (request.type === "GET_TIMER_STATE") {
