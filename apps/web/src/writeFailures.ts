@@ -11,7 +11,19 @@
  * didn't save, so your streak won't count this session" is actionable.
  * "An error occurred" is not.
  */
-export type WriteFailure = { id: number; message: string; at: number };
+/**
+ * "error" — a write was refused or failed; something did not save.
+ * "info"  — nothing has failed yet, but the operator needs to know (e.g. a
+ *           write is queued offline). Rendered calmly, not logged as a failure.
+ */
+export type WriteFailureKind = "info" | "error";
+
+export type WriteFailure = {
+  id: number;
+  message: string;
+  at: number;
+  kind: WriteFailureKind;
+};
 
 type Listener = (failure: WriteFailure) => void;
 
@@ -42,9 +54,17 @@ export function recentWriteFailures(): WriteFailure[] {
 }
 
 /** Report a failed background write. Safe to call from anywhere, never throws. */
-export function reportWriteFailure(message: string, err?: unknown): void {
-  console.error(`[LOCK-IN] write failed — ${message}`, err);
-  const failure: WriteFailure = { id: nextId++, message, at: Date.now() };
+export function reportWriteFailure(
+  message: string,
+  err?: unknown,
+  kind: WriteFailureKind = "error"
+): void {
+  if (kind === "error") {
+    console.error(`[LOCK-IN] write failed — ${message}`, err);
+  } else {
+    console.info(`[LOCK-IN] ${message}`);
+  }
+  const failure: WriteFailure = { id: nextId++, message, at: Date.now(), kind };
   pruneRecent();
   recent.push(failure);
   for (const listener of listeners) {

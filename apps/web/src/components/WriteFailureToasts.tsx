@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, Info, X } from "lucide-react";
 import {
   onWriteFailure,
   recentWriteFailures,
@@ -44,7 +44,9 @@ export function WriteFailureToasts() {
     setItems((prev) => prev.filter((i) => i.id !== id));
 
   return (
-    <div className="fixed bottom-6 left-6 z-[100] flex flex-col gap-2 max-w-[380px] pointer-events-none">
+    // z-[110]: above the Dashboard's Telemetry modal (z-[100]), which would
+    // otherwise dim a toast raised while it is open — e.g. a session ending.
+    <div className="fixed bottom-6 left-6 z-[110] flex flex-col gap-2 max-w-[380px] pointer-events-none">
       <AnimatePresence initial={false}>
         {items.map((item) => (
           <motion.div
@@ -52,10 +54,19 @@ export function WriteFailureToasts() {
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
-            className="pointer-events-auto flex items-start gap-3 bg-white border-2 border-[#B3261E] shadow-[4px_4px_0px_#7f1d1d] rounded-xl px-4 py-3"
+            className={
+              item.kind === "info"
+                ? "pointer-events-auto flex items-start gap-3 bg-white border-2 border-[#002855] shadow-[4px_4px_0px_#002855] rounded-xl px-4 py-3"
+                : "pointer-events-auto flex items-start gap-3 bg-white border-2 border-[#B3261E] shadow-[4px_4px_0px_#7f1d1d] rounded-xl px-4 py-3"
+            }
             style={{ fontFamily: "'Space Mono', monospace" }}
+            role={item.kind === "info" ? "status" : "alert"}
           >
-            <AlertTriangle size={16} className="text-[#B3261E] shrink-0 mt-0.5" />
+            {item.kind === "info" ? (
+              <Info size={16} className="text-[#002855] shrink-0 mt-0.5" />
+            ) : (
+              <AlertTriangle size={16} className="text-[#B3261E] shrink-0 mt-0.5" />
+            )}
             <span className="text-[10px] font-bold text-[#002855] leading-relaxed flex-1">
               {item.message}
             </span>
