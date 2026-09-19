@@ -23,11 +23,19 @@ export type WriteFailure = {
   message: string;
   at: number;
   kind: WriteFailureKind;
+  /**
+   * Never auto-dismissed. Stays until the operator closes it or the caller
+   * clears it with dismissWriteFailure — for notices that remain true until
+   * something happens (a queued write being acknowledged), not for 10 s.
+   */
+  sticky: boolean;
 };
 
 type Listener = (failure: WriteFailure) => void;
+type DismissListener = (id: number) => void;
 
 const listeners = new Set<Listener>();
+const dismissListeners = new Set<DismissListener>();
 let nextId = 1;
 
 /**
@@ -43,8 +51,12 @@ const REPLAY_WINDOW_MS = 12000;
 const recent: WriteFailure[] = [];
 
 function pruneRecent(): void {
+  // Sticky notices are still true however old they are, so they outlive the
+  // replay window and leave only through dismissWriteFailure.
   const cutoff = Date.now() - REPLAY_WINDOW_MS;
-  while (recent.length > 0 && recent[0].at < cutoff) recent.shift();
+  for (let i = recent.length - 1; i >= 0; i--) {
+    if (!recent[i].sticky && recent[i].at < cutoff) recent.splice(i, 1);
+  }
 }
 
 /** Failures still inside the replay window, oldest first. */
@@ -53,18 +65,28 @@ export function recentWriteFailures(): WriteFailure[] {
   return [...recent];
 }
 
-/** Report a failed background write. Safe to call from anywhere, never throws. */
+/**
+ * Report a failed background write. Safe to call from anywhere, never throws.
+ * Returns the toast's id, for dismissWriteFailure.
+ */
 export function reportWriteFailure(
   message: string,
   err?: unknown,
-  kind: WriteFailureKind = "error"
-): void {
+  kind: WriteFailureKind = "error",
+  options: { sticky?: boolean } = {}
+): number {
   if (kind === "error") {
     console.error(`[LOCK-IN] write failed — ${message}`, err);
   } else {
     console.info(`[LOCK-IN] ${message}`);
   }
-  const failure: WriteFailure = { id: nextId++, message, at: Date.now(), kind };
+  const failure: WriteFailure = {
+    id: nextId++,
+    message,
+    at: Date.now(),
+    kind,
+    sticky: options.sticky === true,
+  };
   pruneRecent();
   recent.push(failure);
   for (const listener of listeners) {
@@ -74,6 +96,28 @@ export function reportWriteFailure(
       /* a broken listener must never break the caller's write path */
     }
   }
+  return failure.id;
+}
+
+/** Remove a toast wherever it is showing, and from the replay buffer. */
+export function dismissWriteFailure(id: number): void {
+  const i = recent.findIndex((f) => f.id === id);
+  if (i !== -1) recent.splice(i, 1);
+  for (const listener of dismissListeners) {
+    try {
+      listener(id);
+    } catch {
+      /* never break the dismisser */
+    }
+  }
+}
+
+/** Subscribe to dismissals. Returns an unsubscribe function. */
+export function onWriteFailureDismissed(listener: DismissListener): () => void {
+  dismissListeners.add(listener);
+  return () => {
+    dismissListeners.delete(listener);
+  };
 }
 
 /** Subscribe to failures. Returns an unsubscribe function. */

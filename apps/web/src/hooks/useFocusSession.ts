@@ -3,7 +3,8 @@ import { ref, update, push, serverTimestamp, set, increment, onValue, get } from
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getDeviceId } from "../deviceId";
-import { guardWrite, reportWriteFailure } from "../writeFailures";
+import { dismissWriteFailure, guardWrite, reportWriteFailure } from "../writeFailures";
+import { logUiEvent } from "../uiEventLog";
 import type { EnforcerState } from "../components/EnforcerDisarmPanel";
 import {
   useCallback,
@@ -25,25 +26,46 @@ const SESSION_END_ACK_MS = 5000;
  * warn: the SDK's keepalive has no ack timeout, so on a half-open connection
  * (resume from sleep, captive portal) it can report connected for a long time
  * while writes sit in the queue. The missing ack is the signal.
+ *
+ * The notice is sticky — it stays until the queued write is acknowledged (then
+ * it clears itself) or the operator closes it. A timed toast raised while the
+ * window was in the background was gone before anyone looked.
  */
-function warnIfSessionEndUnsaved(write: Promise<void>): void {
+function warnIfSessionEndUnsaved(write: Promise<void>, uid: string): void {
   let settled = false;
+  let warned = false;
+  let toastId: number | null = null;
+
+  const onSettled = (acked: boolean) => {
+    settled = true;
+    if (warned && acked) logUiEvent("session-end-acked", uid);
+    // Acked: the notice is no longer true. Refused: guardWrite shows the error.
+    if (toastId !== null) dismissWriteFailure(toastId);
+  };
   write.then(
-    () => { settled = true; },
-    () => { settled = true; } // rejections are guardWrite's to report
+    () => onSettled(true),
+    () => onSettled(false)
   );
+
   setTimeout(() => {
     if (settled) return;
     onValue(
       ref(db, ".info/connected"),
       (snap) => {
         if (settled) return;
-        reportWriteFailure(
-          snap.val() === true
+        warned = true;
+        const connected = snap.val() === true;
+        logUiEvent(
+          connected ? "session-end-timeout-connected" : "session-end-timeout-offline",
+          uid
+        );
+        toastId = reportWriteFailure(
+          connected
             ? "Still saving the end of your session…"
             : "You're offline — your session ended locally but your extension may keep blocking sites until you reconnect.",
           undefined,
-          "info"
+          "info",
+          { sticky: true }
         );
       },
       { onlyOnce: true }
@@ -64,6 +86,25 @@ export function useFocusSession(
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const totalMinutesRef = useRef(0);
   const initialSecondsRef = useRef(0);
+  // Wall-clock deadline (epoch ms) of the running session, or null. The
+  // countdown is derived from it rather than decremented once per tick:
+  // WebView2 throttles — and after ~5 minutes suspends — timers in a hidden or
+  // covered window, and Tauri can't turn that off on Windows
+  // (backgroundThrottling is unsupported there). A per-tick countdown fell
+  // minutes behind the real deadline.
+  const endTimeRef = useRef<number | null>(null);
+  // True from session start (or adoption) until the session has ended ONCE.
+  // The countdown and the Rust deadline can both reach the end; only the
+  // first may run endSession.
+  const sessionLiveRef = useRef(false);
+  // Latest endSession, for listeners and timers that subscribe once.
+  const endSessionRef = useRef<(success: boolean) => void>(() => {});
+
+  /** Whole seconds left before the deadline, or null with no session. */
+  const secondsRemaining = useCallback((): number | null => {
+    if (endTimeRef.current == null) return null;
+    return Math.max(0, Math.ceil((endTimeRef.current - Date.now()) / 1000));
+  }, []);
 
   const clearTimer = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -78,9 +119,13 @@ export function useFocusSession(
   // signing out kept ticking through a Login-screen emergency disarm and the
   // Dashboard showed SESSION ACTIVE while nothing was being enforced.
   //
-  // Two mechanisms, both reducing to one idempotent LOCAL reset. Neither calls
-  // endSession — its Firebase writes and history entry belong to
-  // useDisarmRecovery, and calling it here would double-log the disarm.
+  // Two mechanisms, both reducing to one idempotent LOCAL reset — with one
+  // exception. A disarm or a remote stop must not call endSession: its
+  // Firebase writes belong to useDisarmRecovery / the other device, and
+  // calling it here would double-log them. But "deadline-expired" IS this
+  // session ending on time; Rust simply got there before the webview's
+  // throttled countdown. That one runs endSession, or the session-end writes
+  // (and the offline notice) would never happen at all.
 
   // Mirrored so the listeners below read the live value without re-subscribing
   // on every session start/stop.
@@ -94,6 +139,8 @@ export function useFocusSession(
     (reason: string) => {
       console.info(`[LOCK-IN] session UI reset to match Rust (${reason})`);
       clearTimer();
+      sessionLiveRef.current = false;
+      endTimeRef.current = null;
       totalMinutesRef.current = 0;
       initialSecondsRef.current = 0;
       setIsActive(false);
@@ -119,8 +166,14 @@ export function useFocusSession(
       "enforcer-stood-down",
       (event) => {
         lastStoodDownRef.current = Date.now();
+        const reason = event.payload?.reason ?? "unknown";
+        if (reason === "deadline-expired" && sessionLiveRef.current) {
+          console.info("[LOCK-IN] Rust deadline reached before the UI countdown — ending the session");
+          endSessionRef.current(true);
+          return;
+        }
         if (isActiveRef.current) {
-          resetLocalSession(`enforcer-stood-down: ${event.payload?.reason ?? "unknown"}`);
+          resetLocalSession(`enforcer-stood-down: ${reason}`);
         }
       }
     );
@@ -210,12 +263,18 @@ export function useFocusSession(
   const endSession = useCallback(
     async (success: boolean) => {
       if (!userId) return;
+      // The countdown and the Rust deadline can both get here; end once.
+      if (!sessionLiveRef.current) return;
+      sessionLiveRef.current = false;
 
       // STEP 1: Clear timer immediately
       clearTimer();
 
-      // STEP 2: Calculate time spent before resetting
-      const secondsSpent = initialSecondsRef.current - timeLeft;
+      // STEP 2: Calculate time spent before resetting — from the wall clock,
+      // not the rendered timeLeft, which lags when the window is throttled.
+      const remaining = secondsRemaining() ?? timeLeft;
+      endTimeRef.current = null;
+      const secondsSpent = Math.max(0, initialSecondsRef.current - remaining);
       const minutesToLog = Math.ceil(secondsSpent / 60);
 
       // STEP 3: Reset ALL UI state immediately
@@ -293,12 +352,15 @@ export function useFocusSession(
       // connection returns (and is lost if the app closes first), so guardWrite
       // alone says nothing. Race the ack against a timer instead. A connected
       // write acks well under a second. The write stays queued either way.
-      warnIfSessionEndUnsaved(write);
+      warnIfSessionEndUnsaved(write, userId);
 
       console.log('[SESSION] endSession complete — UI reset, Firebase writes firing');
     },
-    [clearTimer, setTotalMinutesFocused, taskLabel, timeLeft, updatePresence, userId, deviceId],
+    [clearTimer, secondsRemaining, setTotalMinutesFocused, taskLabel, timeLeft, updatePresence, userId, deviceId],
   );
+  useEffect(() => {
+    endSessionRef.current = endSession;
+  }, [endSession]);
 
   /**
    * The 1 s countdown. Factored out of startSession so a session ADOPTED from
@@ -309,8 +371,11 @@ export function useFocusSession(
   const startCountdown = useCallback(() => {
     clearTimer();
     intervalRef.current = setInterval(() => {
+      // Read the clock, don't count ticks: a throttled tick must land on the
+      // right value, not one second on from a stale one.
+      const fromClock = secondsRemaining();
       setTimeLeft((prev) => {
-        const next = prev - 1;
+        const next = fromClock ?? prev - 1;
         if (typeof (window as any).chrome !== 'undefined' && (window as any).chrome.storage) {
           (window as any).chrome.storage.local.set({ timeLeft: Math.max(0, next) });
         }
@@ -319,13 +384,13 @@ export function useFocusSession(
             clearInterval(intervalRef.current);
             intervalRef.current = null;
           }
-          queueMicrotask(() => endSession(true));
+          queueMicrotask(() => endSessionRef.current(true));
           return 0;
         }
         return next;
       });
     }, 1000);
-  }, [clearTimer, endSession]);
+  }, [clearTimer, secondsRemaining]);
 
   const startSession = useCallback(
     (minutes: number, label: string) => {
@@ -354,6 +419,8 @@ export function useFocusSession(
 
       // Broadcast full session state to Firebase for extension to read
       const endTime = Date.now() + seconds * 1000;
+      endTimeRef.current = endTime;
+      sessionLiveRef.current = true;
       const sessionStateRef = ref(db, `users/${userId}/sessionState`);
       set(sessionStateRef, {
         isActive: true,
@@ -424,6 +491,8 @@ export function useFocusSession(
           // original start — the pre-restart portion was never observed here.
           totalMinutesRef.current = Math.ceil(remaining / 60);
           initialSecondsRef.current = remaining;
+          endTimeRef.current = s.session_end_time;
+          sessionLiveRef.current = true;
           setTaskLabel("Untitled Session");
           setTimeLeft(remaining);
           setIsActive(true);
@@ -486,6 +555,7 @@ export function useFocusSession(
         }
 
         console.info("[LOCK-IN] reconcile: clearing a session that ended without reaching Firebase");
+        logUiEvent("reconcile-write", userId);
         // One atomic write: the two flags go together or not at all.
         guardWrite(
           update(ref(db), {

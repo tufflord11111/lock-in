@@ -903,6 +903,82 @@ fn sync_permanent_exe(
     }
 }
 
+// ─── IPC Command: append_ui_event ────────────────────────────────────────────
+// A small on-disk trail of UI events that are otherwise invisible after the
+// fact — a toast the operator never saw, a write that sat queued offline.
+// Lives next to enforcer_state.json: %APPDATA%\com.lockin.app\ui-events.log
+//
+// One line per event: "<ISO-8601 UTC> <event> <uid prefix>". Only allowlisted
+// event names are accepted and the uid is cut to 6 alphanumerics, so the
+// webview can never write arbitrary text (or newlines) into the file.
+//
+// Append-only. When the next line would take the file past 200 KB it is
+// renamed to ui-events.log.1 (replacing any older one) and a fresh file is
+// started — existing lines are never rewritten, and at most ~400 KB is kept.
+const UI_EVENT_LOG_CAP: u64 = 200 * 1024;
+const UI_EVENTS: &[&str] = &[
+    "session-end-timeout-offline",
+    "session-end-timeout-connected",
+    "session-end-acked",
+    "reconcile-write",
+];
+
+/// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
+/// Days-to-civil conversion from Howard Hinnant's chrono-compatible algorithms.
+fn iso8601_utc(ms: u64) -> String {
+    let secs = ms / 1000;
+    let millis = ms % 1000;
+    let days = (secs / 86_400) as i64;
+    let sod = secs % 86_400;
+    let (h, mi, se) = (sod / 3600, (sod % 3600) / 60, sod % 60);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if mo <= 2 { 1 } else { 0 };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        y, mo, d, h, mi, se, millis
+    )
+}
+
+#[tauri::command]
+fn append_ui_event(event: String, uid_prefix: String, app: tauri::AppHandle) -> Result<(), String> {
+    use std::io::Write;
+
+    if !UI_EVENTS.contains(&event.as_str()) {
+        return Err(format!("unknown ui event: {}", event));
+    }
+    let uid: String = uid_prefix
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(6)
+        .collect();
+    let uid = if uid.is_empty() { "-".to_string() } else { uid };
+
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("ui-events.log");
+    let line = format!("{} {} {}\n", iso8601_utc(now_millis()), event, uid);
+
+    let current = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if current > 0 && current + line.len() as u64 > UI_EVENT_LOG_CAP {
+        // std::fs::rename replaces an existing target on Windows.
+        std::fs::rename(&path, dir.join("ui-events.log.1")).map_err(|e| e.to_string())?;
+    }
+
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| f.write_all(line.as_bytes()))
+        .map_err(|e| e.to_string())
+}
+
 // ─── IPC Command: get_enforcer_state ─────────────────────────────────────────
 // Read-only snapshot of the enforcer's Rust-side truth. The degraded/offline
 // screen gates its kill switch on THIS, never on Firebase-derived React state —
@@ -1132,7 +1208,7 @@ pub fn run() {
 
     tauri::Builder::default()
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, export_extension_assets, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, emergency_disarm, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, export_extension_assets, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, emergency_disarm, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -1348,4 +1424,19 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::iso8601_utc;
+
+    #[test]
+    fn iso8601_utc_known_instants() {
+        assert_eq!(iso8601_utc(0), "1970-01-01T00:00:00.000Z");
+        // Leap day, and the last millisecond of a day.
+        assert_eq!(iso8601_utc(951_868_799_999), "2000-02-29T23:59:59.999Z");
+        assert_eq!(iso8601_utc(951_868_800_000), "2000-03-01T00:00:00.000Z");
+        // The 1.2.3 setup.exe signature timestamp, 1789633173 s.
+        assert_eq!(iso8601_utc(1_789_633_173_000), "2026-09-17T08:19:33.000Z");
+    }
 }

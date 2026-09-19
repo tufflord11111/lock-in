@@ -2,13 +2,28 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Info, X } from "lucide-react";
 import {
+  dismissWriteFailure,
   onWriteFailure,
+  onWriteFailureDismissed,
   recentWriteFailures,
   type WriteFailure,
 } from "../writeFailures";
 
 const AUTO_DISMISS_MS = 10000;
 const MAX_VISIBLE = 3;
+
+/**
+ * Keep at most MAX_VISIBLE, dropping the oldest NON-sticky toast first: a
+ * burst of ordinary failures must not push out a notice that is still true.
+ */
+function capVisible(list: WriteFailure[]): WriteFailure[] {
+  const out = [...list];
+  while (out.length > MAX_VISIBLE) {
+    const i = out.findIndex((f) => !f.sticky);
+    out.splice(i === -1 ? 0 : i, 1);
+  }
+  return out;
+}
 
 /**
  * The single visible channel for background write failures. Non-blocking:
@@ -19,29 +34,42 @@ export function WriteFailureToasts() {
   // Seeded from the replay buffer so a failure reported moments before this
   // host mounted (a sign-out swapping the tree) is still shown.
   const [items, setItems] = useState<WriteFailure[]>(() =>
-    recentWriteFailures().slice(-MAX_VISIBLE)
+    capVisible(recentWriteFailures())
   );
 
   useEffect(
     () =>
       onWriteFailure((failure) =>
-        setItems((prev) => [...prev, failure].slice(-MAX_VISIBLE))
+        setItems((prev) => capVisible([...prev, failure]))
       ),
     []
   );
 
-  // Drop the oldest on a timer so a burst of failures still clears.
+  // A caller clearing its own toast (e.g. the queued write was acknowledged).
+  useEffect(
+    () =>
+      onWriteFailureDismissed((id) =>
+        setItems((prev) => prev.filter((i) => i.id !== id))
+      ),
+    []
+  );
+
+  // Drop the oldest NON-sticky toast on a timer so a burst still clears.
+  // Sticky toasts are never timed out: an info toast raised while the window
+  // was in the background used to be gone before anyone looked.
   useEffect(() => {
-    if (items.length === 0) return;
+    const target = items.find((i) => !i.sticky);
+    if (!target) return;
     const timer = setTimeout(
-      () => setItems((prev) => prev.slice(1)),
+      () => setItems((prev) => prev.filter((i) => i.id !== target.id)),
       AUTO_DISMISS_MS
     );
     return () => clearTimeout(timer);
   }, [items]);
 
-  const dismiss = (id: number) =>
-    setItems((prev) => prev.filter((i) => i.id !== id));
+  // Goes through dismissWriteFailure so the replay buffer forgets it too, and
+  // a closed sticky toast doesn't reappear when this host remounts.
+  const dismiss = (id: number) => dismissWriteFailure(id);
 
   return (
     // z-[110]: above the Dashboard's Telemetry modal (z-[100]), which would
