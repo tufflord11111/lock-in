@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, get, increment, update, set } from "firebase/database";
 import { invoke } from "@tauri-apps/api/core";
@@ -54,10 +54,35 @@ export function useOmniSync(
   };
 
 
-  // 3. Heartbeat - Increment minutes every 60 seconds
+  // 3. Heartbeat — credit the time that has actually passed since the last tick.
+  //
+  // This used to add exactly 1 minute per setInterval(60000) call. WebView2
+  // throttles, then suspends, timers in a hidden or covered window, and Tauri
+  // can't turn that off on Windows — so a backgrounded app fired far fewer
+  // than one call a minute and undercounted. minutesToday feeds the header's
+  // "Uptime today" and the extension's daily-limit lock, which therefore
+  // locked late or never. The same flaw the session countdown had.
+  //
+  // Now each tick measures the wall-clock gap since the previous one and
+  // credits it in whole minutes, carrying the remainder. A single gap is
+  // capped at MAX_CREDITED_GAP_MS: a longer one is the machine asleep, not
+  // the app running, and must not be credited as uptime.
+  const lastTickRef = useRef<number | null>(null);
+  const carryMsRef = useRef(0);
   useEffect(() => {
+    const MAX_CREDITED_GAP_MS = 15 * 60_000;
+    lastTickRef.current = Date.now();
+    carryMsRef.current = 0;
+
     const tick = async () => {
       if (!userId) return;
+      const now = Date.now();
+      const gap = Math.max(0, now - (lastTickRef.current ?? now));
+      lastTickRef.current = now;
+      carryMsRef.current += Math.min(gap, MAX_CREDITED_GAP_MS);
+      const minutes = Math.floor(carryMsRef.current / 60_000);
+      carryMsRef.current -= minutes * 60_000;
+
       try {
         // Check for midnight reset before heartbeat
         await checkDailyReset();
@@ -65,10 +90,12 @@ export function useOmniSync(
         const deviceRef = ref(db, `users/${userId}/devices/${deviceId}`);
         await update(deviceRef, {
           name: deviceName,
-          minutesToday: increment(1),
-          lastSync: Date.now(),
+          ...(minutes > 0 ? { minutesToday: increment(minutes) } : {}),
+          lastSync: now,
         });
       } catch (error) {
+        // Give the minutes back so the next tick retries them.
+        carryMsRef.current += minutes * 60_000;
         console.error("❌ OMNI-SYNC ERROR:", error);
       }
     };
