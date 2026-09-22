@@ -3,7 +3,8 @@ import { db } from "@lock-in/firebase";
 import { ref, onValue, update, push, increment, serverTimestamp } from "firebase/database";
 import { getDeviceId } from "../deviceId";
 import { WEB_BLOCKLIST } from "../constants";
-import { guardWrite } from "../writeFailures";
+
+import { awaitWriteOrQueue } from "../offlineWrite";
 
 /** Exactly the node shape the desktop writes and its cross-device mirror reads. */
 export type SessionState = {
@@ -76,16 +77,26 @@ export function useSession(uid: string) {
       // Same shape, same field order, as apps/web startSession's masterBlockList:
       // the eight web defaults followed by the user's exe names.
       const blockedUrls = [...WEB_BLOCKLIST, ...blockedApps];
-      await update(ref(db), {
-        [`users/${uid}/sessionState`]: {
-          isActive: true,
-          endTime: end,
-          objective: objective.trim() || "Untitled Session",
-          blockedUrls,
-          originDeviceId: deviceId,
-        },
-        [`users/${uid}/config/focusActive`]: true,
-      });
+      // Raced: offline, this await never returned, so `busy` stayed true and
+      // the End button stayed disabled — the session couldn't be ended on the
+      // phone until it reconnected. The UI follows the local write via the
+      // sessionState listener either way.
+      await awaitWriteOrQueue(
+        update(ref(db), {
+          [`users/${uid}/sessionState`]: {
+            isActive: true,
+            endTime: end,
+            objective: objective.trim() || "Untitled Session",
+            blockedUrls,
+            originDeviceId: deviceId,
+          },
+          [`users/${uid}/config/focusActive`]: true,
+        }),
+        {
+          lateErrorMessage:
+            "Your session start was refused, so other devices and the extension won't see it running.",
+        }
+      );
     },
     [uid, deviceId, blockedApps]
   );
@@ -102,30 +113,33 @@ export function useSession(uid: string) {
             : 0;
         startedAtRef.current = null;
 
-        // Atomic: both flags flip together, exactly as the desktop's endSession.
-        await update(ref(db), {
+        // ONE atomic update for everything a session end records — both flags,
+        // the history entry and the daily minutes — exactly as the desktop's
+        // endSession. History used to be queued only after the flag write was
+        // acknowledged, so offline it was never queued at all, and closing the
+        // app lost both. The history key is generated client-side (push()
+        // with no value writes nothing) so it can ride in the same update.
+        const updates: Record<string, unknown> = {
           [`users/${uid}/sessionState`]: { isActive: false, originDeviceId: deviceId },
           [`users/${uid}/config/focusActive`]: false,
-        });
-
-        // History is fire-and-forget, matching the desktop — but a failure is
-        // now surfaced instead of being discarded by a bare catch.
-        guardWrite(
-          push(ref(db, `users/${uid}/sessionHistory`), {
+          [`users/${uid}/sessionHistory/${push(ref(db, `users/${uid}/sessionHistory`)).key}`]: {
             objective,
             minutes,
             timestamp: serverTimestamp(),
             status: completed ? "completed" : "aborted",
-          }),
-          "Your session wasn't added to your history. Check your connection."
-        );
+          },
+        };
         if (minutes > 0) {
           const today = new Date().toLocaleDateString("en-CA");
-          guardWrite(
-            update(ref(db, `users/${uid}/history`), { [today]: increment(minutes) }),
-            "Your session minutes didn't save, so your streak won't count this session. Check your connection."
-          );
+          updates[`users/${uid}/history/${today}`] = increment(minutes);
         }
+
+        // Raced: offline the UI proceeds after 5 s (the local write already
+        // ended the session on screen) and the write stays queued.
+        await awaitWriteOrQueue(update(ref(db), updates), {
+          lateErrorMessage:
+            "The end of your session was refused, so other devices may still show it running and this session's minutes weren't recorded.",
+        });
       } finally {
         endingRef.current = false;
       }

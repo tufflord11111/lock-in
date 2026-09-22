@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import { getDatabase, ref as dbRef, onValue, update } from "firebase/database";
 import { db } from "@lock-in/firebase";
+import { awaitWriteOrQueue } from "../offlineWrite";
+import { reportWriteFailure } from "../writeFailures";
 
 // Tauri detect
 const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
@@ -280,9 +282,19 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
 
   // ── Complete ─────────────────────────────────────────────────────────────────
   const handleComplete = async () => {
+    // Raced: offline, this await never returned and onComplete never ran, so
+    // the operator was stuck on the last onboarding step with no message.
+    // Still non-fatal either way — setup finishes on this device regardless.
+    const lateErrorMessage =
+      "Couldn't save that you finished setup, so you may see it again next launch.";
     try {
-      await update(dbRef(db, `users/${userId}/config`), { onboardingComplete: true });
-    } catch { /* non-fatal */ }
+      await awaitWriteOrQueue(
+        update(dbRef(db, `users/${userId}/config`), { onboardingComplete: true }),
+        { lateErrorMessage }
+      );
+    } catch (err) {
+      reportWriteFailure(lateErrorMessage, err);
+    }
     onComplete();
   };
 

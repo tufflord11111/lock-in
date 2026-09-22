@@ -10,22 +10,69 @@
  *
  * Messages must name WHAT was lost, not "an error occurred".
  */
-export type WriteFailure = { id: number; message: string; at: number };
+
+/**
+ * "error" — a write was refused or failed; something did not save.
+ * "info"  — nothing has failed yet, but the operator needs to know (a write
+ *           queued offline). Rendered calmly, not logged as a failure.
+ */
+export type WriteFailureKind = "info" | "error";
+
+export type WriteFailure = {
+  id: number;
+  message: string;
+  at: number;
+  kind: WriteFailureKind;
+  /** Never auto-dismissed; cleared by the operator or dismissWriteFailure. */
+  sticky: boolean;
+};
 
 type Listener = (failure: WriteFailure) => void;
+type DismissListener = (id: number) => void;
 
 const listeners = new Set<Listener>();
+const dismissListeners = new Set<DismissListener>();
 let nextId = 1;
 
-/** Report a failed background write. Safe to call from anywhere, never throws. */
-export function reportWriteFailure(message: string, err?: unknown): void {
-  console.error(`[LOCK-IN] write failed — ${message}`, err);
-  const failure: WriteFailure = { id: nextId++, message, at: Date.now() };
+/**
+ * Report a failed background write. Safe to call from anywhere, never throws.
+ * Returns the toast's id, for dismissWriteFailure.
+ */
+export function reportWriteFailure(
+  message: string,
+  err?: unknown,
+  kind: WriteFailureKind = "error",
+  options: { sticky?: boolean } = {}
+): number {
+  if (kind === "error") {
+    console.error(`[LOCK-IN] write failed — ${message}`, err);
+  } else {
+    console.info(`[LOCK-IN] ${message}`);
+  }
+  const failure: WriteFailure = {
+    id: nextId++,
+    message,
+    at: Date.now(),
+    kind,
+    sticky: options.sticky === true,
+  };
   for (const listener of listeners) {
     try {
       listener(failure);
     } catch {
       /* a broken listener must never break the caller's write path */
+    }
+  }
+  return failure.id;
+}
+
+/** Remove a toast wherever it is showing. */
+export function dismissWriteFailure(id: number): void {
+  for (const listener of dismissListeners) {
+    try {
+      listener(id);
+    } catch {
+      /* never break the dismisser */
     }
   }
 }
@@ -35,6 +82,14 @@ export function onWriteFailure(listener: Listener): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
+  };
+}
+
+/** Subscribe to dismissals. Returns an unsubscribe function. */
+export function onWriteFailureDismissed(listener: DismissListener): () => void {
+  dismissListeners.add(listener);
+  return () => {
+    dismissListeners.delete(listener);
   };
 }
 

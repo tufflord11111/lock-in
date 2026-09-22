@@ -3,6 +3,8 @@ import { CheckCircle, Circle, Plus, Trash2, X, Calendar } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, set, remove } from "firebase/database";
+import { awaitWriteOrQueue } from "../offlineWrite";
+import { guardWrite, reportWriteFailure } from "../writeFailures";
 
 const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 type WeekDay = typeof WEEK_DAYS[number];
@@ -82,13 +84,24 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
   const saveCalendarUrl = async () => {
     const raw = calendarInput.trim();
     if (!raw || !raw.startsWith('https://calendar.google.com')) return;
-    await set(ref(db, `users/${userId}/settings/calendarUrl`), raw);
-    setShowCalendarModal(false);
-    setCalendarInput("");
+    // Raced: offline, the modal used to stay open forever.
+    const lateErrorMessage = "Couldn't save your calendar link — it was refused.";
+    try {
+      await awaitWriteOrQueue(set(ref(db, `users/${userId}/settings/calendarUrl`), raw), {
+        lateErrorMessage,
+      });
+      setShowCalendarModal(false);
+      setCalendarInput("");
+    } catch (err) {
+      reportWriteFailure("Couldn't save your calendar link. Check your connection and try again.", err);
+    }
   };
 
-  const disconnectCalendar = async () => {
-    await remove(ref(db, `users/${userId}/settings/calendarUrl`));
+  const disconnectCalendar = () => {
+    guardWrite(
+      remove(ref(db, `users/${userId}/settings/calendarUrl`)),
+      "Couldn't disconnect your calendar. It's still linked."
+    );
   };
 
   const now = new Date();

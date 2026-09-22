@@ -140,6 +140,11 @@ input:focus { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--navy);
   line-height: 1.45;
   color: var(--navy);
 }
+/* A notice, not a failure (e.g. a write queued offline). */
+.toast.info {
+  border-color: var(--navy);
+  box-shadow: 4px 4px 0 var(--navy);
+}
 .toast button {
   background: none;
   border: none;

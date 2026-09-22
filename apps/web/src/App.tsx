@@ -26,6 +26,7 @@ import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
 import { WriteFailureToasts } from "./components/WriteFailureToasts";
+import { awaitWriteOrQueue } from "./offlineWrite";
 import { Login } from "./screens/Login";
 
 type ConnectionGateProps = {
@@ -323,10 +324,15 @@ export function App() {
     if (!user?.uid) return;
     const key = exe.replace(/\./g, "_");
     // Stamp this device as the origin so the enforcer auto-approves it (H1).
-    await update(ref(db), {
-      [`users/${user.uid}/blockedApps/${key}`]: exe,
-      [`users/${user.uid}/blockedApps_meta/${key}`]: deviceId,
-    });
+    // Raced: offline, the confirm dialog that awaits this used to stay busy
+    // forever. It now closes after 5 s and the write stays queued.
+    await awaitWriteOrQueue(
+      update(ref(db), {
+        [`users/${user.uid}/blockedApps/${key}`]: exe,
+        [`users/${user.uid}/blockedApps_meta/${key}`]: deviceId,
+      }),
+      { lateErrorMessage: `Couldn't save ${exe} to your blocks — it was refused, so it isn't blocked.` }
+    );
   };
 
   // Fire-and-forget through guardWrite: it's called straight from a button,
@@ -357,12 +363,22 @@ export function App() {
       setUsernameError((err as Error).message);
       return;
     }
-    setUsernameSubmitting(true);
-    try {
-      await write;
-    } catch (err) {
+    const showHandleError = (err: unknown) => {
       const e = asHandleError(err);
       setUsernameError(e instanceof HandleTakenError ? e.message : "Failed to save. Try again.");
+    };
+    setUsernameSubmitting(true);
+    try {
+      // Raced: offline, "Locking In..." used to spin forever. After 5 s the
+      // overlay closes on the local write. If the server later refuses the
+      // handle, the SDK reverts that local write, config/usernameSet flips back
+      // to false, and the overlay reopens with the taken-handle message.
+      await awaitWriteOrQueue(write, {
+        lateErrorMessage: "That handle is taken — pick another",
+        onLateError: showHandleError,
+      });
+    } catch (err) {
+      showHandleError(err);
     } finally {
       setUsernameSubmitting(false);
     }
