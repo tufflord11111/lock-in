@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, RefreshCw, CheckCircle, LogOut, AlertTriangle } from "lucide-react";
 
@@ -7,6 +7,8 @@ interface VerificationGateProps {
   onCheckStatus: () => Promise<boolean>;
   onResend: () => Promise<void>;
   onLogout: () => void;
+  /** The verification email sent at registration failed. */
+  sendFailed?: boolean;
 }
 
 export function VerificationGate({
@@ -14,12 +16,24 @@ export function VerificationGate({
   onCheckStatus,
   onResend,
   onLogout,
+  sendFailed = false,
 }: VerificationGateProps) {
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ type: "error" | "info"; text: string } | null>(null);
+
+  // Registration's verification email failed to send: say so, rather than
+  // waiting for an email that isn't coming. Resend is right below.
+  useEffect(() => {
+    if (sendFailed) {
+      setStatusMsg({
+        type: "error",
+        text: "We couldn't send your verification email. Use Resend below to try again.",
+      });
+    }
+  }, [sendFailed]);
 
   const handleCheckStatus = async () => {
     setChecking(true);

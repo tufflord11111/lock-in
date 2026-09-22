@@ -148,6 +148,7 @@ export function App() {
     emailVerified,
     isNewUser,
     authDegraded,
+    verificationSendFailed,
     clearNewUserFlag,
     login,
     register,
@@ -489,6 +490,7 @@ export function App() {
         onCheckStatus={reloadUser}
         onResend={resendVerificationEmail}
         onLogout={logout}
+        sendFailed={verificationSendFailed}
       />
     );
   }
