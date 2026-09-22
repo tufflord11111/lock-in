@@ -417,18 +417,36 @@ export function useFocusSession(
         ...blockedApps,
       ];
 
-      // Broadcast full session state to Firebase for extension to read
+      // Broadcast full session state to Firebase for extension to read.
+      //
+      // ONE atomic write for sessionState and config/focusActive. They were two
+      // separate unguarded writes; if focusActive:true landed without the new
+      // sessionState, the extension saw focusActive with the previous session's
+      // endTime-less sessionState and blocked indefinitely — and boot
+      // reconciliation, which needs sessionState.isActive, could never clear it.
       const endTime = Date.now() + seconds * 1000;
       endTimeRef.current = endTime;
       sessionLiveRef.current = true;
-      const sessionStateRef = ref(db, `users/${userId}/sessionState`);
-      set(sessionStateRef, {
-        isActive: true,
-        endTime,
-        objective: label.trim(),
-        blockedUrls: masterBlockList,
-        originDeviceId: deviceId, // lets the cross-device mirror skip this write's echo
-      });
+      const startMessage =
+        "Couldn't save the start of your session. Your browser extension may not block sites during it, and other devices won't see it running.";
+      try {
+        guardWrite(
+          update(ref(db), {
+            [`users/${userId}/sessionState`]: {
+              isActive: true,
+              endTime,
+              objective: label.trim(),
+              blockedUrls: masterBlockList,
+              originDeviceId: deviceId, // lets the cross-device mirror skip this write's echo
+            },
+            [`users/${userId}/config/focusActive`]: true,
+          }),
+          startMessage
+        );
+      } catch (err) {
+        // update() validates synchronously, before guardWrite sees a promise.
+        reportWriteFailure(startMessage, err);
+      }
 
       // Signal Rust sniper (exe list only — don't send "youtube.com" to taskkill)
       console.log("REACT: Firing Rust sniper ACTIVE signal...", exeList);
@@ -437,9 +455,6 @@ export function useFocusSession(
       invoke("update_enforcement", { isActive: true, blockedList: exeList, endTime })
         .then((res) => console.log("RUST RESPONSE:", res))
         .catch((err) => console.warn("[Enforcer] update_enforcement(start) — not in Tauri or failed:", err));
-
-      const configRef = ref(db, `users/${userId}/config`);
-      update(configRef, { focusActive: true });
 
       startCountdown();
 
