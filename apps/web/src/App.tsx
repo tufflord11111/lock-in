@@ -329,13 +329,18 @@ export function App() {
     });
   };
 
+  // Fire-and-forget through guardWrite: it's called straight from a button,
+  // so a refusal used to be an uncaught rejection and nothing on screen.
   const handleRemoveExe = async (exe: string) => {
     if (!user?.uid) return;
     const key = exe.replace(/\./g, "_");
-    await update(ref(db), {
-      [`users/${user.uid}/blockedApps/${key}`]: null,
-      [`users/${user.uid}/blockedApps_meta/${key}`]: null,
-    });
+    guardWrite(
+      update(ref(db), {
+        [`users/${user.uid}/blockedApps/${key}`]: null,
+        [`users/${user.uid}/blockedApps_meta/${key}`]: null,
+      }),
+      `Couldn't remove ${exe}. It's still blocked.`
+    );
   };
 
   const handleUsernameSubmit = useCallback(async () => {

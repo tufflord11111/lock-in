@@ -5,7 +5,9 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { db } from "@lock-in/firebase";
-import { ref, onValue, set, remove } from "firebase/database";
+import { ref, onValue, set, remove, update } from "firebase/database";
+import { guardWrite } from "../writeFailures";
+import { getDeviceId } from "../deviceId";
 import { DeleteAccountButton } from "../components/DeleteAccountButton";
 
 const DEFAULT_WEB_BLOCKS = [
@@ -250,16 +252,27 @@ export function BlockRegistry({
   // Web Blocker helpers
   const visibleDefaultDomains = DEFAULT_WEB_BLOCKS.filter(d => !removedDefaults.includes(d));
 
-  const removeDefaultBlock = async (domain: string) => {
-    await set(ref(db, `users/${userId}/removedDefaults`), [...removedDefaults, domain]);
+  // Every Block Registry write goes through guardWrite: fire-and-forget so no
+  // button can hang offline, and a refusal is a toast instead of an uncaught
+  // rejection in a console nobody sees.
+  const removeDefaultBlock = (domain: string) => {
+    // removedDefaults is stored as an array; always write it whole. Deleting a
+    // single index would turn it into an object and break every .includes().
+    guardWrite(
+      set(ref(db, `users/${userId}/removedDefaults`), [...removedDefaults, domain]),
+      `Couldn't remove ${domain} from your default blocks. It's still blocked.`
+    );
   };
 
-  const removeCustomBlock = async (domain: string) => {
+  const removeCustomBlock = (domain: string) => {
     const safeKey = domain.replace(/\./g, '_');
-    await remove(ref(db, `users/${userId}/customBlocks/${safeKey}`));
+    guardWrite(
+      remove(ref(db, `users/${userId}/customBlocks/${safeKey}`)),
+      `Couldn't remove ${domain}. It's still blocked.`
+    );
   };
 
-  const addWebBlockManual = async () => {
+  const addWebBlockManual = () => {
     const raw = newWebDomain.trim()
       .replace(/^https?:\/\//i, '')
       .replace(/^www\./i, '')
@@ -267,8 +280,11 @@ export function BlockRegistry({
     if (!raw || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(raw)) return;
     const domain = raw.toLowerCase();
     const safeKey = domain.replace(/\./g, '_');
-    await set(ref(db, `users/${userId}/customBlocks/${safeKey}`), domain);
     setNewWebDomain('');
+    guardWrite(
+      set(ref(db, `users/${userId}/customBlocks/${safeKey}`), domain),
+      `Couldn't add ${domain} to your blocks. It isn't blocked yet — try again.`
+    );
   };
 
   const handleToggleAutostart = async () => {
@@ -284,33 +300,74 @@ export function BlockRegistry({
     }
   };
 
-  const makeExePermanent = async (exe: string) => {
+  // Moving an entry between session and permanent is ONE multi-path update, so
+  // it is always in exactly one list. These used to be 2-3 separate writes:
+  // a failure part-way left an entry in both lists or neither, and between
+  // the steps of a move to session it was briefly not blocked at all.
+  const makeExePermanent = (exe: string) => {
     const safeKey = exe.replace(/\./g, '_');
-    await set(ref(db, `users/${userId}/permanentExe/${safeKey}`), exe);
-    // Remove from session blockedApps
-    await remove(ref(db, `users/${userId}/blockedApps/${safeKey}`));
-    await removeBlock(exe);
+    guardWrite(
+      update(ref(db), {
+        [`users/${userId}/permanentExe/${safeKey}`]: exe,
+        [`users/${userId}/blockedApps/${safeKey}`]: null,
+        [`users/${userId}/blockedApps_meta/${safeKey}`]: null,
+      }),
+      `Couldn't make ${exe} permanent. It's still a session block.`
+    );
   };
 
-  const makeExeSession = async (exe: string) => {
+  const makeExeSession = (exe: string) => {
     const safeKey = exe.replace(/\./g, '_');
-    await remove(ref(db, `users/${userId}/permanentExe/${safeKey}`));
-    await addBlock(exe);
+    guardWrite(
+      update(ref(db), {
+        [`users/${userId}/permanentExe/${safeKey}`]: null,
+        [`users/${userId}/blockedApps/${safeKey}`]: exe,
+        // This device vouches for it, as handleAddExe does, so the enforcer
+        // auto-approves it here instead of staging it for approval (H1).
+        [`users/${userId}/blockedApps_meta/${safeKey}`]: getDeviceId(),
+      }),
+      `Couldn't move ${exe} back to session blocks. It's still permanent.`
+    );
   };
 
-  const makeWebPermanent = async (domain: string) => {
-    const safeKey = domain.replace(/\./g, '_');
-    await set(ref(db, `users/${userId}/permanentBlocks/${safeKey}`), domain);
-    // Remove from session blocks
-    await remove(ref(db, `users/${userId}/customBlocks/${safeKey}`));
-    await remove(ref(db, `users/${userId}/removedDefaults`));
+  const removePermanentExe = (exe: string) => {
+    const safeKey = exe.replace(/\./g, '_');
+    guardWrite(
+      remove(ref(db, `users/${userId}/permanentExe/${safeKey}`)),
+      `Couldn't remove the permanent block on ${exe}. It's still blocked.`
+    );
   };
 
-  const makeWebSession = async (domain: string) => {
+  // PERM is only offered on custom entries, so removedDefaults is deliberately
+  // left alone. (This used to delete the whole removedDefaults list, turning
+  // every default the user had removed back on.)
+  const makeWebPermanent = (domain: string) => {
     const safeKey = domain.replace(/\./g, '_');
-    await remove(ref(db, `users/${userId}/permanentBlocks/${safeKey}`));
-    // Add back to customBlocks as session block
-    await set(ref(db, `users/${userId}/customBlocks/${safeKey}`), domain);
+    guardWrite(
+      update(ref(db), {
+        [`users/${userId}/permanentBlocks/${safeKey}`]: domain,
+        [`users/${userId}/customBlocks/${safeKey}`]: null,
+      }),
+      `Couldn't make ${domain} permanent. It's still a session block.`
+    );
+  };
+
+  const makeWebSession = (domain: string) => {
+    const safeKey = domain.replace(/\./g, '_');
+    guardWrite(
+      update(ref(db), {
+        [`users/${userId}/permanentBlocks/${safeKey}`]: null,
+        [`users/${userId}/customBlocks/${safeKey}`]: domain,
+      }),
+      `Couldn't move ${domain} back to session blocks. It's still permanent.`
+    );
+  };
+
+  const removePermanentWeb = (key: string, domain: string) => {
+    guardWrite(
+      remove(ref(db, `users/${userId}/permanentBlocks/${key}`)),
+      `Couldn't remove the permanent block on ${domain}. It's still blocked.`
+    );
   };
 
   const handleBrowse = async () => {
@@ -498,7 +555,7 @@ export function BlockRegistry({
                         <span className="text-[10px] font-mono text-[#1B2A4A] flex-1 truncate">{displayDomain}</span>
                         <span className="text-[7px] font-black uppercase px-1.5 py-0.5 bg-[#F5C842] text-[#1B2A4A] border border-[#1B2A4A] rounded">24/7</span>
                         <button onClick={() => makeWebSession(displayDomain)} className="text-[8px] font-black text-[#1B2A4A]/40 hover:text-[#1B2A4A] uppercase tracking-widest transition-colors">SESSION</button>
-                        <button onClick={() => remove(ref(db, `users/${userId}/permanentBlocks/${key}`))} className="text-[8px] font-black text-red-500 hover:text-red-700 uppercase tracking-widest transition-colors">✕</button>
+                        <button onClick={() => removePermanentWeb(key, displayDomain)} className="text-[8px] font-black text-red-500 hover:text-red-700 uppercase tracking-widest transition-colors">✕</button>
                       </div>
                     );
                   })}
@@ -630,7 +687,7 @@ export function BlockRegistry({
                   <div className="flex items-center gap-2 shrink-0">
                     <button onClick={() => makeExeSession(exe)} className="text-[7px] font-black uppercase px-2 py-0.5 border border-[#002855]/30 rounded text-[#002855]/40 hover:border-[#002855] transition-colors">SESSION</button>
                     <span className="text-[7px] font-black uppercase px-2 py-0.5 bg-[#F5C842] border-2 border-[#002855] rounded text-[#002855]">24/7</span>
-                    <button onClick={() => remove(ref(db, `users/${userId}/permanentExe/${exe.replace(/\./g, '_')}`))} className="text-royal-blue/20 hover:text-red-500 transition-colors ml-1">
+                    <button onClick={() => removePermanentExe(exe)} className="text-royal-blue/20 hover:text-red-500 transition-colors ml-1">
                       <Trash2 size={14} />
                     </button>
                   </div>
