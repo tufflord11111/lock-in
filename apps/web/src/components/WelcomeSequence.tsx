@@ -40,6 +40,8 @@ const PROTOCOL_STEPS = [
   { n: "04", text: "Log in with the same Lock-In account you used on this desktop app", code: null },
 ];
 
+const STORE_URL = "https://chrome.google.com/webstore/search/Lock-In";
+
 function LinkingProtocol({
   onClose,
   onLinked,
@@ -54,17 +56,17 @@ function LinkingProtocol({
   const [copied, setCopied]           = useState(false);
   const [showLinked, setShowLinked]   = useState(false);
 
-  const handleStore = async () => {
+  // The desktop build has no way to open a browser: the button used
+  // @tauri-apps/plugin-shell, but the Rust side never had tauri-plugin-shell,
+  // so open() threw and the button did nothing. Rather than add a plugin (and
+  // an open-URL capability) for one link, the desktop shows the link and
+  // copies it; a plain browser can still open it directly.
+  const handleStore = () => {
     if (!isTauri) {
-      window.open("https://chrome.google.com/webstore/search/Lock-In", "_blank");
+      window.open(STORE_URL, "_blank");
       return;
     }
-    try {
-      const { open } = await import("@tauri-apps/plugin-shell");
-      await open("https://chrome.google.com/webstore/search/Lock-In");
-    } catch (e: any) {
-      console.error(e);
-    }
+    handleCopy(STORE_URL);
   };
 
   useEffect(() => {
@@ -161,8 +163,13 @@ function LinkingProtocol({
               className="w-full flex items-center justify-center gap-2 bg-white/5 border-[2px] border-[#FFD166]/30 hover:border-[#FFD166] text-[#FFD166] font-black text-[10px] uppercase tracking-widest py-3 px-4 transition-all disabled:opacity-50"
             >
               <Download size={13} />
-              OPEN CHROME WEB STORE
+              {isTauri ? "COPY CHROME WEB STORE LINK" : "OPEN CHROME WEB STORE"}
             </button>
+            {isTauri && (
+              <p className="mt-2 text-[9px] font-mono text-[#FFD166]/70 break-all select-all">
+                {STORE_URL}
+              </p>
+            )}
           </div>
 
           {/* ── Protocol steps ───────────────────────────────────────────── */}
