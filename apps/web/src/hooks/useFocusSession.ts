@@ -238,6 +238,21 @@ export function useFocusSession(
         const remoteActive = data.isActive === true;
         // Initial payload may arm but never disarm (see rule 2 above).
         if (isInitialPayload && !remoteActive) return;
+        // Never arm on a session that can't be running: one with no endTime
+        // (it would never expire on its own) or one whose endTime has passed
+        // (e.g. a phone session that ended offline and was never cleared —
+        // every desktop launch used to arm on it). Rust refuses these too.
+        if (remoteActive) {
+          const end = typeof data.endTime === "number" ? data.endTime : null;
+          if (end === null || end <= Date.now()) {
+            console.info(
+              `[LOCK-IN] ignoring remote session from device ${data.originDeviceId ?? "unknown"} — ${
+                end === null ? "it has no endTime" : "its endTime has already passed"
+              }`
+            );
+            return;
+          }
+        }
         const exeList = blockedAppsRef.current.filter(
           (b) => b.endsWith(".exe") || !b.includes(".")
         );

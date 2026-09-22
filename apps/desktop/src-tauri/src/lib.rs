@@ -630,6 +630,20 @@ fn export_extension_assets(app: tauri::AppHandle) -> ExportResult {
 // ─── IPC Command: update_enforcement ─────────────────────────────────────────
 // Lightweight alias called by the session start/stop flow.
 // Accepts { isActive, blockedList } to enforce during a focus session.
+/// Why a session with this deadline must not be armed, if it mustn't.
+/// No deadline: it would never expire on its own. A past deadline: the loop
+/// could run a kill pass before its next expiry check.
+fn arm_refusal(end_time: Option<u64>, now: u64) -> Option<String> {
+    match end_time {
+        None => Some("the session has no end time".to_string()),
+        Some(end) if end <= now => Some(format!(
+            "the session's end time passed {} ms ago",
+            now - end
+        )),
+        Some(_) => None,
+    }
+}
+
 #[tauri::command]
 fn update_enforcement(
     is_active: bool,
@@ -645,6 +659,14 @@ fn update_enforcement(
     match app_state.profile.lock() {
         Ok(mut profile) => {
             if is_active {
+                // Never arm a session that can't be running. With no deadline it
+                // would never expire on its own; with a past one the loop could
+                // run a kill pass before its next expiry check. The webview
+                // filters these too — this is the backstop.
+                if let Some(reason) = arm_refusal(end_time, now_millis()) {
+                    println!("[Enforcer] REFUSED arm — {} (remote = {})", reason, remote);
+                    return Err(format!("Refused to arm: {}", reason));
+                }
                 if remote && profile.disarm_latch {
                     println!("[Enforcer] disarm latch ACTIVE — refusing REMOTE session arm");
                     return Ok("Remote arm refused — disarm latch active".to_string());
@@ -1429,7 +1451,17 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::iso8601_utc;
+    use super::{arm_refusal, iso8601_utc};
+
+    #[test]
+    fn arm_refusal_rejects_missing_or_past_deadlines() {
+        let now = 1_789_633_173_000;
+        assert!(arm_refusal(None, now).is_some());
+        assert!(arm_refusal(Some(now - 60_000), now).is_some());
+        assert!(arm_refusal(Some(now), now).is_some());
+        assert_eq!(arm_refusal(Some(now + 1), now), None);
+        assert_eq!(arm_refusal(Some(now + 25 * 60_000), now), None);
+    }
 
     #[test]
     fn iso8601_utc_known_instants() {
