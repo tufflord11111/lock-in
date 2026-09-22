@@ -830,6 +830,19 @@ fn sync_permanent_exe(
     }
 }
 
+// ─── IPC Command: is_dev_mode ────────────────────────────────────────────────
+// True only when a file named DEV_MODE exists in the app data directory
+// (%APPDATA%\com.lockin.app\DEV_MODE). Unlocks test-only UI such as the
+// 2-minute "Micro" session. Deliberately a file, not a setting: nothing in the
+// app can create it, so a normal install can never show those controls.
+#[tauri::command]
+fn is_dev_mode(app: tauri::AppHandle) -> bool {
+    match app.path().app_data_dir() {
+        Ok(dir) => dir.join("DEV_MODE").is_file(),
+        Err(_) => false,
+    }
+}
+
 // ─── IPC Command: append_ui_event ────────────────────────────────────────────
 // A small on-disk trail of UI events that are otherwise invisible after the
 // fact — a toast the operator never saw, a write that sat queued offline.
@@ -1108,7 +1121,7 @@ pub fn run() {
 
     tauri::Builder::default()
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode])
         .setup(move |app| {
             let handle = app.handle().clone();
 

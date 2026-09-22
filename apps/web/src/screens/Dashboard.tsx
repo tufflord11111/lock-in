@@ -10,6 +10,9 @@ const presets = [
   { label: "Lock", minutes: 90 },
 ];
 
+/** Test-only: shown only when %APPDATA%\com.lockin.app\DEV_MODE exists. */
+const MICRO_PRESET = { label: "Micro", minutes: 2 };
+
 type Intention = { id: string; text: string; completed: boolean };
 
 type DashboardProps = {
@@ -23,6 +26,8 @@ type DashboardProps = {
   setIntentions: (intentions: Intention[]) => void;
   /** False until the blockedApps listener has fired at least once. */
   blocklistHydrated: boolean;
+  /** DEV_MODE file present: offer the 2-minute Micro session for testing. */
+  devMode?: boolean;
 };
 
 export function Dashboard({
@@ -34,6 +39,7 @@ export function Dashboard({
   onEndSession,
   intentions,
   setIntentions,
+  devMode = false,
   blocklistHydrated
 }: DashboardProps) {
   const [objective, setObjective] = useState("");
@@ -321,11 +327,11 @@ export function Dashboard({
                 <p className="text-[10px] font-black uppercase tracking-[0.4em] text-royal-blue/30 mb-8">Telemetry Initialization</p>
                 
                 <div className="grid grid-cols-2 gap-4 w-full mb-8">
-                  {presets.map((p) => (
+                  {(devMode ? [...presets, MICRO_PRESET] : presets).map((p) => (
                     <button
                       key={p.minutes}
                       onClick={() => startWithObjective(p.minutes)}
-                      className="flex flex-col items-center p-6 bg-white border-2 border-[#002855] shadow-[2px_2px_0px_#002855] rounded-2xl hover:-translate-y-1 hover:shadow-[4px_4px_0px_#002855] transition-all group active:translate-y-[2px] active:shadow-none"
+                      className={`flex flex-col items-center p-6 bg-white border-2 border-[#002855] shadow-[2px_2px_0px_#002855] rounded-2xl hover:-translate-y-1 hover:shadow-[4px_4px_0px_#002855] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""}`}
                     >
                       <span className="text-2xl font-black text-royal-blue leading-none mb-1">{p.minutes}</span>
                       <span className="text-[8px] font-black uppercase tracking-widest text-[#002855]/40 group-hover:text-[#002855]">{p.label}</span>

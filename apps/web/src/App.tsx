@@ -158,6 +158,14 @@ export function App() {
     forceOfflineMode,
   } = useAuth();
   const [currentTab, setCurrentTab] = useState<AppTab>("home");
+  // Test-only UI, gated on a DEV_MODE file in the app data dir (see Rust
+  // is_dev_mode). Outside Tauri the invoke fails and it stays off.
+  const [devMode, setDevMode] = useState(false);
+  useEffect(() => {
+    invoke<boolean>("is_dev_mode")
+      .then((on) => setDevMode(on === true))
+      .catch(() => setDevMode(false));
+  }, []);
   const [totalMinutesFocused, setTotalMinutesFocused] = useState(0);
   const [usernameInput, setUsernameInput] = useState("");
   const [usernameError, setUsernameError] = useState("");
@@ -626,6 +634,7 @@ export function App() {
               intentions={intentions}
               setIntentions={setIntentions}
               blocklistHydrated={blocklistHydrated}
+              devMode={devMode}
             />
           ) : currentTab === "analytics" ? (
             <Analytics userId={user.uid} />
