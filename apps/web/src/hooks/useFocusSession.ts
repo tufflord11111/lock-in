@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getDeviceId } from "../deviceId";
 import { dismissWriteFailure, guardWrite, reportWriteFailure } from "../writeFailures";
 import { logUiEvent } from "../uiEventLog";
+import { reportEngineFailure } from "../engineHealth";
 import type { EnforcerState } from "../components/EnforcerDisarmPanel";
 import {
   useCallback,
@@ -306,7 +307,13 @@ export function useFocusSession(
       // STEP 4: Signal Rust to stand down (already fire-and-forget)
       invoke("update_enforcement", { isActive: false, blockedList: [], endTime: null })
         .then((res) => console.log("[Enforcer] Stand-down confirmed:", res))
-        .catch((err) => console.warn("[Enforcer] failed:", err));
+        .catch((err) =>
+          reportEngineFailure(
+            "update_enforcement(stop)",
+            "The enforcer didn't confirm the end of your session, so blocked apps may keep closing until its original end time. Restart Lock-In if they do.",
+            err
+          )
+        );
 
       // STEP 5: Clear chrome storage if available
       if (typeof (window as any).chrome !== 'undefined' 
@@ -469,7 +476,13 @@ export function useFocusSession(
       // relaunch) still has a deadline the enforcer can expire it against.
       invoke("update_enforcement", { isActive: true, blockedList: exeList, endTime })
         .then((res) => console.log("RUST RESPONSE:", res))
-        .catch((err) => console.warn("[Enforcer] update_enforcement(start) — not in Tauri or failed:", err));
+        .catch((err) =>
+          reportEngineFailure(
+            "update_enforcement(start)",
+            "The enforcer didn't start, so apps won't be blocked this session. Restart Lock-In and start again.",
+            err
+          )
+        );
 
       startCountdown();
 

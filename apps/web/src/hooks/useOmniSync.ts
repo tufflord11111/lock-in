@@ -3,6 +3,7 @@ import { db } from "@lock-in/firebase";
 import { ref, onValue, get, increment, update, set } from "firebase/database";
 import { invoke } from "@tauri-apps/api/core";
 import { getDeviceId } from "../deviceId";
+import { onEngineFailure } from "../engineHealth";
 
 interface DeviceStats {
   id: string;
@@ -25,6 +26,9 @@ export function useOmniSync(
   const [focusActive, setFocusActive] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [engineOffline, setEngineOffline] = useState(false);
+  // Any enforcer command failing — not just sync_lock_state — shows the
+  // "engine offline" banner. The next successful sync_lock_state clears it.
+  useEffect(() => onEngineFailure(() => setEngineOffline(true)), []);
 
   // 1. Stable per-install Device ID — shared with useFocusSession, which stamps
   //    it onto sessionState writes so the cross-device mirror can skip its own.

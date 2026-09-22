@@ -27,6 +27,7 @@ import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
 import { WriteFailureToasts } from "./components/WriteFailureToasts";
 import { awaitWriteOrQueue } from "./offlineWrite";
+import { reportEngineFailure } from "./engineHealth";
 import { Login } from "./screens/Login";
 
 type ConnectionGateProps = {
@@ -297,7 +298,13 @@ export function App() {
       blockedList: allValues,
       approvedList: approved,
       fromRemote: true,
-    }).catch(console.warn);
+    }).catch((err) =>
+      reportEngineFailure(
+        "sync_blocklist",
+        "Your blocked apps didn't reach the enforcer, so recent changes may not apply. Restart Lock-In.",
+        err
+      )
+    );
   }, [user?.uid, blocklistHydrated, blockedAppsRaw, blockedAppsMeta, deviceId]);
 
   // Sync permanentExe from Firebase to Rust enforcer
@@ -313,7 +320,13 @@ export function App() {
           : [];
         // fromRemote: this is a Firebase-driven sync, so Rust stages any NEW
         // permanent block for local approval (F4) instead of enforcing it.
-        invoke('sync_permanent_exe', { blockedList: list, fromRemote: true }).catch(console.warn);
+        invoke('sync_permanent_exe', { blockedList: list, fromRemote: true }).catch((err) =>
+          reportEngineFailure(
+            "sync_permanent_exe",
+            "Your permanent blocks didn't reach the enforcer, so recent changes may not apply. Restart Lock-In.",
+            err
+          )
+        );
       },
       (err) => console.error('[LOCK-IN] permanentExe listener error:', err)
     );
