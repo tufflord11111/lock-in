@@ -17,7 +17,6 @@ const DEFAULT_WEB_BLOCKS = [
 interface BlockRegistryProps {
   userId: string;
   userName: string;
-  setUserName: (name: string) => void;
   customBlocks: string[];
   blockedApps: string[];
   addBlock: (exe: string) => Promise<void>;
@@ -32,7 +31,6 @@ interface BlockRegistryProps {
 export function BlockRegistry({
   userId,
   userName,
-  setUserName,
   customBlocks,
   blockedApps,
   addBlock,

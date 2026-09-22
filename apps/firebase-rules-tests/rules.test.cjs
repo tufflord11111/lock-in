@@ -59,6 +59,12 @@ async function check(name, expect, fn) {
       history: { "2026-09-17": 10 },
       emergencyUnlock: { expiry: Date.now() + 3600000 },
     });
+    // frank, gina: legacy accounts — handle only at the top level
+    // (users/{uid}/username + usernameSet), none in config/. gina's old handle
+    // "carol" is reserved by carol in the registration check below.
+    const legacyCfg = (name) => ({ ...cfg(name), usernameSet: false, username: null });
+    await set(ref(db, "users/frank"), { config: legacyCfg("frank"), username: "FRANK", usernameSet: true });
+    await set(ref(db, "users/gina"), { config: legacyCfg("gina"), username: "CAROL", usernameSet: true });
     // bob: authenticated, but no users/bob node at all (no config).
   });
 
@@ -67,6 +73,8 @@ async function check(name, expect, fn) {
   const carol = env.authenticatedContext("carol").database();
   const dave  = env.authenticatedContext("dave").database();
   const erin  = env.authenticatedContext("erin").database();
+  const frank = env.authenticatedContext("frank").database();
+  const gina  = env.authenticatedContext("gina").database();
   const hb = () => ({ last_seen: Date.now(), version: "1.2.1", status: "online" });
 
   // ── uid WITH config ────────────────────────────────────────────────────────
@@ -111,6 +119,21 @@ async function check(name, expect, fn) {
       }
       return snap;
     });
+
+  // ── 1.2.4 legacy handle migration: useHandleProfile.ts reserveHandleUpdates ─
+  const reserveUpdates = (uid, handle) => ({
+    [`users/${uid}/config/username`]: handle,
+    [`users/${uid}/config/usernameSet`]: true,
+    [`users/${uid}/config/userName`]: handle.toUpperCase(),
+    [`users/${uid}/public/userName`]: handle.toUpperCase(),
+    [`usernames/${handle}`]: uid,
+    [`users/${uid}/username`]: null,
+    [`users/${uid}/usernameSet`]: null,
+  });
+  await check("Legacy migrate: move top-level handle into config/ and reserve usernames/{handle} atomically", "pass",
+    () => update(ref(frank), reserveUpdates("frank", "frank")));
+  await check("Legacy migrate: denied when the handle is taken — nothing lands", "fail",
+    () => update(ref(gina), reserveUpdates("gina", "carol")));
 
   // ── Delete Account: DeleteAccountButton.tsx (subtree + reservations) ────────
   await check("Delete Account multi-path null (with emergencyUnlock + extension_state present)", "pass",
@@ -159,6 +182,14 @@ async function check(name, expect, fn) {
       dave_node: (await get(ref(db, "users/dave"))).val(),
       dave_key: (await get(ref(db, "usernames/dave"))).val(),
       erin_focusActive: (await get(ref(db, "users/erin/config/focusActive"))).val(),
+      frank_reserved: (await get(ref(db, "usernames/frank"))).val(),
+      frank_config_usernameSet: (await get(ref(db, "users/frank/config/usernameSet"))).val(),
+      frank_legacy_fields_gone:
+        (await get(ref(db, "users/frank/username"))).val() === null &&
+        (await get(ref(db, "users/frank/usernameSet"))).val() === null,
+      carol_key_still_carol: (await get(ref(db, "usernames/carol"))).val(),
+      gina_config_usernameSet: (await get(ref(db, "users/gina/config/usernameSet"))).val(),
+      gina_legacy_username_untouched: (await get(ref(db, "users/gina/username"))).val(),
       erin_sessionState: (await get(ref(db, "users/erin/sessionState"))).val(),
       erin_history_today: (await get(ref(db, "users/erin/history/2026-09-17"))).val(),
       erin_history_entry_timestamp_is_number:

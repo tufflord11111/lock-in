@@ -9,7 +9,8 @@ export type UiEvent =
   | "session-end-timeout-offline"
   | "session-end-timeout-connected"
   | "session-end-acked"
-  | "reconcile-write";
+  | "reconcile-write"
+  | "name-repair";
 
 const isTauri =
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;

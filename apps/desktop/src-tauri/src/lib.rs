@@ -921,6 +921,7 @@ const UI_EVENTS: &[&str] = &[
     "session-end-timeout-connected",
     "session-end-acked",
     "reconcile-write",
+    "name-repair",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.

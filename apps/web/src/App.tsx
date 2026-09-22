@@ -21,6 +21,7 @@ import { UpdateBanner } from "./components/UpdateBanner";
 
 import { ThePack } from "./screens/ThePack";
 import { useAuth } from "./hooks/useAuth";
+import { useHandleProfile, reserveHandle, asHandleError, HandleTakenError } from "./hooks/useHandleProfile";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
@@ -156,9 +157,7 @@ export function App() {
   } = useAuth();
   const [currentTab, setCurrentTab] = useState<AppTab>("home");
   const [tasks, setTasks] = useState<TasksByDay>(emptyTasksByDay);
-  const [userName, setUserName] = useState("Operator");
   const [totalMinutesFocused, setTotalMinutesFocused] = useState(0);
-  const [usernameSet, setUsernameSet] = useState<boolean | null>(null); // null = loading
   const [usernameInput, setUsernameInput] = useState("");
   const [usernameError, setUsernameError] = useState("");
   const [usernameSubmitting, setUsernameSubmitting] = useState(false);
@@ -169,34 +168,12 @@ export function App() {
    */
   const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(null);
 
-  // Sync Database Name to State
-  useEffect(() => {
-    if (user?.uid) {
-      const nameRef = ref(db, `users/${user.uid}/username`);
-      const unsub = onValue(
-        nameRef,
-        (snapshot) => {
-          const val = snapshot.val();
-          if (val) setUserName(val);
-        },
-        (err) => console.error('[LOCK-IN] username listener error:', err)
-      );
-      return () => unsub();
-    }
-  }, [user?.uid]);
-
-  // Check if username has been set yet
-  useEffect(() => {
-    if (!user?.uid || !emailVerified) return;
-    const usernameRef = ref(db, `users/${user.uid}/usernameSet`);
-    const unsub = onValue(
-      usernameRef,
-      (snapshot) => { setUsernameSet(snapshot.val() === true); },
-      (err) => console.error('[LOCK-IN] usernameSet listener error:', err),
-      { onlyOnce: true }
-    );
-    return () => unsub();
-  }, [user?.uid, emailVerified]);
+  // Name and handle come from config/ — where registration writes them — via
+  // useHandleProfile, which also migrates legacy top-level handles and repairs
+  // names the old launch-time sync overwrote with "Operator".
+  const profile = useHandleProfile(user?.uid, emailVerified);
+  // Display placeholder only. It is never written to the database.
+  const userName = profile.userName ?? "Operator";
 
   // One-time read of onboardingComplete flag — drives WelcomeSequence gate
   useEffect(() => {
@@ -228,20 +205,20 @@ export function App() {
     localStorage.setItem("lockin_intentions", JSON.stringify(intentions));
   }, [intentions]);
 
-  // Sync userName to Firebase. Multi-path so config/userName (private) and
-  // public/userName (readable by any signed-in user — The Pack renders it)
-  // can never drift. public holds ONLY this field; the rules reject any other.
+  // Keep public/userName (what friends see) equal to config/userName.
+  //
+  // This used to run on every launch with userName initialised to "Operator"
+  // and write it over config/ and public/ before anything had loaded — which
+  // is how every account's name became "Operator". It now waits for the real
+  // value from config/ and only mirrors it; config/ itself is written only by
+  // registration and the handle reservation, never from here.
   useEffect(() => {
-    if (userName && user?.uid) {
-      guardWrite(
-        update(ref(db), {
-          [`users/${user.uid}/config/userName`]: userName,
-          [`users/${user.uid}/public/userName`]: userName,
-        }),
-        "Couldn't save your operator handle. Friends may still see your old name."
-      );
-    }
-  }, [userName, user?.uid]);
+    if (!user?.uid || profile.userName == null) return;
+    guardWrite(
+      update(ref(db), { [`users/${user.uid}/public/userName`]: profile.userName }),
+      "Couldn't update the name your friends see. They may still see your old name."
+    );
+  }, [profile.userName, user?.uid]);
 
   // Stable per-install id — same one sessionState uses. Stamped onto every
   // blockedApps entry this device creates, so the enforcer can auto-approve
@@ -362,24 +339,29 @@ export function App() {
   };
 
   const handleUsernameSubmit = useCallback(async () => {
-    const val = usernameInput.trim().toUpperCase();
-    if (!val) { setUsernameError("Handle cannot be empty."); return; }
-    // Letters, numbers and underscore only. A handle becomes a Firebase key at
-    // usernames/{NAME}, and keys may not contain . # $ [ ] or / — a dot made
-    // that write fail silently.
-    if (!/^[A-Za-z0-9_]+$/.test(val)) { setUsernameError("Only letters, numbers, and underscores allowed."); return; }
     if (!user?.uid) return;
+    setUsernameError("");
+    profile.clearHandleError();
+    // Validated exactly as registration validates, then claimed atomically:
+    // config/ + public/ + usernames/{handle} land together or not at all, so
+    // a handle is never written anywhere without its reservation.
+    let write: Promise<void>;
+    try {
+      write = reserveHandle(user.uid, usernameInput);
+    } catch (err) {
+      setUsernameError((err as Error).message);
+      return;
+    }
     setUsernameSubmitting(true);
     try {
-      await update(ref(db, `users/${user.uid}`), { username: val, usernameSet: true });
-      setUserName(val);
-      setUsernameSet(true);
+      await write;
     } catch (err) {
-      setUsernameError("Failed to save. Try again.");
+      const e = asHandleError(err);
+      setUsernameError(e instanceof HandleTakenError ? e.message : "Failed to save. Try again.");
     } finally {
       setUsernameSubmitting(false);
     }
-  }, [usernameInput, user?.uid]);
+  }, [usernameInput, user?.uid, profile.clearHandleError]);
 
   const { 
     deviceBreakdown, 
@@ -496,7 +478,7 @@ export function App() {
 
       {/* USERNAME SETUP GATE */}
       <AnimatePresence>
-        {onboardingComplete === true && usernameSet === false && (
+        {onboardingComplete === true && profile.status === "ready" && profile.usernameSet === false && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -517,6 +499,7 @@ export function App() {
                   onChange={(e) => {
                     const v = e.target.value.toUpperCase();
                     setUsernameInput(v);
+                    profile.clearHandleError();
                     if (v && !/^[A-Za-z0-9_]+$/.test(v)) {
                       setUsernameError("Only letters, numbers, and underscores allowed.");
                     } else {
@@ -528,8 +511,8 @@ export function App() {
                   className="w-full bg-white border-2 border-[#002855] shadow-[4px_4px_0px_#002855] rounded-2xl px-6 py-5 text-2xl font-black text-[#002855] placeholder:text-[#002855]/20 outline-none uppercase tracking-widest focus:translate-y-[2px] focus:shadow-[2px_2px_0px_#002855] transition-all"
                   style={{ textTransform: "uppercase" }}
                 />
-                {usernameError && (
-                  <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider px-1">{usernameError}</p>
+                {(usernameError || profile.handleError) && (
+                  <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider px-1">{usernameError || profile.handleError}</p>
                 )}
               </div>
               <button
@@ -625,7 +608,6 @@ export function App() {
             <BlockRegistry 
               userId={user.uid}
               userName={userName}
-              setUserName={setUserName}
               blockedApps={blockedApps}
               customBlocks={customBlocks}
               addBlock={handleAddExe}
