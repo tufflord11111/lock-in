@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, get, child } from "firebase/database";
-import { useFriends } from "../hooks/useFriends";
+import { useFriends, FriendAddError } from "../hooks/useFriends";
+import { reportWriteFailure } from "../writeFailures";
 
 interface FriendStatus {
   id: string;
@@ -134,12 +135,21 @@ export function ThePack({ userId }: ThePackProps) {
     if (!inviteUsername.trim() || isAdding) return;
     setIsAdding(true);
     try {
-      await addFriend(inviteUsername.trim());
+      await addFriend(inviteUsername);
       setAddSuccess(true);
       setInviteUsername("");
       setTimeout(() => setAddSuccess(false), 2000);
     } catch (err) {
-      console.error("Failed to add friend:", err);
+      if (err instanceof FriendAddError) {
+        // "Already in your Pack" is a no-op, not a failure.
+        reportWriteFailure(err.message, undefined, err.code === "already" ? "info" : "error");
+      } else {
+        const code = (err as { code?: string; message?: string })?.code;
+        reportWriteFailure(
+          `Couldn't add that operator${code ? ` (${code})` : ""}. Check your connection and try again.`,
+          err
+        );
+      }
     } finally {
       setIsAdding(false);
     }
@@ -186,7 +196,7 @@ export function ThePack({ userId }: ThePackProps) {
               value={inviteUsername}
               onChange={(e) => setInviteUsername(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
-              placeholder="Username..."
+              placeholder="Handle..."
               disabled={isAdding}
               className={`w-48 bg-white border-2 border-[#002855] rounded-xl px-4 py-2 text-sm font-bold text-[#002855] placeholder-[#002855]/40 outline-none focus:translate-y-[2px] transition-all shadow-[2px_2px_0px_#002855] focus:shadow-none ${isAdding ? 'opacity-50' : ''}`}
             />

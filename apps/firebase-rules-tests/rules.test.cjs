@@ -99,6 +99,19 @@ async function check(name, expect, fn) {
       "usernames/carol": "carol",
     }));
 
+  // ── 1.2.4 friend add: resolve a handle to a uid (useFriends.ts) ───────────
+  // usernames/$name is readable by any signed-in user as a single-key read;
+  // only listing or querying the whole index is restricted. carol reserved
+  // "carol" in the registration check above.
+  await check("Friend lookup: point-read of another user's handle resolves to their uid", "pass",
+    async () => {
+      const snap = await get(ref(alice, "usernames/carol"));
+      if (snap.val() !== "carol") {
+        throw new Error(`resolved to ${JSON.stringify(snap.val())}, expected "carol"`);
+      }
+      return snap;
+    });
+
   // ── Delete Account: DeleteAccountButton.tsx (subtree + reservations) ────────
   await check("Delete Account multi-path null (with emergencyUnlock + extension_state present)", "pass",
     () => update(ref(dave), { "users/dave": null, "usernames/dave": null }));
