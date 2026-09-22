@@ -37,7 +37,7 @@ type Props = {
  * EMERGENCY DISARM — the operator's escape hatch from a running enforcer.
  *
  * Shared by the degraded boot screen and the Login screen. It talks ONLY to
- * Rust (get_enforcer_state / emergency_disarm): no auth, no Firebase, no
+ * Rust (get_enforcer_state / clear_all_blocks): no auth, no Firebase, no
  * React session state. That is the point — the cases where it is needed are
  * exactly the cases where auth is broken and every Firebase-derived flag is
  * stale or absent. Renders nothing unless the enforcer is actually armed.

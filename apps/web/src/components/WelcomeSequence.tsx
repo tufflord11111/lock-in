@@ -1,18 +1,16 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Target, Lock, Zap, Cpu, CheckCircle, XCircle,
-  Puzzle, Link2, Copy, ChevronRight, Download, AlertTriangle,
+  Puzzle, Link2, Copy, ChevronRight, Download,
 } from "lucide-react";
-import { getDatabase, ref as dbRef, onValue, update } from "firebase/database";
+import { ref as dbRef, onValue, update } from "firebase/database";
 import { db } from "@lock-in/firebase";
 import { awaitWriteOrQueue } from "../offlineWrite";
 import { reportWriteFailure } from "../writeFailures";
 
 // Tauri detect
 const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
-const LS_KEY = "lockin_extension_id";
-const DEFAULT_EXT_ID = "phmiffemaackgcngikgmmjjgbpkmjoao";
 
 // (pingExtension retired in favor of Cloud Heartbeat)
 
@@ -45,12 +43,10 @@ const STORE_URL = "https://chrome.google.com/webstore/search/Lock-In";
 function LinkingProtocol({
   onClose,
   onLinked,
-  userId,
   extDetected,
 }: {
   onClose: () => void;
   onLinked: (id: string) => void;
-  userId: string;
   extDetected: boolean | null;
 }) {
   const [copied, setCopied]           = useState(false);
@@ -158,7 +154,7 @@ function LinkingProtocol({
           <div className="px-6 pt-5 pb-0">
             <p className="text-[9px] font-black uppercase tracking-[0.3em] text-[#FFD166] mb-2">Step 0 — INSTALL WEB GUARD</p>
             <button
-              id="export-extension-btn"
+              id="web-store-link-btn"
               onClick={handleStore}
               className="w-full flex items-center justify-center gap-2 bg-white/5 border-[2px] border-[#FFD166]/30 hover:border-[#FFD166] text-[#FFD166] font-black text-[10px] uppercase tracking-widest py-3 px-4 transition-all disabled:opacity-50"
             >
@@ -587,7 +583,6 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
           <LinkingProtocol
             onClose={() => setShowProtocol(false)}
             onLinked={handleLinked}
-            userId={userId}
             extDetected={extDetected}
           />
         )}

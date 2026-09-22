@@ -37,47 +37,71 @@ export function ThePack({ userId }: ThePackProps) {
   useEffect(() => {
     const friendsRef = ref(db, `users/${userId}/friends`);
 
-    const unsubscribe = onValue(friendsRef, (snapshot) => {
-      // ... (existing friends logic)
-      // Canonical shape (useFriends): friends/{uid} = true — the uid is the
-      // KEY. Object.values() here yielded [true] and a lookup at
-      // users/true/presence. Tolerates a legacy {pushKey: "uid"} entry, since
-      // live data can't be inspected from the repo: a string value is a uid.
-      const friendIdsObj = (snapshot.val() || {}) as Record<string, unknown>;
-      const friendIds = Object.entries(friendIdsObj)
-        .map(([key, value]) => (typeof value === "string" ? value : key))
-        .filter((id) => typeof id === "string" && id.length > 0);
+    // One presence listener and one public-name listener per friend, kept in a
+    // map and torn down when that friend leaves the list or the screen
+    // unmounts. They used to be nested — a new public listener created on
+    // every presence change — and never unsubscribed, so listeners piled up
+    // for as long as the app ran.
+    const perFriend = new Map<string, () => void>();
+    const presence: Record<string, { state?: string; lastChanged?: number } | null> = {};
+    const names: Record<string, string | undefined> = {};
 
-      if (friendIds.length === 0) {
-        setFriends([]);
-        return;
+    const publish = () =>
+      setFriends(
+        Array.from(perFriend.keys()).map((fId) => ({
+          id: fId,
+          name: names[fId] || fId,
+          status: ((presence[fId]?.state as FriendStatus["status"]) || "offline"),
+          lastChanged: presence[fId]?.lastChanged || 0,
+        }))
+      );
+
+    const unsubscribe = onValue(friendsRef, (snapshot) => {
+      // Canonical shape (useFriends): friends/{uid} = true — the uid is the
+      // KEY. Tolerates a legacy {pushKey: "uid"} entry: a string value is a uid.
+      const friendIdsObj = (snapshot.val() || {}) as Record<string, unknown>;
+      const friendIds = new Set(
+        Object.entries(friendIdsObj)
+          .map(([key, value]) => (typeof value === "string" ? value : key))
+          .filter((id) => typeof id === "string" && id.length > 0)
+      );
+
+      for (const [fId, off] of perFriend) {
+        if (!friendIds.has(fId)) {
+          off();
+          perFriend.delete(fId);
+          delete presence[fId];
+          delete names[fId];
+        }
       }
 
-      friendIds.forEach((fId) => {
-        const presenceRef = ref(db, `users/${fId}/presence`);
+      for (const fId of friendIds) {
+        if (perFriend.has(fId)) continue;
         // public/userName is the ONLY field of another user's readable by a
         // friend. config is owner-only — it carries their email.
-        const publicRef = ref(db, `users/${fId}/public`);
-
-        onValue(presenceRef, (pSnap) => {
-          const presence = pSnap.val();
-          onValue(publicRef, (pubSnap) => {
-            const pub = pubSnap.val();
-            const name = pub?.userName || fId;
-            const status = (presence?.state as any) || "offline";
-            const lastChanged = presence?.lastChanged || 0;
-
-            setFriends((prev) => {
-              const existing = prev.filter((f) => f.id !== fId);
-              return [...existing, { id: fId, name, status, lastChanged }];
-            });
-          });
+        const offPresence = onValue(ref(db, `users/${fId}/presence`), (pSnap) => {
+          presence[fId] = pSnap.val();
+          publish();
         });
-      });
+        const offName = onValue(ref(db, `users/${fId}/public`), (pubSnap) => {
+          names[fId] = pubSnap.val()?.userName;
+          publish();
+        });
+        perFriend.set(fId, () => {
+          offPresence();
+          offName();
+        });
+      }
+
+      publish();
     });
 
-    return () => unsubscribe();
-  }, []);
+    return () => {
+      unsubscribe();
+      for (const off of perFriend.values()) off();
+      perFriend.clear();
+    };
+  }, [userId]);
 
   const fetchLeaderboard = async () => {
     setIsLoadingLeaderboard(true);

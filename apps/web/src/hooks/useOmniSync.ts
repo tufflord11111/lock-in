@@ -198,44 +198,20 @@ export function useOmniSync(
 
 
 
-  const updateLockMode = async (mode: "soft" | "hard") => {
-    if (!userId) return;
-    const configRef = ref(db, `users/${userId}/config`);
-    await update(configRef, { lockMode: mode });
-  };
-
   const updateAutostart = async (enabled: boolean) => {
     if (!userId) return;
     const configRef = ref(db, `users/${userId}/config`);
     await update(configRef, { autostartEnabled: enabled });
   };
 
-  const addBlock = async (exeName: string) => {
-    if (!userId) return;
-    const blocksRef = ref(db, `users/${userId}/customBlocks`);
-    const newBlocks = [...customBlocks, exeName];
-    await update(blocksRef, { [exeName.replace(/\./g, "_")]: exeName });
-    await syncWithRustEngine(newBlocks);
-  };
-
-  const removeBlock = async (exeName: string) => {
-    if (!userId) return;
-    const newBlocks = customBlocks.filter(b => b !== exeName);
-    await update(ref(db, `users/${userId}/customBlocks`), { [exeName.replace(/\./g, "_")]: null });
-    await syncWithRustEngine(newBlocks);
-  };
-
 
   return { 
     deviceBreakdown, 
     lockMode,
-    updateLockMode,
     totalMinutesToday,
     autostartEnabled,
     updateAutostart,
     customBlocks,
-    addBlock,
-    removeBlock,
     isSyncing,
     engineOffline
   };

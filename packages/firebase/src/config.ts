@@ -6,7 +6,6 @@ import {
   browserLocalPersistence,
   inMemoryPersistence,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
@@ -41,5 +40,4 @@ try {
 }
 export { auth };
 
-export const firestore = getFirestore(app);
 export const db = getDatabase(app);

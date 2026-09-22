@@ -13,7 +13,6 @@
     "@lock-in/firebase": "workspace:*",
     "@lock-in/ui": "workspace:*",
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-updater": "^2.9.0",
     "firebase": "^12.11.0",

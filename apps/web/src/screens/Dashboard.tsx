@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, CheckCircle, Circle, Timer, Target } from "lucide-react";
+import { Trash2, CheckCircle, Circle, Target } from "lucide-react";
 import { db } from "@lock-in/firebase";
 import { ref, onValue } from "firebase/database";
 

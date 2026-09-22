@@ -61,7 +61,7 @@ struct LockProfile {
     permanent_pending: HashSet<String>,
     #[serde(default)]
     focus_active: bool,
-    /// Set by emergency_disarm. While true, Firebase-driven syncs may not
+    /// Set by clear_all_blocks. While true, Firebase-driven syncs may not
     /// re-arm the enforcer — a reconnect would otherwise replay the stale
     /// config/focusActive:true that trapped the operator in the first place.
     /// Cleared only by an explicit session start (update_enforcement(true)).
@@ -307,9 +307,9 @@ fn emit_exe_pending(app: &tauri::AppHandle, pending: &HashSet<String>) {
 }
 
 /// Clear EVERY block — session targets, permanent blocks, and unapproved
-/// pending ones — and stand the enforcer fully down. Shared by emergency_disarm
-/// (the degraded-screen escape) and clear_all_blocks (the always-available
-/// escape). Sets the disarm latch so a Firebase reconnect cannot silently
+/// pending ones — and stand the enforcer fully down. Used by clear_all_blocks,
+/// the always-available escape on the Login and degraded screens. Sets the
+/// disarm latch so a Firebase reconnect cannot silently
 /// re-arm. Caller persists, emits, and logs.
 fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     let cleared_session = profile.exe_approved.len().max(profile.exe_blacklist.len());
@@ -532,104 +532,6 @@ fn check_sniper() -> SniperStatus {
     }
 }
 
-// ─── IPC Command: export_extension_assets ────────────────────────────────────
-// Copies the apps/extension folder to the user's Desktop so they can
-// "Load Unpacked" in Chrome without needing to navigate to the repo.
-#[derive(Clone, Serialize)]
-struct ExportResult {
-    success: bool,
-    dest: String,
-    message: String,
-}
-
-#[tauri::command]
-fn export_extension_assets(app: tauri::AppHandle) -> ExportResult {
-    // ── Locate extension source ───────────────────────────────────────────────
-    // Primary Candidate: Embedded Resources (Production)
-    // Secondary Candidate: Relative Repo Path (Development)
-    let res_dir  = app.path().resource_dir().unwrap_or_default();
-    let current  = std::env::current_dir().unwrap_or_default();
-    
-    let mut candidates = Vec::new();
-
-    // 1. Production Resource Paths (checks for 'extension/dist' then 'extension')
-    candidates.push(res_dir.join("extension").join("dist"));
-    candidates.push(res_dir.join("extension"));
-    candidates.push(res_dir.clone());
-
-    // 2. Development Paths (checks relative to repo root)
-    candidates.push(current.join("apps").join("extension").join("dist"));
-    candidates.push(current.join("apps").join("extension"));
-
-    // 3. Hardcoded Windows Fallback (for local high-resilience development)
-    let hard_fallback = PathBuf::from(r"C:\dev\lock-in\apps\extension");
-    candidates.push(hard_fallback.join("dist"));
-    candidates.push(hard_fallback);
-
-    println!("[Export] Smart Pathing - Probing {} candidates:", candidates.len());
-    for c in &candidates {
-        if c.exists() { println!("  [FOUND] {:?}", c); }
-    }
-
-    let src = match candidates.into_iter().find(|p| p.exists() && p.join("manifest.json").exists()) {
-        Some(p) => p,
-        None => return ExportResult {
-            success: false,
-            dest: "DIR_NOT_FOUND".to_string(),
-            message: "DIR_NOT_FOUND: Could not locate extension assets. (Did you run pnpm --filter @lock-in/extension build?)".to_string(),
-        },
-    };
-
-    // ── Resolve Desktop destination ───────────────────────────────────────────
-    let desktop = match app.path().desktop_dir() {
-        Ok(d) => d,
-        Err(e) => return ExportResult {
-            success: false,
-            dest: String::new(),
-            message: format!("Cannot locate Desktop: {}", e),
-        },
-    };
-    let dest = desktop.join("Lock-In-Web-Guard");
-
-    // ── Recursive copy ────────────────────────────────────────────────────────
-    fn copy_dir_all(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
-        std::fs::create_dir_all(dst)?;
-        for entry in std::fs::read_dir(src)? {
-            let entry = entry?;
-            let file_type = entry.file_type()?;
-            let dst_path = dst.join(entry.file_name());
-            if file_type.is_dir() {
-                copy_dir_all(&entry.path(), &dst_path)?;
-            } else {
-                std::fs::copy(entry.path(), dst_path)?;
-            }
-        }
-        Ok(())
-    }
-
-    match copy_dir_all(&src, &dest) {
-        Ok(_) => {
-            println!("[Export] ✅ Extension copied to {:?}", dest);
-            ExportResult {
-                success: true,
-                dest: dest.to_string_lossy().to_string(),
-                message: format!("Extension exported to: {}", dest.to_string_lossy()),
-            }
-        }
-        Err(e) => {
-            println!("[Export] ❌ Copy failed: {}", e);
-            ExportResult {
-                success: false,
-                dest: String::new(),
-                message: format!("Export failed: {}", e),
-            }
-        }
-    }
-}
-
-// ─── IPC Command: update_enforcement ─────────────────────────────────────────
-// Lightweight alias called by the session start/stop flow.
-// Accepts { isActive, blockedList } to enforce during a focus session.
 /// Why a session with this deadline must not be armed, if it mustn't.
 /// No deadline: it would never expire on its own. A past deadline: the loop
 /// could run a kill pass before its next expiry check.
@@ -644,6 +546,9 @@ fn arm_refusal(end_time: Option<u64>, now: u64) -> Option<String> {
     }
 }
 
+// ─── IPC Command: update_enforcement ─────────────────────────────────────────
+// Lightweight alias called by the session start/stop flow.
+// Accepts { isActive, blockedList } to enforce during a focus session.
 #[tauri::command]
 fn update_enforcement(
     is_active: bool,
@@ -1057,39 +962,11 @@ fn clear_disarm_latch(app_state: State<AppState>) -> Result<String, String> {
     }
 }
 
-// ─── IPC Command: emergency_disarm ───────────────────────────────────────────
-// Single-lock, all-or-nothing stand-down for a trapped operator.
-// Clears BOTH halves of `enforcer_active = is_locked || focus_active` plus the
-// session blocklist in one critical section — three sequential invokes from a
-// degraded frontend would be three chances to partially fail.
-// permanent_exe is deliberately NOT touched: 24/7 blocks are meant to survive.
-#[tauri::command]
-fn emergency_disarm(app: tauri::AppHandle, app_state: State<AppState>) -> Result<String, String> {
-    match app_state.profile.lock() {
-        Ok(mut profile) => {
-            // F1: this now clears permanent blocks too. A disarm-proof permanent
-            // kill list was the core stalkerware primitive — the escape hatch
-            // must actually stop everything.
-            let (cleared_session, cleared_permanent) = wipe_all_blocks(&mut profile);
-            persist_profile(&profile, &app_state.state_path);
-            // Push the stand-down while the lock is still held, so no tick can
-            // observe "armed" between the state change and the event.
-            emit_stood_down(&app, "emergency-disarm", 0);
-            println!("🚨 EMERGENCY DISARM: all blocks cleared, enforcer stood down (latch armed)");
-            Ok(format!(
-                "Disarmed — cleared {} session target(s) and {} permanent block(s); re-arm latched",
-                cleared_session, cleared_permanent
-            ))
-        }
-        Err(e) => Err(format!("Mutex lock failed: {}", e)),
-    }
-}
-
 // ─── IPC Command: clear_all_blocks ───────────────────────────────────────────
 // F2: the always-available escape. Wipes session AND permanent blocks with no
-// auth and no network — reachable from the signed-out Login screen exactly like
-// emergency_disarm. Distinct name so telemetry shows the operator hit the
-// deliberate "clear everything" control rather than a session-end disarm.
+// auth and no network — reachable from the signed-out Login screen and the
+// degraded boot screen. (An older disarm command did the same wipe; nothing
+// called it any more, so it was removed.)
 #[tauri::command]
 fn clear_all_blocks(app: tauri::AppHandle, app_state: State<AppState>) -> Result<String, String> {
     match app_state.profile.lock() {
@@ -1231,7 +1108,7 @@ pub fn run() {
 
     tauri::Builder::default()
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, export_extension_assets, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, emergency_disarm, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event])
         .setup(move |app| {
             let handle = app.handle().clone();
 

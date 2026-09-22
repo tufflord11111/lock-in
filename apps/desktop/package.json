@@ -5,8 +5,7 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "build": "tauri build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1"

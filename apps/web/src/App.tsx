@@ -2,13 +2,12 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { db } from "@lock-in/firebase";
-import { ref, set, onValue, update, get } from "firebase/database";
+import { ref, onValue, update } from "firebase/database";
 import { BottomNav, type AppTab } from "./components/BottomNav";
 import { X } from "lucide-react";
 import { useFocusSession } from "./hooks/useFocusSession";
 import { useOmniSync } from "./hooks/useOmniSync";
 import { usePresence } from "./hooks/usePresence";
-import { emptyTasksByDay, type TasksByDay } from "./plannedTasks";
 import { PerformanceLog as Analytics } from "./screens/PerformanceLog";
 import { Dashboard } from "./screens/Dashboard";
 import { BlockRegistry } from "./screens/BlockRegistry";
@@ -159,7 +158,6 @@ export function App() {
     forceOfflineMode,
   } = useAuth();
   const [currentTab, setCurrentTab] = useState<AppTab>("home");
-  const [tasks, setTasks] = useState<TasksByDay>(emptyTasksByDay);
   const [totalMinutesFocused, setTotalMinutesFocused] = useState(0);
   const [usernameInput, setUsernameInput] = useState("");
   const [usernameError, setUsernameError] = useState("");
@@ -398,16 +396,9 @@ export function App() {
     }
   }, [usernameInput, user?.uid, profile.clearHandleError]);
 
-  const { 
-    deviceBreakdown, 
-    lockMode,
-    updateLockMode,
+  const {
     totalMinutesToday,
-    autostartEnabled,
     updateAutostart,
-    customBlocks,
-    addBlock,
-    removeBlock,
     isSyncing,
     engineOffline
   } = useOmniSync(
@@ -645,11 +636,9 @@ export function App() {
               userId={user.uid}
               userName={userName}
               blockedApps={blockedApps}
-              customBlocks={customBlocks}
               addBlock={handleAddExe}
               removeBlock={handleRemoveExe}
               totalMinutesToday={totalMinutesToday}
-              _autostartEnabled={autostartEnabled}
               _updateAutostart={updateAutostart}
               isSyncing={isSyncing}
               engineOffline={engineOffline}

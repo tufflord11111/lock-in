@@ -1,5 +1,5 @@
 import { db } from "@lock-in/firebase";
-import { ref, update, push, serverTimestamp, set, increment, onValue, get } from "firebase/database";
+import { ref, update, push, serverTimestamp, increment, onValue, get } from "firebase/database";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getDeviceId } from "../deviceId";

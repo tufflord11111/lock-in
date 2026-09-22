@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, set, remove, update } from "firebase/database";
-import { guardWrite } from "../writeFailures";
+import { guardWrite, reportWriteFailure } from "../writeFailures";
 import { getDeviceId } from "../deviceId";
 import { DeleteAccountButton } from "../components/DeleteAccountButton";
 
@@ -19,12 +19,10 @@ const DEFAULT_WEB_BLOCKS = [
 interface BlockRegistryProps {
   userId: string;
   userName: string;
-  customBlocks: string[];
   blockedApps: string[];
   addBlock: (exe: string) => Promise<void>;
   removeBlock: (exe: string) => Promise<void>;
   totalMinutesToday: number;
-  _autostartEnabled: boolean;
   _updateAutostart: (enabled: boolean) => Promise<void>;
   isSyncing: boolean;
   engineOffline: boolean;
@@ -33,12 +31,10 @@ interface BlockRegistryProps {
 export function BlockRegistry({
   userId,
   userName,
-  customBlocks,
   blockedApps,
   addBlock,
   removeBlock,
   totalMinutesToday,
-  _autostartEnabled,
   _updateAutostart,
   isSyncing,
   engineOffline
@@ -288,16 +284,27 @@ export function BlockRegistry({
   };
 
   const handleToggleAutostart = async () => {
-    const newState = !autostartOn;
+    const previous = autostartOn;
+    const newState = !previous;
+    // Show the change at once; the OS registration is the truth, so undo the
+    // switch if it fails. (The old handler said "Revert if Tauri call failed"
+    // and then did nothing — and told the operator nothing either.)
+    setAutostartOn(newState);
     try {
       await invoke('toggle_autostart', { enable: newState });
-      setAutostartOn(newState);
-      await _updateAutostart(newState);
-      console.log('[AutoStart]', newState ? 'Enabled' : 'Disabled');
     } catch (err) {
-      console.warn('[AutoStart] Failed:', err);
-      // Revert if Tauri call failed
+      setAutostartOn(previous);
+      reportWriteFailure(
+        `Couldn't turn launch-on-startup ${newState ? 'on' : 'off'}, so it's still ${previous ? 'on' : 'off'}.`,
+        err
+      );
+      return;
     }
+    // Firebase only mirrors the setting for other surfaces; don't block on it.
+    guardWrite(
+      _updateAutostart(newState),
+      "Launch-on-startup changed on this PC, but the setting didn't sync to your account."
+    );
   };
 
   // Moving an entry between session and permanent is ONE multi-path update, so

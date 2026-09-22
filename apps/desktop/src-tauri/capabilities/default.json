@@ -10,10 +10,6 @@
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
-    "fs:allow-desktop-read",
-    "fs:allow-desktop-write",
-    "fs:allow-resource-read",
-    "fs:allow-resource-write",
     "dialog:default",
     "dialog:allow-open",
     "updater:default"
