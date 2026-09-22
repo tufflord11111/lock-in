@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { db } from "@lock-in/firebase";
 import { ref, get, update } from "firebase/database";
 import type { EnforcerState } from "./EnforcerDisarmPanel";
+import { reportWriteFailure } from "../writeFailures";
 
 /**
  * Local approval gate for blocks that arrive from a remote (Firebase) sync.
@@ -48,6 +49,12 @@ export function PendingPermanentBanner({ userId }: { userId: string }) {
     try {
       if (exePending.length) await invoke("confirm_pending_exe");
       if (permPending.length) await invoke("confirm_pending_permanent");
+    } catch (err) {
+      // try/finally alone let this reject uncaught, with nothing on screen.
+      reportWriteFailure(
+        "Couldn't approve the new blocks, so they still aren't enforced. Try again, or restart Lock-In.",
+        err
+      );
     } finally {
       setBusy(false);
       refresh();
@@ -80,6 +87,13 @@ export function PendingPermanentBanner({ userId }: { userId: string }) {
       await cleanNode("permanentExe", new Set(permPending));
       if (exePending.length) await invoke("reject_pending_exe");
       if (permPending.length) await invoke("reject_pending_permanent");
+    } catch (err) {
+      // The banner re-reads Rust below, so whatever wasn't rejected stays
+      // listed for another try; they are still not enforced either way.
+      reportWriteFailure(
+        "Couldn't reject all of the new blocks. They still aren't enforced, and the banner shows what's left — try again.",
+        err
+      );
     } finally {
       setBusy(false);
       refresh();
