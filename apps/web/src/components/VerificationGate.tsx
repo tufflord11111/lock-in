@@ -72,14 +72,14 @@ export function VerificationGate({
   };
 
   return (
-    <div className="h-screen bg-[#F9F8F4] flex flex-col items-center [justify-content:safe_center] p-8 font-outfit overflow-y-auto">
+    <div className="h-screen bg-paper flex flex-col items-center [justify-content:safe_center] p-8 font-outfit overflow-y-auto">
 
       {/* ── Background watermarks ── */}
       <div className="fixed bottom-12 left-12 opacity-5 transform -rotate-12 pointer-events-none select-none">
-        <span className="text-8xl font-black text-[#002855] leading-none uppercase">LOCKED</span>
+        <span className="text-8xl font-black text-navy leading-none uppercase">LOCKED</span>
       </div>
       <div className="fixed top-12 right-12 opacity-5 transform rotate-12 pointer-events-none select-none">
-        <span className="text-8xl font-black text-[#002855] leading-none uppercase">VERIFY</span>
+        <span className="text-8xl font-black text-navy leading-none uppercase">VERIFY</span>
       </div>
 
       {/* ── Header badge ── */}
@@ -87,11 +87,11 @@ export function VerificationGate({
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-[440px] bg-[#002855] border-[4px] border-[#002855] p-8 shadow-[8px_8px_0px_#002855] mb-8 transform -rotate-1"
+        className="w-full max-w-[440px] bg-navy border-[4px] border-navy p-8 shadow-[8px_8px_0px_var(--navy)] mb-8 transform -rotate-1"
       >
         <div className="flex items-center gap-4 mb-4">
-          <div className="w-12 h-12 bg-[#FFD166] flex items-center justify-center">
-            <Mail className="text-[#002855]" size={24} />
+          <div className="w-12 h-12 bg-gold flex items-center justify-center">
+            <Mail className="text-navy" size={24} />
           </div>
           <div>
             <p className="text-[9px] font-black uppercase tracking-[0.3em] text-white/40 mb-1">
@@ -106,7 +106,7 @@ export function VerificationGate({
         <p className="text-white/50 font-bold text-xs leading-relaxed uppercase tracking-wider">
           A verification dispatch was sent to:
         </p>
-        <p className="text-[#FFD166] font-black text-sm mt-1 break-all">{email}</p>
+        <p className="text-gold font-black text-sm mt-1 break-all">{email}</p>
       </motion.div>
 
       {/* ── Instructions card ── */}
@@ -114,12 +114,12 @@ export function VerificationGate({
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="w-full max-w-[440px] bg-white border-[3px] border-[#002855] p-6 shadow-[6px_6px_0px_#002855] mb-6"
+        className="w-full max-w-[440px] bg-white border-[3px] border-navy p-6 shadow-[6px_6px_0px_var(--navy)] mb-6"
       >
         <div className="flex items-start gap-4">
-          <AlertTriangle size={20} className="text-[#FFD166] shrink-0 mt-0.5" />
+          <AlertTriangle size={20} className="text-gold shrink-0 mt-0.5" />
           <div>
-            <p className="font-black text-[#002855] text-sm uppercase tracking-wide mb-2">
+            <p className="font-black text-navy text-sm uppercase tracking-wide mb-2">
               Action Required
             </p>
             <ol className="flex flex-col gap-2">
@@ -128,8 +128,8 @@ export function VerificationGate({
                 "Click the verification link inside.",
                 "Return here and hit \"Check Status\".",
               ].map((step, i) => (
-                <li key={i} className="flex items-start gap-3 text-[#002855]/60 font-bold text-xs">
-                  <span className="shrink-0 w-5 h-5 bg-[#002855] text-white font-black text-[10px] flex items-center justify-center">
+                <li key={i} className="flex items-start gap-3 text-navy/60 font-bold text-xs">
+                  <span className="shrink-0 w-5 h-5 bg-navy text-white font-black text-[10px] flex items-center justify-center">
                     {i + 1}
                   </span>
                   {step}
@@ -151,7 +151,7 @@ export function VerificationGate({
             className={`w-full max-w-[440px] p-3 border-2 text-[10px] font-black uppercase tracking-wider mb-4 ${
               statusMsg.type === "error"
                 ? "bg-red-100 border-red-500 text-red-600"
-                : "bg-blue-50 border-[#002855] text-[#002855]"
+                : "bg-blue-50 border-navy text-navy"
             }`}
           >
             ⚠ {statusMsg.text}
@@ -184,14 +184,14 @@ export function VerificationGate({
           id="verify-check-status"
           onClick={handleCheckStatus}
           disabled={checking}
-          className="group relative bg-[#FFD166] border-[4px] border-[#002855] p-5 shadow-[8px_8px_0px_#002855] hover:shadow-[4px_4px_0px_#002855] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50"
+          className="group relative bg-gold border-[4px] border-navy p-5 shadow-[8px_8px_0px_var(--navy)] hover:shadow-[4px_4px_0px_var(--navy)] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50"
         >
           <div className="flex items-center justify-center gap-3">
             <RefreshCw
-              className={`text-[#002855] ${checking ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-500"}`}
+              className={`text-navy ${checking ? "animate-spin" : "group-hover:rotate-180 transition-transform duration-500"}`}
               size={20}
             />
-            <span className="text-lg font-black text-[#002855] uppercase tracking-wider">
+            <span className="text-lg font-black text-navy uppercase tracking-wider">
               {checking ? "Checking..." : "Check Status"}
             </span>
           </div>
@@ -202,11 +202,11 @@ export function VerificationGate({
           id="verify-resend"
           onClick={handleResend}
           disabled={sending || resendCooldown}
-          className="border-[3px] border-[#002855] bg-white p-4 shadow-[4px_4px_0px_#002855] hover:shadow-[2px_2px_0px_#002855] hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
+          className="border-[3px] border-navy bg-white p-4 shadow-[4px_4px_0px_var(--navy)] hover:shadow-[2px_2px_0px_var(--navy)] hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
         >
           <div className="flex items-center justify-center gap-3">
-            <Mail className="text-[#002855]" size={16} />
-            <span className="font-black text-[#002855] text-sm uppercase tracking-wider">
+            <Mail className="text-navy" size={16} />
+            <span className="font-black text-navy text-sm uppercase tracking-wider">
               {sending ? "Sending..." : resendCooldown ? "Link Sent — Wait 60s" : "Resend Verification Link"}
             </span>
           </div>
@@ -216,7 +216,7 @@ export function VerificationGate({
         <button
           id="verify-logout"
           onClick={onLogout}
-          className="flex items-center justify-center gap-2 text-[10px] font-black text-[#002855]/30 uppercase tracking-[0.2em] hover:text-[#002855] transition-colors mt-2"
+          className="flex items-center justify-center gap-2 text-[10px] font-black text-navy/30 uppercase tracking-[0.2em] hover:text-navy transition-colors mt-2"
         >
           <LogOut size={12} />
           Sign Out — Use Different Account

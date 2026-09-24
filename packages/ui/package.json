@@ -6,9 +6,6 @@
     "./tailwind.preset.js": "./tailwind.preset.js",
     "./src/global.css": "./src/global.css"
   },
-  "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
   "devDependencies": {
     "tailwindcss": "^3.4.17"
   }

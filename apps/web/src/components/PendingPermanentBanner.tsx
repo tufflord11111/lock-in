@@ -105,7 +105,7 @@ export function PendingPermanentBanner({ userId }: { userId: string }) {
   if (permPending.length) parts.push(`permanent: ${permPending.join(", ")}`);
 
   return (
-    <div className="w-full bg-[#B3261E] text-white px-6 py-4 z-30 shrink-0" style={{ fontFamily: "'Space Mono', monospace" }}>
+    <div className="w-full bg-danger text-white px-6 py-4 z-30 shrink-0" style={{ fontFamily: "'Space Mono', monospace" }}>
       <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-6 flex-wrap">
         <div className="flex flex-col gap-1 min-w-0">
           <span className="text-[11px] font-black uppercase tracking-widest">
@@ -127,7 +127,7 @@ export function PendingPermanentBanner({ userId }: { userId: string }) {
           <button
             onClick={approve}
             disabled={busy}
-            className="px-5 py-2 bg-white text-[#B3261E] font-black text-[10px] uppercase tracking-widest hover:bg-white/90 transition-colors disabled:opacity-50"
+            className="px-5 py-2 bg-white text-danger font-black text-[10px] uppercase tracking-widest hover:bg-white/90 transition-colors disabled:opacity-50"
           >
             {busy ? "Working…" : "Approve"}
           </button>

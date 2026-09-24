@@ -76,15 +76,15 @@ export function UpdateBanner() {
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -8 }}
-        className="shrink-0 flex items-center gap-4 px-10 py-3 bg-[#F5C842] border-b-2 border-[#002855]"
+        className="shrink-0 flex items-center gap-4 px-10 py-3 bg-gold-2 border-b-2 border-navy"
       >
-        <ArrowDownCircle size={16} className="text-[#002855] shrink-0" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-[#002855] flex-1">
+        <ArrowDownCircle size={16} className="text-navy shrink-0" />
+        <p className="text-[10px] font-black uppercase tracking-widest text-navy flex-1">
           Lock-In {update.version} is available — Restart to update
         </p>
 
         {deferred && (
-          <p className="text-[9px] font-bold uppercase tracking-widest text-[#002855]/60">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-navy/60">
             Session active — updating would restart the app. It'll install when
             your session ends.
           </p>
@@ -93,13 +93,13 @@ export function UpdateBanner() {
         <button
           onClick={install}
           disabled={installing}
-          className="px-4 py-2 border-2 border-[#002855] bg-white text-[#002855] font-black text-[9px] uppercase tracking-widest shadow-[2px_2px_0px_#002855] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
+          className="px-4 py-2 border-2 border-navy bg-white text-navy font-black text-[9px] uppercase tracking-widest shadow-[2px_2px_0px_var(--navy)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
         >
           {installing ? "Installing…" : "Restart to update"}
         </button>
         <button
           onClick={() => setDismissed(true)}
-          className="text-[#002855]/40 hover:text-[#002855] transition-colors shrink-0"
+          className="text-navy/40 hover:text-navy transition-colors shrink-0"
           aria-label="Dismiss"
         >
           <X size={14} />

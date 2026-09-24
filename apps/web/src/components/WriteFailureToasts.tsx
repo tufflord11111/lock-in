@@ -84,23 +84,23 @@ export function WriteFailureToasts() {
             exit={{ opacity: 0, x: -20 }}
             className={
               item.kind === "info"
-                ? "pointer-events-auto flex items-start gap-3 bg-white border-2 border-[#002855] shadow-[4px_4px_0px_#002855] rounded-xl px-4 py-3"
-                : "pointer-events-auto flex items-start gap-3 bg-white border-2 border-[#B3261E] shadow-[4px_4px_0px_#7f1d1d] rounded-xl px-4 py-3"
+                ? "pointer-events-auto flex items-start gap-3 bg-white border-2 border-navy shadow-[4px_4px_0px_var(--navy)] rounded-xl px-4 py-3"
+                : "pointer-events-auto flex items-start gap-3 bg-white border-2 border-danger shadow-[4px_4px_0px_var(--danger-2)] rounded-xl px-4 py-3"
             }
             style={{ fontFamily: "'Space Mono', monospace" }}
             role={item.kind === "info" ? "status" : "alert"}
           >
             {item.kind === "info" ? (
-              <Info size={16} className="text-[#002855] shrink-0 mt-0.5" />
+              <Info size={16} className="text-navy shrink-0 mt-0.5" />
             ) : (
-              <AlertTriangle size={16} className="text-[#B3261E] shrink-0 mt-0.5" />
+              <AlertTriangle size={16} className="text-danger shrink-0 mt-0.5" />
             )}
-            <span className="text-[10px] font-bold text-[#002855] leading-relaxed flex-1">
+            <span className="text-[10px] font-bold text-navy leading-relaxed flex-1">
               {item.message}
             </span>
             <button
               onClick={() => dismiss(item.id)}
-              className="text-[#002855]/30 hover:text-[#002855] transition-colors shrink-0"
+              className="text-navy/30 hover:text-navy transition-colors shrink-0"
               aria-label="Dismiss"
             >
               <X size={14} />

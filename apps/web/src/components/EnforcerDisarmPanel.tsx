@@ -134,7 +134,7 @@ export function EnforcerDisarmPanel({
       {/* Let the operator judge whether waiting out the session is an option
           before they reach for the escape hatch. */}
       {enforcer?.session_end_time != null && !disarmed && (
-        <p className="text-[10px] font-black text-[#002855]/60 uppercase tracking-widest mb-1">
+        <p className="text-[10px] font-black text-navy/60 uppercase tracking-widest mb-1">
           Session ends at{" "}
           {new Date(enforcer.session_end_time).toLocaleTimeString([], {
             hour: "2-digit",
@@ -145,11 +145,11 @@ export function EnforcerDisarmPanel({
 
       {disarmed ? (
         <div className="flex flex-col gap-2">
-          <div className="px-6 py-3 bg-[#0f7b45] text-white font-black text-[10px] uppercase tracking-widest rounded-xl border-2 border-[#0a5c33]">
+          <div className="px-6 py-3 bg-success-solid text-white font-black text-[10px] uppercase tracking-widest rounded-xl border-2 border-success-edge">
             All Blocks Cleared
           </div>
           {confirmedState && (
-            <p className="text-[9px] font-bold text-[#002855]/50 uppercase tracking-wide leading-relaxed">
+            <p className="text-[9px] font-bold text-navy/50 uppercase tracking-wide leading-relaxed">
               Confirmed — locked: {String(confirmedState.is_locked)} · focus:{" "}
               {String(confirmedState.focus_active)} · session targets:{" "}
               {confirmedState.exe_blacklist_len} · permanent blocks:{" "}
@@ -161,7 +161,7 @@ export function EnforcerDisarmPanel({
         <button
           onClick={handleDisarm}
           disabled={disarming}
-          className="px-6 py-3 bg-[#B3261E] text-white font-black text-[10px] uppercase tracking-widest rounded-xl border-2 border-[#7f1d1d] shadow-[2px_2px_0px_#7f1d1d] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all disabled:opacity-50"
+          className="px-6 py-3 bg-danger text-white font-black text-[10px] uppercase tracking-widest rounded-xl border-2 border-danger-2 shadow-[2px_2px_0px_var(--danger-2)] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all disabled:opacity-50"
         >
           {disarming
             ? "Clearing..."
@@ -171,19 +171,19 @@ export function EnforcerDisarmPanel({
         </button>
       )}
 
-      <p className="text-[9px] font-bold text-[#002855]/40 uppercase tracking-wide leading-relaxed">
+      <p className="text-[9px] font-bold text-navy/40 uppercase tracking-wide leading-relaxed">
         Ends the session, unblocks Task Manager, and clears ALL blocks — including
         permanent 24/7 blocks. Nothing re-arms until you start a new session.
       </p>
 
       {probeError && (
-        <p className="text-[9px] font-bold text-[#B3261E] tracking-wide leading-relaxed break-words text-left bg-[#B3261E]/5 border border-[#B3261E]/20 rounded-lg p-2">
+        <p className="text-[9px] font-bold text-danger tracking-wide leading-relaxed break-words text-left bg-danger/5 border border-danger/20 rounded-lg p-2">
           Enforcer state could not be read: {probeError}
         </p>
       )}
 
       {disarmError && (
-        <p className="text-[9px] font-bold text-[#B3261E] tracking-wide leading-relaxed break-words text-left bg-[#B3261E]/5 border border-[#B3261E]/20 rounded-lg p-2">
+        <p className="text-[9px] font-bold text-danger tracking-wide leading-relaxed break-words text-left bg-danger/5 border border-danger/20 rounded-lg p-2">
           {disarmError}
         </p>
       )}
@@ -193,9 +193,9 @@ export function EnforcerDisarmPanel({
   if (variant === "card") {
     return (
       <div
-        className={`w-full bg-white border-[4px] border-[#B3261E] p-6 shadow-[8px_8px_0px_#7f1d1d] ${className}`}
+        className={`w-full bg-white border-[4px] border-danger p-6 shadow-[8px_8px_0px_var(--danger-2)] ${className}`}
       >
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#B3261E] mb-3">
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-danger mb-3">
           Enforcer is running on this machine
         </p>
         {control}
@@ -204,7 +204,7 @@ export function EnforcerDisarmPanel({
   }
 
   return (
-    <div className={`flex flex-col gap-2 mt-2 pt-4 border-t-2 border-[#002855]/10 ${className}`}>
+    <div className={`flex flex-col gap-2 mt-2 pt-4 border-t-2 border-navy/10 ${className}`}>
       {control}
     </div>
   );

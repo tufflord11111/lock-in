@@ -107,8 +107,8 @@ function LinkingProtocol({
               transition={{ repeat: 2, duration: 0.55 }}
             >
               <div className="absolute w-32 h-32 rounded-full bg-green-400/10 animate-ping" />
-              <div className="w-24 h-24 bg-green-400 flex items-center justify-center shadow-[0_0_60px_rgba(74,222,128,0.6)]">
-                <CheckCircle size={44} className="text-[#002855]" />
+              <div className="w-24 h-24 bg-green-400 flex items-center justify-center shadow-[0_0_60px_rgb(var(--online-rgb)/0.6)]">
+                <CheckCircle size={44} className="text-navy" />
               </div>
             </motion.div>
             <motion.div
@@ -132,7 +132,7 @@ function LinkingProtocol({
       {/* ── Main modal ───────────────────────────────────────────────────────── */}
       {!showLinked && (
         <motion.div
-          className="relative w-full max-w-[440px] bg-[#001a3a] border-[3px] border-[#FFD166] shadow-[8px_8px_0px_#FFD166] overflow-y-auto max-h-[90vh]"
+          className="relative w-full max-w-[440px] bg-hero-panel border-[3px] border-gold shadow-[8px_8px_0px_var(--gold)] overflow-y-auto max-h-[90vh]"
           initial={{ scale: 0.92, y: 20 }}
           animate={{ scale: 1, y: 0 }}
           exit={{ scale: 0.92, y: 20 }}
@@ -140,11 +140,11 @@ function LinkingProtocol({
         >
           {/* Header */}
           <div className="flex items-center gap-3 px-6 pt-6 pb-4 border-b-[2px] border-white/10">
-            <div className="w-10 h-10 bg-[#FFD166] flex items-center justify-center shrink-0">
-              <Link2 size={18} className="text-[#002855]" />
+            <div className="w-10 h-10 bg-gold flex items-center justify-center shrink-0">
+              <Link2 size={18} className="text-navy" />
             </div>
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.35em] text-[#FFD166]">Linking Protocol</p>
+              <p className="text-[9px] font-black uppercase tracking-[0.35em] text-gold">Linking Protocol</p>
               <h3 className="text-lg font-black text-white uppercase tracking-tight leading-tight">Manual Extension Sync</h3>
             </div>
             <button onClick={onClose} className="ml-auto text-white/30 hover:text-white transition-colors text-lg font-black">✕</button>
@@ -152,17 +152,17 @@ function LinkingProtocol({
 
           {/* ── Step 0: Export button ─────────────────────────────────────── */}
           <div className="px-6 pt-5 pb-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-[#FFD166] mb-2">Step 0 — INSTALL WEB GUARD</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-gold mb-2">Step 0 — INSTALL WEB GUARD</p>
             <button
               id="web-store-link-btn"
               onClick={handleStore}
-              className="w-full flex items-center justify-center gap-2 bg-white/5 border-[2px] border-[#FFD166]/30 hover:border-[#FFD166] text-[#FFD166] font-black text-[10px] uppercase tracking-widest py-3 px-4 transition-all disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 bg-white/5 border-[2px] border-gold/30 hover:border-gold text-gold font-black text-[10px] uppercase tracking-widest py-3 px-4 transition-all disabled:opacity-50"
             >
               <Download size={13} />
               {isTauri ? "COPY CHROME WEB STORE LINK" : "OPEN CHROME WEB STORE"}
             </button>
             {isTauri && (
-              <p className="mt-2 text-[9px] font-mono text-[#FFD166]/70 break-all select-all">
+              <p className="mt-2 text-[9px] font-mono text-gold/70 break-all select-all">
                 {STORE_URL}
               </p>
             )}
@@ -172,16 +172,16 @@ function LinkingProtocol({
           <div className="px-6 py-4 flex flex-col gap-3 border-t border-white/5 mt-4">
             {PROTOCOL_STEPS.map((s) => (
               <div key={s.n} className="flex gap-3 items-start">
-                <span className="text-[9px] font-black text-[#FFD166] tracking-[0.2em] mt-0.5 shrink-0">{s.n}</span>
+                <span className="text-[9px] font-black text-gold tracking-[0.2em] mt-0.5 shrink-0">{s.n}</span>
                 <div className="flex flex-col gap-1">
                   <p className="text-white/60 font-bold text-[11px] leading-snug">{s.text}</p>
                   {s.code && (
                     <button
                       onClick={() => handleCopy(s.code!)}
-                      className="flex items-center gap-1.5 self-start px-2 py-1 bg-white/5 border border-white/10 hover:border-[#FFD166]/40 transition-colors group"
+                      className="flex items-center gap-1.5 self-start px-2 py-1 bg-white/5 border border-white/10 hover:border-gold/40 transition-colors group"
                     >
-                      <code className="text-[#FFD166] font-mono text-[10px]">{s.code}</code>
-                      <Copy size={9} className="text-white/20 group-hover:text-[#FFD166] transition-colors" />
+                      <code className="text-gold font-mono text-[10px]">{s.code}</code>
+                      <Copy size={9} className="text-white/20 group-hover:text-gold transition-colors" />
                     </button>
                   )}
                 </div>
@@ -193,12 +193,12 @@ function LinkingProtocol({
           {/* ── Auto-Verification Indicator ─────────────────────────────────── */}
           <div className="px-6 pb-8 flex flex-col gap-4">
             <div className="relative group">
-              <div className="absolute -inset-[1px] bg-gradient-to-r from-[#FFD166]/20 via-[#FFD166]/40 to-[#FFD166]/20 blur opacity-30 group-hover:opacity-100 transition duration-1000" />
+              <div className="absolute -inset-[1px] bg-gradient-to-r from-gold/20 via-gold/40 to-gold/20 blur opacity-30 group-hover:opacity-100 transition duration-1000" />
               <button
                 disabled={true}
-                className="relative w-full h-14 bg-[#0a0f1d] border border-white/10 rounded-xl flex items-center justify-center gap-3 text-white/50 font-black cursor-not-allowed uppercase tracking-[0.2em] text-[10px]"
+                className="relative w-full h-14 bg-hero border border-white/10 rounded-xl flex items-center justify-center gap-3 text-white/50 font-black cursor-not-allowed uppercase tracking-[0.2em] text-[10px]"
               >
-                <Cpu className="w-5 h-5 text-[#FFD166] animate-pulse" />
+                <Cpu className="w-5 h-5 text-gold animate-pulse" />
                 Checking for Web Guard...
               </button>
             </div>
@@ -314,7 +314,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
   return (
     <>
       <motion.div
-        className="fixed inset-0 z-50 bg-[#002855] flex flex-col items-center justify-center p-8 overflow-hidden"
+        className="fixed inset-0 z-50 bg-navy flex flex-col items-center justify-center p-8 overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -337,9 +337,9 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
               <motion.div
                 animate={{ rotate: [0, -3, 3, -2, 2, 0] }}
                 transition={{ delay: 0.6, duration: 0.8 }}
-                className="w-20 h-20 bg-[#FFD166] border-[4px] border-white flex items-center justify-center shadow-[6px_6px_0px_rgba(255,255,255,0.2)]"
+                className="w-20 h-20 bg-gold border-[4px] border-white flex items-center justify-center shadow-[6px_6px_0px_rgb(var(--surface-rgb)/0.2)]"
               >
-                <Lock size={36} className="text-[#002855]" />
+                <Lock size={36} className="text-navy" />
               </motion.div>
               <div>
                 <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
@@ -349,13 +349,13 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 <motion.h1 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
                   className="text-5xl font-black text-white uppercase tracking-tight leading-none">
                   Welcome,<br />
-                  <span className="text-[#FFD166]">{userName || "Operator"}</span>
+                  <span className="text-gold">{userName || "Operator"}</span>
                 </motion.h1>
               </div>
               <motion.div
                 initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
                 transition={{ delay: 1.0, duration: 0.6 }}
-                className="h-[3px] w-32 bg-[#FFD166] origin-left"
+                className="h-[3px] w-32 bg-gold origin-left"
               />
             </motion.div>
           )}
@@ -371,17 +371,17 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 <div className="flex gap-2 justify-center">
                   {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
                     <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${
-                      i === step ? "w-8 bg-[#FFD166]" : i < step ? "w-4 bg-white/40" : "w-4 bg-white/15"
+                      i === step ? "w-8 bg-gold" : i < step ? "w-4 bg-white/40" : "w-4 bg-white/15"
                     }`} />
                   ))}
                 </div>
               )}
-              <div className="bg-white/5 border-[3px] border-white/20 p-8 shadow-[8px_8px_0px_rgba(255,255,255,0.08)]">
+              <div className="bg-white/5 border-[3px] border-white/20 p-8 shadow-[8px_8px_0px_rgb(var(--surface-rgb)/0.08)]">
                 <div className="flex items-start gap-6">
                   <div className="shrink-0 flex flex-col items-center gap-3">
-                    <span className="text-[10px] font-black text-[#FFD166] tracking-[0.3em]">STEP {STEPS[step].number}</span>
-                    <div className="w-14 h-14 bg-[#FFD166] flex items-center justify-center border-[3px] border-white/20 shadow-[4px_4px_0px_rgba(255,255,255,0.1)]">
-                      {(() => { const Icon = STEPS[step].icon; return <Icon size={24} className="text-[#002855]" />; })()}
+                    <span className="text-[10px] font-black text-gold tracking-[0.3em]">STEP {STEPS[step].number}</span>
+                    <div className="w-14 h-14 bg-gold flex items-center justify-center border-[3px] border-white/20 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)]">
+                      {(() => { const Icon = STEPS[step].icon; return <Icon size={24} className="text-navy" />; })()}
                     </div>
                   </div>
                   <div className="flex flex-col gap-3 pt-7">
@@ -398,7 +398,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                   </button>
                 )}
                 <button onClick={() => setStep((s) => s + 1)}
-                  className="flex-1 bg-[#FFD166] border-[3px] border-white/20 text-[#002855] font-black text-[10px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgba(255,255,255,0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all">
+                  className="flex-1 bg-gold border-[3px] border-white/20 text-navy font-black text-[10px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all">
                   {step === STEPS.length - 1 ? "Calibrate System →" : "Next →"}
                 </button>
               </div>
@@ -420,24 +420,24 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
               <div className="flex gap-2 justify-center">
                 {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
                   <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${
-                    i === step ? "w-8 bg-[#FFD166]" : i < step ? "w-4 bg-white/40" : "w-4 bg-white/15"
+                    i === step ? "w-8 bg-gold" : i < step ? "w-4 bg-white/40" : "w-4 bg-white/15"
                   }`} />
                 ))}
               </div>
 
               {/* Header */}
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-[#FFD166] flex items-center justify-center border-[3px] border-white/20 shrink-0">
-                  <Cpu size={24} className="text-[#002855]" />
+                <div className="w-14 h-14 bg-gold flex items-center justify-center border-[3px] border-white/20 shrink-0">
+                  <Cpu size={24} className="text-navy" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black text-[#FFD166] tracking-[0.3em] mb-1">STEP 04</p>
+                  <p className="text-[10px] font-black text-gold tracking-[0.3em] mb-1">STEP 04</p>
                   <h2 className="text-2xl font-black text-white uppercase tracking-tight leading-tight">System Calibration</h2>
                 </div>
               </div>
 
               {/* Sniper card */}
-              <div className="bg-white/5 border-[3px] border-white/20 p-6 shadow-[8px_8px_0px_rgba(255,255,255,0.08)] flex flex-col gap-4">
+              <div className="bg-white/5 border-[3px] border-white/20 p-6 shadow-[8px_8px_0px_rgb(var(--surface-rgb)/0.08)] flex flex-col gap-4">
                 <p className="text-white/60 font-bold text-sm leading-relaxed">
                   Verify the Rust process-sniper is armed and ready to terminate
                   distracting applications the moment a lock session begins.
@@ -451,14 +451,14 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                   )}
                   {sniperState === "checking" && (
                     <motion.div key="checking" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      className="flex items-center gap-3 text-[#FFD166] font-black text-[10px] uppercase tracking-wider">
-                      <div className="w-2 h-2 rounded-full bg-[#FFD166] animate-pulse" /> Calibrating sniper subsystem...
+                      className="flex items-center gap-3 text-gold font-black text-[10px] uppercase tracking-wider">
+                      <div className="w-2 h-2 rounded-full bg-gold animate-pulse" /> Calibrating sniper subsystem...
                     </motion.div>
                   )}
                   {sniperState === "online" && (
                     <motion.div key="online" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
                       <div className="flex items-center gap-3 px-4 py-3 border-[2px] border-green-400/40 w-full"
-                        style={{ boxShadow: "0 0 16px rgba(74,222,128,0.25)" }}>
+                        style={{ boxShadow: "0 0 16px rgb(var(--online-rgb)/0.25)" }}>
                         <CheckCircle size={18} className="text-green-400 shrink-0" />
                         <div>
                           <p className="text-green-400 font-black text-[10px] uppercase tracking-wider">System Verified</p>
@@ -470,7 +470,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                   {sniperState === "degraded" && (
                     <motion.div key="degraded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                       className="flex items-start gap-3 px-4 py-3 border-[2px] border-red-500/40"
-                      style={{ boxShadow: "0 0 12px rgba(239,68,68,0.2)" }}>
+                      style={{ boxShadow: "0 0 12px rgb(var(--alert-soft-rgb)/0.2)" }}>
                       <XCircle size={18} className="text-red-400 shrink-0 mt-0.5" />
                       <div>
                         <p className="text-red-400 font-black text-[10px] uppercase tracking-wider">Sniper Degraded</p>
@@ -482,7 +482,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 {sniperState !== "online" && (
                   <button id="calibrate-sniper" onClick={handleActivateSniper}
                     disabled={sniperState === "checking"}
-                    className="group bg-[#FFD166] border-[3px] border-white/20 text-[#002855] font-black text-[11px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgba(255,255,255,0.1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 flex items-center justify-center gap-3">
+                    className="group bg-gold border-[3px] border-white/20 text-navy font-black text-[11px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 flex items-center justify-center gap-3">
                     <Cpu size={16} className={sniperState === "checking" ? "animate-spin" : ""} />
                     {sniperState === "checking" ? "Calibrating..." : "Activate Sniper"}
                   </button>
@@ -498,7 +498,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                     ? "bg-green-400/5 border-green-400/40"
                     : "bg-white/5 border-white/10"
                 }`}
-                style={extDetected === true ? { boxShadow: "0 0 20px rgba(74,222,128,0.15)" } : {}}
+                style={extDetected === true ? { boxShadow: "0 0 20px rgb(var(--online-rgb)/0.15)" } : {}}
               >
                 <div className="flex items-center gap-3">
                   <motion.div
@@ -538,7 +538,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                   <button
                     id="view-linking-protocol"
                     onClick={() => setShowProtocol(true)}
-                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-[#FFD166] hover:text-white transition-colors border-b border-[#FFD166]/40 hover:border-white/40 pb-0.5 whitespace-nowrap"
+                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-gold hover:text-white transition-colors border-b border-gold/40 hover:border-white/40 pb-0.5 whitespace-nowrap"
                   >
                     {extDetected === null ? "Detect..." : "View Linking Protocol"}
                     <ChevronRight size={10} />
@@ -563,7 +563,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 <button id="enter-cockpit" 
                   onClick={handleComplete}
                   disabled={!extDetected}
-                  className="flex-1 bg-[#FFD166] border-[3px] border-white/20 text-[#002855] font-black text-[10px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgba(255,255,255,0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                  className="flex-1 bg-gold border-[3px] border-white/20 text-navy font-black text-[10px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                   Enter Cockpit →
                 </button>
               </div>

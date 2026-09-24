@@ -204,17 +204,17 @@ export function Dashboard({
       <style>{`
         .intentions-scroll::-webkit-scrollbar { width: 4px; }
         .intentions-scroll::-webkit-scrollbar-track { background: transparent; }
-        .intentions-scroll::-webkit-scrollbar-thumb { background: #1B2A4A; border-radius: 2px; }
+        .intentions-scroll::-webkit-scrollbar-thumb { background: var(--navy-2); border-radius: 2px; }
       `}</style>
 
       <div className="flex flex-col min-[1100px]:flex-row gap-8 shrink-0 w-full">
         {/* LEFT COLUMN: MISSION & INTENTIONS */}
         <div className="flex-1 flex flex-col gap-8 min-w-0">
           {/* STRATEGIC OBJECTIVE */}
-          <section className="bg-white border-2 border-[#002855] rounded-3xl p-8 shadow-[4px_4px_0px_#002855]">
+          <section className="bg-white border-2 border-navy rounded-3xl p-8 shadow-[4px_4px_0px_var(--navy)]">
             <div className="flex items-center gap-3 mb-6">
-              <Target size={18} className="text-royal-blue" />
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-royal-blue/30">Strategic Mission</h2>
+              <Target size={18} className="text-navy" />
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-navy/30">Strategic Mission</h2>
             </div>
             <input
               type="text"
@@ -222,18 +222,18 @@ export function Dashboard({
               onChange={(e) => setObjective(e.target.value)}
               disabled={isActive}
               placeholder="DEFINE CORE TARGET"
-              className="w-full bg-transparent border-b border-royal-blue/10 py-3 text-4xl font-bold text-royal-blue outline-none focus:border-royal-blue transition-all disabled:opacity-50"
+              className="w-full bg-transparent border-b border-navy/10 py-3 text-4xl font-bold text-navy outline-none focus:border-navy transition-all disabled:opacity-50"
             />
           </section>
 
           {/* INTENTIONS / TO-DO LIST */}
-          <section className="bg-white border-2 border-[#002855] rounded-3xl p-8 shadow-[4px_4px_0px_#002855] flex flex-col">
+          <section className="bg-white border-2 border-navy rounded-3xl p-8 shadow-[4px_4px_0px_var(--navy)] flex flex-col">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
-                <CheckCircle size={18} className="text-royal-blue" />
-                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-royal-blue/30">Current Intentions</h2>
+                <CheckCircle size={18} className="text-navy" />
+                <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-navy/30">Current Intentions</h2>
               </div>
-              <span className="text-[10px] font-bold text-royal-blue/20 uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-navy/20 uppercase tracking-widest">
                 {intentions.filter(i => i.completed).length}/{intentions.length} Secure
               </span>
             </div>
@@ -246,11 +246,11 @@ export function Dashboard({
                 onChange={(e) => setNewIntention(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addIntention()}
                 placeholder="Add auxiliary intention..."
-                className="flex-1 bg-white border-2 border-[#002855] shadow-[2px_2px_0px_#002855] rounded-xl px-5 py-3 text-sm font-bold text-[#002855] placeholder-[#002855]/40 outline-none focus:translate-y-[2px] focus:shadow-none transition-all"
+                className="flex-1 bg-white border-2 border-navy shadow-[2px_2px_0px_var(--navy)] rounded-xl px-5 py-3 text-sm font-bold text-navy placeholder-navy/40 outline-none focus:translate-y-[2px] focus:shadow-none transition-all"
               />
               <button
                 onClick={addIntention}
-                className="bg-[#002855] text-white px-5 rounded-xl text-xs font-black uppercase active:translate-y-[2px] transition-all border-2 border-[#002855] shadow-[4px_4px_0px_#002855] active:shadow-none"
+                className="bg-navy text-white px-5 rounded-xl text-xs font-black uppercase active:translate-y-[2px] transition-all border-2 border-navy shadow-[4px_4px_0px_var(--navy)] active:shadow-none"
               >
                 Log
               </button>
@@ -264,8 +264,8 @@ export function Dashboard({
               {intentions.map((item) => (
                 <div 
                   key={item.id}
-                  className={`flex items-center justify-between p-4 rounded-2xl border-2 border-[#002855] transition-all group ${
-                    item.completed ? "bg-[#F9F8F4] opacity-70 shadow-none translate-y-[2px]" : "bg-white shadow-[4px_4px_0px_#002855]"
+                  className={`flex items-center justify-between p-4 rounded-2xl border-2 border-navy transition-all group ${
+                    item.completed ? "bg-paper opacity-70 shadow-none translate-y-[2px]" : "bg-white shadow-[4px_4px_0px_var(--navy)]"
                   }`}
                 >
                   <button 
@@ -273,17 +273,17 @@ export function Dashboard({
                     className="flex items-center gap-4 flex-1 text-left"
                   >
                     {item.completed ? (
-                      <CheckCircle size={22} className="text-[#002855] fill-[#FFD166]" strokeWidth={2.5} />
+                      <CheckCircle size={22} className="text-navy fill-gold" strokeWidth={2.5} />
                     ) : (
-                      <Circle size={22} className="text-[#002855]" strokeWidth={3} />
+                      <Circle size={22} className="text-navy" strokeWidth={3} />
                     )}
-                    <span className={`text-sm font-bold tracking-tight ${item.completed ? "line-through" : "text-royal-navy"}`}>
+                    <span className={`text-sm font-bold tracking-tight ${item.completed ? "line-through" : "text-slate-ink"}`}>
                       {item.text}
                     </span>
                   </button>
                   <button 
                     onClick={() => deleteIntention(item.id)}
-                    className="text-royal-blue/0 group-hover:text-royal-blue/20 hover:text-amber-accent transition-all p-1"
+                    className="text-navy/0 group-hover:text-navy/20 hover:text-amber-deep transition-all p-1"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -302,46 +302,46 @@ export function Dashboard({
         {/* RIGHT COLUMN: TIMER & ENFORCEMENT */}
         <div className="w-full min-[1100px]:w-[400px] flex flex-col gap-8 shrink-0">
           {/* TIMER UNIT */}
-          <section className="bg-white border-2 border-[#002855] rounded-[2.5rem] px-8 py-8 shadow-[6px_6px_0px_#002855] flex flex-col items-center justify-center text-center relative">
+          <section className="bg-white border-2 border-navy rounded-[2.5rem] px-8 py-8 shadow-[6px_6px_0px_var(--navy)] flex flex-col items-center justify-center text-center relative">
             {isActive ? (
               <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
-                <p className="text-[10px] font-black uppercase tracking-[0.5em] text-[#002855] mb-6 animate-pulse">Session Active</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.5em] text-navy mb-6 animate-pulse">Session Active</p>
                 
-                <h1 className="text-[6rem] font-black text-[#002855] tracking-tighter tabular-nums mb-2 leading-none drop-shadow-[4px_4px_0px_#FFD166]">
+                <h1 className="text-[6rem] font-black text-navy tracking-tighter tabular-nums mb-2 leading-none drop-shadow-[4px_4px_0px_var(--gold)]">
                   {formatTime(timeLeft)}
                 </h1>
                 
-                <p className="text-[10px] font-black uppercase tracking-widest text-[#002855]/60 mb-10 text-center w-full truncate px-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-navy/60 mb-10 text-center w-full truncate px-4">
                   Core Target // {taskLabel || "Untitled"}
                 </p>
 
                 <button
                   onClick={onEndSession}
-                  className="w-full bg-[#FFD166] text-[#002855] py-5 rounded-full font-black uppercase tracking-widest text-sm border-2 border-[#002855] shadow-[4px_4px_0px_#002855] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#002855] transition-all active:translate-y-[4px] active:shadow-none"
+                  className="w-full bg-gold text-navy py-5 rounded-full font-black uppercase tracking-widest text-sm border-2 border-navy shadow-[4px_4px_0px_var(--navy)] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_var(--navy)] transition-all active:translate-y-[4px] active:shadow-none"
                 >
                   Emergency Abort
                 </button>
               </div>
             ) : (
               <div className="w-full flex flex-col items-center">
-                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-royal-blue/30 mb-8">Telemetry Initialization</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-navy/30 mb-8">Telemetry Initialization</p>
                 
                 <div className="grid grid-cols-2 gap-4 w-full mb-8">
                   {(devMode ? [...presets, MICRO_PRESET] : presets).map((p) => (
                     <button
                       key={p.minutes}
                       onClick={() => startWithObjective(p.minutes)}
-                      className={`flex flex-col items-center p-6 bg-white border-2 border-[#002855] shadow-[2px_2px_0px_#002855] rounded-2xl hover:-translate-y-1 hover:shadow-[4px_4px_0px_#002855] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""}`}
+                      className={`flex flex-col items-center p-6 bg-white border-2 border-navy shadow-[2px_2px_0px_var(--navy)] rounded-2xl hover:-translate-y-1 hover:shadow-[4px_4px_0px_var(--navy)] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""}`}
                     >
-                      <span className="text-2xl font-black text-royal-blue leading-none mb-1">{p.minutes}</span>
-                      <span className="text-[8px] font-black uppercase tracking-widest text-[#002855]/40 group-hover:text-[#002855]">{p.label}</span>
+                      <span className="text-2xl font-black text-navy leading-none mb-1">{p.minutes}</span>
+                      <span className="text-[8px] font-black uppercase tracking-widest text-navy/40 group-hover:text-navy">{p.label}</span>
                     </button>
                   ))}
                 </div>
 
                 <button
                   onClick={() => startWithObjective(25)}
-                  className="w-full bg-[#002855] text-white py-6 rounded-full font-black uppercase tracking-widest text-sm border-2 border-[#002855] shadow-[4px_4px_0px_#002855] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#002855] transition-all active:translate-y-[4px] active:shadow-none"
+                  className="w-full bg-navy text-white py-6 rounded-full font-black uppercase tracking-widest text-sm border-2 border-navy shadow-[4px_4px_0px_var(--navy)] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_var(--navy)] transition-all active:translate-y-[4px] active:shadow-none"
                 >
                   Engage Protocols
                 </button>
@@ -349,7 +349,7 @@ export function Dashboard({
                 {/* Advisory, not a gate — starting offline is allowed, and the
                     enforcer falls back to its last persisted target list. */}
                 {!blocklistHydrated && (
-                  <p className="mt-4 text-[9px] font-black uppercase tracking-wider text-[#002855]/40 text-center leading-relaxed">
+                  <p className="mt-4 text-[9px] font-black uppercase tracking-wider text-navy/40 text-center leading-relaxed">
                     Blocklist syncing — starting now will use your last saved list
                   </p>
                 )}
@@ -358,34 +358,34 @@ export function Dashboard({
           </section>
 
           {/* FIX 2: STREAK CARD — no emoji, three stat pills */}
-          <section className="bg-white border-2 border-[#002855] rounded-3xl p-8 shadow-[4px_4px_0px_#002855]">
+          <section className="bg-white border-2 border-navy rounded-3xl p-8 shadow-[4px_4px_0px_var(--navy)]">
             <div className="flex items-center gap-3 mb-6">
-              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-royal-blue/30">OPERATOR STREAK</h2>
+              <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-navy/30">OPERATOR STREAK</h2>
             </div>
             <div className="flex flex-col items-center text-center gap-2">
-              <span className="text-[3rem] font-black text-[#002855] leading-none tabular-nums">
+              <span className="text-[3rem] font-black text-navy leading-none tabular-nums">
                 {currentStreak === 0 ? "0" : currentStreak}
               </span>
-              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#002855]/30">
+              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-navy/30">
                 {currentStreak === 0 ? "0 — Start Today" : "Day Streak"}
               </span>
               {/* FIX 2D: Three pills in one row */}
               <div className="mt-4 flex flex-row gap-2 flex-wrap justify-center">
-                <div className="px-3 py-1.5 bg-[#F9F8F4] border border-[#002855]/10 rounded-xl">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-[#002855]/40">AVG SESSION: </span>
-                  <span className="text-[9px] font-black text-[#002855]/60 uppercase tracking-widest">
+                <div className="px-3 py-1.5 bg-paper border border-navy/10 rounded-xl">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-navy/40">AVG SESSION: </span>
+                  <span className="text-[9px] font-black text-navy/60 uppercase tracking-widest">
                     {avgSessionMins !== null ? `${avgSessionMins} MIN` : '-- MIN'}
                   </span>
                 </div>
-                <div className="px-3 py-1.5 bg-[#F9F8F4] border border-[#002855]/10 rounded-xl">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-[#002855]/40">BEST DAY: </span>
-                  <span className="text-[9px] font-black text-[#002855]/60 uppercase tracking-widest">
+                <div className="px-3 py-1.5 bg-paper border border-navy/10 rounded-xl">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-navy/40">BEST DAY: </span>
+                  <span className="text-[9px] font-black text-navy/60 uppercase tracking-widest">
                     {bestDayOfWeek ?? '--'}
                   </span>
                 </div>
-                <div className="px-3 py-1.5 bg-[#F9F8F4] border border-[#002855]/10 rounded-xl">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-[#002855]/40">BEST: </span>
-                  <span className="text-[9px] font-black text-[#F5C842] uppercase tracking-widest">{bestStreak} DAYS</span>
+                <div className="px-3 py-1.5 bg-paper border border-navy/10 rounded-xl">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-navy/40">BEST: </span>
+                  <span className="text-[9px] font-black text-gold-2 uppercase tracking-widest">{bestStreak} DAYS</span>
                 </div>
               </div>
             </div>
@@ -394,13 +394,13 @@ export function Dashboard({
       </div>
 
       {/* OPERATOR HEATMAP (BOTTOM FULL WIDTH) */}
-      <section className="bg-white border-2 border-[#002855] rounded-3xl p-8 shadow-[4px_4px_0px_#002855] shrink-0 w-full mb-8">
+      <section className="bg-white border-2 border-navy rounded-3xl p-8 shadow-[4px_4px_0px_var(--navy)] shrink-0 w-full mb-8">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-xl font-bold text-[#002855] tracking-tight">Operator Telemetry // 30-Day History</h2>
+          <h2 className="text-xl font-bold text-navy tracking-tight">Operator Telemetry // 30-Day History</h2>
           
           <div className="flex items-center gap-6">
-            <div className="bg-[#FFD166] border-2 border-[#002855] px-4 py-2 rounded-full shadow-[2px_2px_0px_#002855]">
-              <span className="font-black text-[#002855] uppercase tracking-widest text-xs">Current Streak: {currentStreak} Days</span>
+            <div className="bg-gold border-2 border-navy px-4 py-2 rounded-full shadow-[2px_2px_0px_var(--navy)]">
+              <span className="font-black text-navy uppercase tracking-widest text-xs">Current Streak: {currentStreak} Days</span>
             </div>
           </div>
         </div>
@@ -412,10 +412,10 @@ export function Dashboard({
               onClick={() => setSelectedDay(day)}
               className={`aspect-square rounded-lg cursor-pointer hover:-translate-y-1 transition-transform ${
                 day.state === 'met' 
-                  ? 'bg-[#FFD166] border-2 border-[#002855] shadow-[2px_2px_0px_#002855]' 
+                  ? 'bg-gold border-2 border-navy shadow-[2px_2px_0px_var(--navy)]' 
                   : day.state === 'partial'
-                    ? 'bg-[#E2E8F0] border border-[#002855]/20'
-                    : 'bg-[#F9F8F4] border border-[#002855]/20'
+                    ? 'bg-track border border-navy/20'
+                    : 'bg-paper border border-navy/20'
               }`}
             />
           ))}
@@ -426,26 +426,26 @@ export function Dashboard({
       {/* TELEMETRY DETAIL MODAL */}
       {selectedDay && (
         <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-[#F9F8F4] border-2 border-[#002855] shadow-[4px_4px_0px_#002855] p-8 max-w-md w-full rounded-2xl flex flex-col animate-in zoom-in-95 duration-200">
-            <h2 className="text-2xl font-black text-[#002855] mb-6">{selectedDay.date} // Telemetry Data</h2>
+          <div className="bg-paper border-2 border-navy shadow-[4px_4px_0px_var(--navy)] p-8 max-w-md w-full rounded-2xl flex flex-col animate-in zoom-in-95 duration-200">
+            <h2 className="text-2xl font-black text-navy mb-6">{selectedDay.date} // Telemetry Data</h2>
             
             <div className="flex flex-col gap-2 mb-8">
-              <span className="text-sm font-bold text-[#002855]/60 uppercase tracking-widest">Total Locked In</span>
-              <span className="text-5xl font-black text-[#002855] leading-none mb-2 tabular-nums">
+              <span className="text-sm font-bold text-navy/60 uppercase tracking-widest">Total Locked In</span>
+              <span className="text-5xl font-black text-navy leading-none mb-2 tabular-nums">
                 {formatLoggedTime(selectedDay.mins)} <span className="text-lg opacity-50">/ {dailyTarget} HRS</span>
               </span>
               
               <div className="mt-2 text-left">
                 {selectedDay.mins >= (dailyTarget * 60) ? (
-                  <span className="inline-block bg-[#FFD166] text-[#002855] border-2 border-[#002855] px-4 py-1.5 rounded-full font-black text-xs uppercase tracking-widest">
+                  <span className="inline-block bg-gold text-navy border-2 border-navy px-4 py-1.5 rounded-full font-black text-xs uppercase tracking-widest">
                     Status: Secured
                   </span>
                 ) : selectedDay.mins > 0 ? (
-                  <span className="inline-block bg-[#E2E8F0] text-[#002855] border-2 border-[#002855]/50 px-4 py-1.5 rounded-full font-black text-xs uppercase tracking-widest">
+                  <span className="inline-block bg-track text-navy border-2 border-navy/50 px-4 py-1.5 rounded-full font-black text-xs uppercase tracking-widest">
                     Status: On Track
                   </span>
                 ) : (
-                  <span className="inline-block bg-white text-[#002855]/50 border-2 border-[#002855]/20 px-4 py-1.5 rounded-full font-black text-xs uppercase tracking-widest">
+                  <span className="inline-block bg-white text-navy/50 border-2 border-navy/20 px-4 py-1.5 rounded-full font-black text-xs uppercase tracking-widest">
                     Status: MIA
                   </span>
                 )}
@@ -454,7 +454,7 @@ export function Dashboard({
 
             <button 
               onClick={() => setSelectedDay(null)}
-              className="w-full bg-white border-2 border-[#002855] text-[#002855] py-4 rounded-xl font-black uppercase text-sm shadow-[4px_4px_0px_#002855] active:translate-y-[4px] active:shadow-none hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#002855] transition-all"
+              className="w-full bg-white border-2 border-navy text-navy py-4 rounded-xl font-black uppercase text-sm shadow-[4px_4px_0px_var(--navy)] active:translate-y-[4px] active:shadow-none hover:translate-y-[2px] hover:shadow-[2px_2px_0px_var(--navy)] transition-all"
             >
               Close
             </button>

@@ -35,17 +35,17 @@ export function KillFeed() {
               initial={{ opacity: 0, x: 100, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 50, scale: 0.9 }}
-              className="bg-white border-2 border-[#002855] p-5 rounded-2xl shadow-[4px_4px_0px_#002855] flex flex-col"
+              className="bg-white border-2 border-navy p-5 rounded-2xl shadow-[4px_4px_0px_var(--navy)] flex flex-col"
             >
               <div className="flex justify-between items-center mb-2">
-                <span className="text-[9px] font-black text-[#002855]/40 uppercase tracking-[0.2em]">
+                <span className="text-[9px] font-black text-navy/40 uppercase tracking-[0.2em]">
                   {new Date(log.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
-                <span className="text-[#002855] text-[8px] font-black px-2 py-0.5 uppercase border-2 border-[#002855] rounded-full bg-[#FFD166]">
+                <span className="text-navy text-[8px] font-black px-2 py-0.5 uppercase border-2 border-navy rounded-full bg-gold">
                   Terminated
                 </span>
               </div>
-              <p className="text-[#002855] font-black uppercase text-xs tracking-tight">
+              <p className="text-navy font-black uppercase text-xs tracking-tight">
                 Extraction: <span className="underline decoration-2">{log.name}</span>
               </p>
             </motion.div>
