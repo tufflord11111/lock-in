@@ -388,7 +388,9 @@
   --line-rgb: 221 209 191;          /* #DDD1BF */
   --accent-rgb: 31 77 46;
   --accent-ink-rgb: 245 237 225;
-  --highlight-rgb: 31 77 46;
+  --highlight-rgb: 214 182 117;     /* #D6B675 — filled pills and the abort
+                                       button carry --ink text, so this cannot
+                                       be --ink itself, which it used to be */
   --highlight-2-rgb: 214 182 117;   /* #D6B675 — 5.0:1 on the dark panel it is
                                        used on; it used to equal --ink */
   --nav-active-bg-rgb: 31 77 46;
@@ -514,6 +516,9 @@
 [data-theme="bento"] .card-inverse {
   --ink-rgb: 255 255 255;
   --ink-2-rgb: 255 255 255;
+  /* bg-ink is now white here, so the text that sits ON it has to be dark
+     — without this the primary button was white on white. */
+  --surface-inverse-rgb: var(--hero-rgb);
   --surface-rgb: var(--hero-panel-rgb);   /* preset chips on #26272D */
   --ground-rgb: var(--hero-panel-rgb);
   --line-rgb: 255 255 255;
@@ -523,6 +528,9 @@
 [data-theme="bento"] .card-accent {
   --ink-rgb: 255 255 255;
   --ink-2-rgb: 255 255 255;
+  /* bg-ink is now white here, so the text that sits ON it has to be dark
+     — without this the primary button was white on white. */
+  --surface-inverse-rgb: var(--hero-panel-rgb);
   /* The inset chips are dark on the accent, not white-on-white: they carry
      white text, so their fill has to be the dark tone, giving 14.9:1. */
   --surface-rgb: var(--hero-panel-rgb);
