@@ -170,6 +170,27 @@ async function check(name, expect, fn) {
       "users/erin/sessionState": { isActive: false, originDeviceId: "dev-alice" },
     }));
 
+  // ── 1.2.5 theme + accent enums, and the handle privacy rule ───────────────
+  for (const theme of ["operator", "notebook", "bento", "botanical"]) {
+    await check(`config/theme "${theme}" is accepted`, "pass",
+      () => set(ref(alice, "users/alice/config/theme"), theme));
+  }
+  await check('config/theme "neon" is rejected', "fail",
+    () => set(ref(alice, "users/alice/config/theme"), "neon"));
+
+  for (const accent of ["orange", "sage", "lavender", "teal"]) {
+    await check(`config/themeAccent "${accent}" is accepted`, "pass",
+      () => set(ref(alice, "users/alice/config/themeAccent"), accent));
+  }
+  await check('config/themeAccent "pink" is rejected', "fail",
+    () => set(ref(alice, "users/alice/config/themeAccent"), "pink"));
+
+  // No part of an email may ever become the handle other users read.
+  await check('public/userName "foo@bar" is rejected', "fail",
+    () => set(ref(alice, "users/alice/public/userName"), "foo@bar"));
+  await check('public/userName "N1NJLA" is accepted', "pass",
+    () => set(ref(alice, "users/alice/public/userName"), "N1NJLA"));
+
   // State assertions (admin read)
   let state = {};
   await env.withSecurityRulesDisabled(async (ctx) => {

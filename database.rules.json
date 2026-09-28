@@ -8,9 +8,14 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid && (!newData.exists() || newData.child('emergencyUnlock/expiry').val() === data.child('emergencyUnlock/expiry').val())",
 
+        "config": {
+          "theme": { ".validate": "newData.isString() && newData.val().matches(/^(operator|notebook|bento|botanical)$/)" },
+          "themeAccent": { ".validate": "newData.isString() && newData.val().matches(/^(orange|sage|lavender|teal)$/)" }
+        },
+
         "public": {
           ".read": "auth != null",
-          "userName": { ".validate": "newData.isString()" },
+          "userName": { ".validate": "newData.isString() && !newData.val().contains('@')" },
           "$other": { ".validate": false }
         },
         "presence": {
