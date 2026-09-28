@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Trash2, CheckCircle, Circle, Target } from "lucide-react";
 import { db } from "@lock-in/firebase";
 import { useCopy } from "../theme/copy";
+import { Sticker } from "../theme/stickers";
 import { ref, onValue } from "firebase/database";
 
 const presets = [{ minutes: 25 }, { minutes: 45 }, { minutes: 60 }, { minutes: 90 }];
@@ -208,7 +209,8 @@ export function Dashboard({
         {/* LEFT COLUMN: MISSION & INTENTIONS */}
         <div className="flex-1 flex flex-col gap-8 min-w-0">
           {/* STRATEGIC OBJECTIVE */}
-          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)]">
+          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative">
+            <Sticker slot="mission" />
             <div className="flex items-center gap-3 mb-6">
               <Target size={18} className="text-ink" />
               <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("mission.label")}</h2>
@@ -224,7 +226,8 @@ export function Dashboard({
           </section>
 
           {/* INTENTIONS / TO-DO LIST */}
-          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] flex flex-col">
+          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative flex flex-col">
+            <Sticker slot="todo" />
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-3">
                 <CheckCircle size={18} className="text-ink" />
@@ -300,6 +303,7 @@ export function Dashboard({
         <div className="w-full min-[1100px]:w-[400px] flex flex-col gap-8 shrink-0">
           {/* TIMER UNIT */}
           <section className="bg-surface border-1 border-ink rounded-3xl px-8 py-8 shadow-[var(--shadow-3)] flex flex-col items-center justify-center text-center relative">
+            <Sticker slot="session" />
             {isActive ? (
               <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
                 <p className="text-[10px] font-black label-plain tracking-[0.5em] text-ink mb-6 animate-pulse">{t("session.running")}</p>
@@ -361,7 +365,8 @@ export function Dashboard({
           </section>
 
           {/* FIX 2: STREAK CARD — no emoji, three stat pills */}
-          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)]">
+          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative">
+            <Sticker slot="streak" />
             <div className="flex items-center gap-3 mb-6">
               <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("streak.label")}</h2>
             </div>
