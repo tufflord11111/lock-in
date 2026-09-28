@@ -120,14 +120,14 @@ export function PendingPermanentBanner({ userId }: { userId: string }) {
           <button
             onClick={reject}
             disabled={busy}
-            className="px-5 py-2 bg-surface-inverse/10 border-1 border-surface-inverse/40 text-surface-inverse font-black text-[10px] label-sm hover:bg-surface-inverse/20 transition-colors disabled:opacity-50"
+            className="px-5 py-2 bg-surface-inverse/10 border-1 border-surface-inverse/40 text-surface-inverse font-black text-[10px] label-action-sm hover:bg-surface-inverse/20 transition-colors disabled:opacity-50"
           >
             Reject
           </button>
           <button
             onClick={approve}
             disabled={busy}
-            className="px-5 py-2 bg-surface text-danger font-black text-[10px] label-sm hover:bg-surface-inverse/90 transition-colors disabled:opacity-50"
+            className="px-5 py-2 bg-surface text-danger font-black text-[10px] label-action-sm hover:bg-surface-inverse/90 transition-colors disabled:opacity-50"
           >
             {busy ? "Working…" : "Approve"}
           </button>

@@ -93,14 +93,14 @@ export function UpdateBanner() {
         <button
           onClick={install}
           disabled={installing}
-          className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-sm shadow-[var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
+          className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-action-sm shadow-[shadow:var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
         >
           {installing ? "Installing…" : "Restart to update"}
         </button>
         <button
           onClick={() => setDismissed(true)}
           className="text-ink/40 hover:text-ink transition-colors shrink-0"
-          aria-label="Dismiss"
+          aria-label-action="Dismiss"
         >
           <X size={14} />
         </button>

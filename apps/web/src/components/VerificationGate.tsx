@@ -87,7 +87,7 @@ export function VerificationGate({
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-[440px] bg-ink border-[4px] border-ink p-8 shadow-[var(--shadow-4)] mb-8 transform -rotate-1"
+        className="w-full max-w-[440px] bg-ink border-2 border-ink p-8 shadow-[shadow:var(--shadow-4)] mb-8 transform -rotate-1"
       >
         <div className="flex items-center gap-4 mb-4">
           <div className="w-12 h-12 bg-highlight flex items-center justify-center">
@@ -114,7 +114,7 @@ export function VerificationGate({
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="w-full max-w-[440px] bg-surface border-[3px] border-ink p-6 shadow-[var(--shadow-3)] mb-6"
+        className="w-full max-w-[440px] bg-surface border-auth border-ink p-6 shadow-[shadow:var(--shadow-3)] mb-6"
       >
         <div className="flex items-start gap-4">
           <AlertTriangle size={20} className="text-highlight shrink-0 mt-0.5" />
@@ -184,7 +184,7 @@ export function VerificationGate({
           id="verify-check-status"
           onClick={handleCheckStatus}
           disabled={checking}
-          className="group relative bg-highlight border-[4px] border-ink p-5 shadow-[var(--shadow-4)] hover:shadow-[var(--shadow-2)] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50"
+          className="group relative bg-highlight border-2 border-ink p-5 shadow-[shadow:var(--shadow-4)] hover:shadow-[shadow:var(--shadow-2)] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50"
         >
           <div className="flex items-center justify-center gap-3">
             <RefreshCw
@@ -202,7 +202,7 @@ export function VerificationGate({
           id="verify-resend"
           onClick={handleResend}
           disabled={sending || resendCooldown}
-          className="border-[3px] border-ink bg-surface p-4 shadow-[var(--shadow-2)] hover:shadow-[var(--shadow-1)] hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
+          className="border-auth border-ink bg-surface p-4 shadow-[shadow:var(--shadow-2)] hover:shadow-[shadow:var(--shadow-1)] hover:translate-x-[2px] hover:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40"
         >
           <div className="flex items-center justify-center gap-3">
             <Mail className="text-ink" size={16} />
@@ -216,7 +216,7 @@ export function VerificationGate({
         <button
           id="verify-logout"
           onClick={onLogout}
-          className="flex items-center justify-center gap-2 text-[10px] font-black text-ink/30 label-plain tracking-[0.2em] hover:text-ink transition-colors mt-2"
+          className="flex items-center justify-center gap-2 text-[10px] font-black text-ink/30 label-action-plain tracking-[0.2em] hover:text-ink transition-colors mt-2"
         >
           <LogOut size={12} />
           Sign Out — Use Different Account

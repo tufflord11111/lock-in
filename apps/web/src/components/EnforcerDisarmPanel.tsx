@@ -161,7 +161,7 @@ export function EnforcerDisarmPanel({
         <button
           onClick={handleDisarm}
           disabled={disarming}
-          className="px-6 py-3 bg-danger text-surface-inverse font-black text-[10px] label-sm rounded-lg border-1 border-danger-shadow shadow-[2px_2px_0px_var(--danger-shadow)] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all disabled:opacity-50"
+          className="px-6 py-3 bg-danger text-surface-inverse font-black text-[10px] label-action-sm rounded-lg border-1 border-danger-shadow shadow-[2px_2px_0px_var(--danger-shadow)] hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all disabled:opacity-50"
         >
           {disarming
             ? "Clearing..."

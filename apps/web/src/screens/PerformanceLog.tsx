@@ -130,7 +130,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-black text-ink-2 label-plain tracking-tight">{t("plan.schedule")}</h2>
           {calendarUrl && (
-            <button onClick={disconnectCalendar} className="text-[9px] font-black label-sm text-ink-2/40 hover:text-danger-soft transition-colors">{t("plan.disconnect")}</button>
+            <button onClick={disconnectCalendar} className="text-[9px] font-black label-action-sm text-ink-2/40 hover:text-danger-soft transition-colors">{t("plan.disconnect")}</button>
           )}
         </div>
 
@@ -148,7 +148,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
             <p className="text-[10px] font-black label-sm text-ink-2/40 text-center">Connect your Google Calendar<br />to see your schedule here</p>
             <button
               onClick={() => setShowCalendarModal(true)}
-              className="bg-ink-2 text-surface-inverse px-6 py-3 rounded-lg font-black text-[10px] label-sm hover:bg-ink transition-colors"
+              className="bg-ink-2 text-surface-inverse px-6 py-3 rounded-lg font-black text-[10px] label-action-sm hover:bg-ink transition-colors"
             >
               CONNECT GOOGLE CALENDAR
             </button>
@@ -198,7 +198,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
               <button
                 onClick={saveCalendarUrl}
                 disabled={!calendarInput.trim().startsWith('https://calendar.google.com')}
-                className="w-full bg-ink-2 text-surface-inverse py-3 rounded-lg font-black text-[10px] label-sm hover:bg-ink transition-colors disabled:opacity-40"
+                className="w-full bg-ink-2 text-surface-inverse py-3 rounded-lg font-black text-[10px] label-action-sm hover:bg-ink transition-colors disabled:opacity-40"
               >
                 SAVE & CONNECT
               </button>
@@ -207,7 +207,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
         )}
       </AnimatePresence>
 
-      <div className="bg-surface border-1 border-ink shadow-[var(--shadow-3)] rounded-xl p-6 flex flex-col min-h-[700px] w-full">
+      <div className="bg-surface border-1 border-ink shadow-[shadow:var(--shadow-3)] rounded-xl p-6 flex flex-col min-h-[700px] w-full">
         
         {/* CALENDAR HEADER */}
         <div className="mb-8 pb-6 border-b-1 border-ink/10">
@@ -232,7 +232,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
                     {dayInfo.name}
                   </span>
                   <div className={`w-12 h-12 flex items-center justify-center rounded-full text-xl font-black ${
-                    dayInfo.isToday ? "bg-highlight text-ink border-1 border-ink shadow-[var(--shadow-1)]" : "text-ink"
+                    dayInfo.isToday ? "bg-highlight text-ink border-1 border-ink shadow-[shadow:var(--shadow-1)]" : "text-ink"
                   }`}>
                     {dayInfo.dateNum}
                   </div>
@@ -250,7 +250,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
                   />
                   <button
                     onClick={() => addTask(day)}
-                    className="shrink-0 bg-ink text-surface-inverse p-2 rounded-lg hover:-translate-y-px hover:shadow-[var(--shadow-1)] active:translate-y-px active:shadow-none transition-all border-1 border-ink flex items-center justify-center"
+                    className="shrink-0 bg-ink text-surface-inverse p-2 rounded-lg hover:-translate-y-px hover:shadow-[shadow:var(--shadow-1)] active:translate-y-px active:shadow-none transition-all border-1 border-ink flex items-center justify-center"
                   >
                     <Plus size={16} strokeWidth={3} className="text-highlight" />
                   </button>
@@ -264,7 +264,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
                       className={`flex items-start justify-between p-3 rounded-lg transition-all group ${
                         task.completed 
                           ? "opacity-50" 
-                          : "bg-surface border-1 border-ink shadow-[var(--shadow-1)]"
+                          : "bg-surface border-1 border-ink shadow-[shadow:var(--shadow-1)]"
                       }`}
                     >
                       <button 

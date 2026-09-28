@@ -35,7 +35,7 @@ function Preview({ theme, accent }: { theme: ThemeName; accent: AccentName }) {
       className="pointer-events-none w-full h-20 p-2 flex gap-1.5 bg-ground rounded-md overflow-hidden"
       style={{ backgroundImage: "var(--grid-image)", backgroundSize: "var(--grid-size)" }}
     >
-      <div className="flex-1 bg-surface border-1 border-line rounded-lg shadow-[var(--shadow-1)] p-1.5 flex flex-col gap-1">
+      <div className="flex-1 bg-surface border-1 border-line rounded-lg shadow-[shadow:var(--shadow-1)] p-1.5 flex flex-col gap-1">
         <span className="label-sm text-ink-muted text-[5px] leading-none">Focus</span>
         <span
           className="text-ink text-[13px] leading-none"
@@ -63,7 +63,7 @@ export function AppearancePicker() {
   const t = useCopy();
 
   return (
-    <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[var(--shadow-2)]">
+    <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[shadow:var(--shadow-2)]">
       <h2 className="text-sm font-black text-ink label-plain tracking-tight">{t("theme.title")}</h2>
       <p className="text-[9px] font-bold text-ink-muted mt-1 mb-4 leading-relaxed">
         {t("theme.sub")}
@@ -80,7 +80,7 @@ export function AppearancePicker() {
                 onClick={() => setTheme(name)}
                 className={`text-left p-2 rounded-xl border-1 transition-all ${
                   selected
-                    ? "border-ink shadow-[var(--shadow-1)] bg-surface-alt"
+                    ? "border-ink shadow-[shadow:var(--shadow-1)] bg-surface-alt"
                     : "border-ink/20 bg-surface hover:border-ink/50"
                 }`}
               >
@@ -102,7 +102,7 @@ export function AppearancePicker() {
                       key={a}
                       type="button"
                       aria-pressed={accent === a}
-                      aria-label={`${ACCENT_NAME[a]} accent`}
+                      aria-label-action={`${ACCENT_NAME[a]} accent`}
                       title={ACCENT_NAME[a]}
                       onClick={() => {
                         setAccent(a);

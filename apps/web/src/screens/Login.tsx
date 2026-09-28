@@ -136,15 +136,18 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
 
   // ── Shared input style ───────────────────────────────────────────────────
   const inputClass =
-    "w-full bg-surface border-[3px] border-ink p-4 font-bold text-ink shadow-[var(--shadow-2)] outline-none focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-[var(--shadow-1)] transition-all placeholder:text-ink/20";
+    "w-full bg-surface border-auth border-ink rounded-auth-field p-4 font-bold text-ink shadow-[shadow:var(--shadow-2)] outline-none focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-[shadow:var(--shadow-1)] transition-all placeholder:text-ink/20";
 
   return (
     <div className="h-screen bg-ground flex flex-col items-center [justify-content:safe_center] p-8 font-outfit overflow-y-auto">
 
       {/* HEADER BADGE */}
-      <div className="w-full max-w-[400px] bg-surface border-[4px] border-ink p-8 shadow-[var(--shadow-4)] mb-8 transform -rotate-1">
+      <div
+        className="w-full max-w-[400px] bg-surface border-2 border-ink rounded-auth-card p-8 shadow-[shadow:var(--shadow-4)] mb-8"
+        style={{ transform: "rotate(var(--rotate-logo))" }}
+      >
         <div className="flex items-center gap-4 mb-4">
-          <div className="w-12 h-12 bg-ink flex items-center justify-center">
+          <div className="w-12 h-12 bg-ink rounded-auth-field flex items-center justify-center">
             <Lock className="text-surface-inverse" size={24} />
           </div>
           <h1 className="text-4xl font-black text-ink tracking-tighter label-plain italic leading-none">
@@ -182,7 +185,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="flex flex-col items-center gap-4 p-6 bg-success-50 border-[3px] border-success shadow-[4px_4px_0px_var(--success)]"
+                className="flex flex-col items-center gap-4 p-6 bg-success-50 border-auth border-success rounded-auth-card shadow-[shadow:var(--shadow-ok)]"
               >
                 <CheckCircle size={32} className="text-success" />
                 <p className="text-center text-success-700 font-black text-sm label-plain tracking-wider">
@@ -216,11 +219,11 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="group relative bg-highlight border-[4px] border-ink p-5 shadow-[var(--shadow-4)] hover:shadow-[var(--shadow-2)] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50 mt-2"
+                  className="group relative bg-highlight border-2 border-ink rounded-auth-field p-5 shadow-[shadow:var(--shadow-4)] hover:shadow-[shadow:var(--shadow-2)] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50 mt-2"
                 >
                   <div className="flex items-center justify-center gap-3">
                     <RotateCcw className="text-ink" size={18} />
-                    <span className="text-lg font-black text-ink label-plain tracking-wider">
+                    <span className="text-lg font-black text-highlight-ink label-plain tracking-wider">
                       {isLoading ? t("login.sending") : t("login.sendReset")}
                     </span>
                   </div>
@@ -231,7 +234,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
             <button
               type="button"
               onClick={() => resetForm("login")}
-              className="flex items-center justify-center gap-2 text-[10px] font-black text-ink/40 label-plain tracking-[0.2em] hover:text-ink transition-colors mt-2"
+              className="flex items-center justify-center gap-2 text-[10px] font-black text-ink/40 label-action-plain tracking-[0.2em] hover:text-ink transition-colors mt-2"
             >
               <ArrowLeft size={12} />
               Back to Login
@@ -317,7 +320,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
               <button
                 type="button"
                 onClick={() => resetForm("forgot")}
-                className="self-end text-[10px] font-black text-ink/40 label-plain tracking-[0.15em] hover:text-ink transition-colors -mt-2"
+                className="self-end text-[10px] font-black text-ink/40 label-action-plain tracking-[0.15em] hover:text-ink transition-colors -mt-2"
               >
                 {t("login.forgot")}
               </button>
@@ -335,11 +338,11 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
               id="auth-submit"
               type="submit"
               disabled={isLoading}
-              className="group relative bg-highlight border-[4px] border-ink p-5 shadow-[var(--shadow-4)] hover:shadow-[var(--shadow-2)] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50 mt-4"
+              className="group relative bg-highlight border-2 border-ink rounded-auth-field p-5 shadow-[shadow:var(--shadow-4)] hover:shadow-[shadow:var(--shadow-2)] hover:translate-x-[4px] hover:translate-y-[4px] active:shadow-none active:translate-x-[8px] active:translate-y-[8px] transition-all disabled:opacity-50 mt-4"
             >
               <div className="flex items-center justify-center gap-3">
-                <Zap className="text-ink group-hover:animate-pulse" size={20} />
-                <span className="text-lg font-black text-ink label-plain tracking-wider">
+                <Zap className="text-highlight-ink group-hover:animate-pulse" size={20} />
+                <span className="text-lg font-black text-highlight-ink label-plain tracking-wider">
                   {isLoading ? t("login.submitting") : view === "register" ? t("login.register") : t("login.submit")}
                 </span>
               </div>
@@ -349,7 +352,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
             <button
               type="button"
               onClick={() => resetForm(view === "login" ? "register" : "login")}
-              className="text-center text-[10px] font-black text-ink/40 label-plain tracking-[0.2em] hover:text-ink transition-colors mt-2"
+              className="text-center text-[10px] font-black text-ink/40 label-action-plain tracking-[0.2em] hover:text-ink transition-colors mt-2"
             >
               {view === "register" ? t("login.toLogin") : t("login.toRegister")}
             </button>

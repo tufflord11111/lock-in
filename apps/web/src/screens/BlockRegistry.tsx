@@ -438,7 +438,7 @@ export function BlockRegistry({
         <AppearancePicker />
 
         {/* IDENTITY */}
-        <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[var(--shadow-2)]">
+        <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[shadow:var(--shadow-2)]">
           <div className="flex items-center gap-3 mb-6">
             <User size={18} className="text-ink" />
             <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.identity")}</h2>
@@ -456,7 +456,7 @@ export function BlockRegistry({
         </section>
 
         {/* UPTIME TRACKER */}
-        <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[var(--shadow-2)] flex flex-col justify-between">
+        <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[shadow:var(--shadow-2)] flex flex-col justify-between">
           <div>
             <div className="flex items-center gap-3 mb-8">
               <Clock size={18} className="text-ink" />
@@ -478,7 +478,7 @@ export function BlockRegistry({
         </section>
 
         {/* BOOT INITIALIZATION */}
-        <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[var(--shadow-2)]">
+        <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[shadow:var(--shadow-2)]">
           <div className="flex items-center gap-3 mb-4">
             <Power size={18} className="text-ink" />
             <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.boot")}</h2>
@@ -543,7 +543,7 @@ export function BlockRegistry({
               {visibleDefaultDomains.map(domain => (
                 <div key={domain} className="flex items-center justify-between px-3 py-1.5 bg-surface border border-ink-2/10 rounded-md">
                   <span className="text-[10px] font-mono text-ink-2/70">{domain}</span>
-                  <button onClick={() => removeDefaultBlock(domain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-sm transition-colors">{t("blocks.remove")}</button>
+                  <button onClick={() => removeDefaultBlock(domain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-action-sm transition-colors">{t("blocks.remove")}</button>
                 </div>
               ))}
               <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/30 mt-2 mb-1">{t("blocks.custom")}</p>
@@ -556,8 +556,8 @@ export function BlockRegistry({
                     return (
                       <div key={key} className="flex items-center justify-between px-3 py-1.5 bg-surface border border-ink-2/10 rounded-md gap-2">
                         <span className="text-[10px] font-mono text-ink-2/70 flex-1 truncate">{displayDomain}</span>
-                        <button onClick={() => makeWebPermanent(displayDomain)} className="text-[7px] font-black label-plain px-1.5 py-0.5 border border-ink-2/30 rounded text-ink-2/50 hover:bg-ink-2 hover:text-surface-inverse transition-colors">{t("blocks.perm")}</button>
-                        <button onClick={() => removeCustomBlock(displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-sm transition-colors">✕</button>
+                        <button onClick={() => makeWebPermanent(displayDomain)} className="text-[7px] font-black label-action-plain px-1.5 py-0.5 border border-ink-2/30 rounded text-ink-2/50 hover:bg-ink-2 hover:text-surface-inverse transition-colors">{t("blocks.perm")}</button>
+                        <button onClick={() => removeCustomBlock(displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-action-sm transition-colors">✕</button>
                       </div>
                     );
                   })}
@@ -567,8 +567,8 @@ export function BlockRegistry({
                       <div key={key} className="flex items-center justify-between px-3 py-1.5 bg-highlight-2/10 border border-highlight-2 rounded-md gap-2">
                         <span className="text-[10px] font-mono text-ink-2 flex-1 truncate">{displayDomain}</span>
                         <span className="text-[7px] font-black label-plain px-1.5 py-0.5 bg-highlight-2 text-ink-2 border border-ink-2 rounded">24/7</span>
-                        <button onClick={() => makeWebSession(displayDomain)} className="text-[8px] font-black text-ink-2/40 hover:text-ink-2 label-sm transition-colors">{t("blocks.session")}</button>
-                        <button onClick={() => removePermanentWeb(key, displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-sm transition-colors">✕</button>
+                        <button onClick={() => makeWebSession(displayDomain)} className="text-[8px] font-black text-ink-2/40 hover:text-ink-2 label-action-sm transition-colors">{t("blocks.session")}</button>
+                        <button onClick={() => removePermanentWeb(key, displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-action-sm transition-colors">✕</button>
                       </div>
                     );
                   })}
@@ -580,14 +580,14 @@ export function BlockRegistry({
           {/* C: MANUAL ADD */}
           <div className="flex gap-2 pt-3 border-t border-ink-2/10">
             <input type="text" value={newWebDomain} onChange={(e) => setNewWebDomain(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addWebBlockManual()} placeholder={t("blocks.sitePlaceholder") ?? ""} className="flex-1 bg-surface border border-ink-2/30 rounded-lg px-3 py-2 text-[10px] font-mono text-ink-2 placeholder:text-ink-2/30 outline-none focus:border-ink-2 transition-colors" />
-            <button onClick={addWebBlockManual} className="bg-ink-2 text-surface-inverse px-4 py-2 rounded-lg text-[9px] font-black label-sm hover:bg-ink transition-colors">{t("blocks.addSite")}</button>
+            <button onClick={addWebBlockManual} className="bg-ink-2 text-surface-inverse px-4 py-2 rounded-lg text-[9px] font-black label-action-sm hover:bg-ink transition-colors">{t("blocks.addSite")}</button>
           </div>
         </section>
       </div>
 
       {/* RIGHT COLUMN: BLACKLIST REGISTRY */}
       <div className="flex-1 flex flex-col gap-8 self-start">
-        <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] flex flex-col" style={{ paddingBottom: '40px' }}>
+        <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] flex flex-col" style={{ paddingBottom: '40px' }}>
           <div className="flex items-center gap-3 mb-8">
             <ShieldAlert size={18} className="text-ink" />
             <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.apps")}</h2>
@@ -618,7 +618,7 @@ export function BlockRegistry({
 
              <button
                onClick={handleBrowse}
-               className="bg-surface text-ink border-1 border-ink px-6 py-3 rounded-lg font-black text-[9px] label-sm flex items-center gap-3 hover:-translate-y-1 hover:shadow-[var(--shadow-2)] active:translate-y-[2px] active:shadow-none transition-all shadow-[var(--shadow-1)]"
+               className="bg-surface text-ink border-1 border-ink px-6 py-3 rounded-lg font-black text-[9px] label-action-sm flex items-center gap-3 hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-[2px] active:shadow-none transition-all shadow-[shadow:var(--shadow-1)]"
              >
                <FolderOpen size={14} />
                Browse Files
@@ -631,12 +631,12 @@ export function BlockRegistry({
               value={newExe}
               onChange={(e) => setNewExe(e.target.value)}
               placeholder={t("blocks.appPlaceholder") ?? ""}
-              className="flex-1 bg-surface border-1 border-ink shadow-[var(--shadow-1)] focus:translate-y-[2px] focus:shadow-none rounded-lg px-6 py-4 font-bold text-sm text-ink placeholder:text-ink/40 focus:outline-none transition-all disabled:opacity-50"
+              className="flex-1 bg-surface border-1 border-ink shadow-[shadow:var(--shadow-1)] focus:translate-y-[2px] focus:shadow-none rounded-lg px-6 py-4 font-bold text-sm text-ink placeholder:text-ink/40 focus:outline-none transition-all disabled:opacity-50"
             />
             <button
               onClick={handleAdd}
               disabled={!newExe.trim() || isSyncing}
-              className="bg-ink text-surface-inverse border-1 border-ink px-8 rounded-lg font-black transition-all hover:-translate-y-1 hover:shadow-[var(--shadow-2)] active:translate-y-[2px] active:shadow-none disabled:opacity-50 flex items-center justify-center shadow-[var(--shadow-1)] min-w-[140px]"
+              className="bg-ink text-surface-inverse border-1 border-ink px-8 rounded-lg font-black transition-all hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-[2px] active:shadow-none disabled:opacity-50 flex items-center justify-center shadow-[shadow:var(--shadow-1)] min-w-[140px]"
             >
               {isSyncing ? (
                 <span className="text-[10px] tracking-widest flex items-center gap-2">
@@ -678,12 +678,12 @@ export function BlockRegistry({
                 <motion.div
                   layout
                   key={exe}
-                  className="group flex items-center justify-between bg-surface border-1 border-ink p-4 rounded-xl hover:-translate-y-1 hover:shadow-[var(--shadow-2)] transition-all shadow-[var(--shadow-1)]"
+                  className="group flex items-center justify-between bg-surface border-1 border-ink p-4 rounded-xl hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] transition-all shadow-[shadow:var(--shadow-1)]"
                 >
                   <span className="font-bold text-sm truncate pr-2 text-ink/80 tracking-tight italic flex-1">{exe}</span>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[7px] font-black label-plain px-2 py-0.5 border-1 border-ink rounded text-ink">{t("blocks.session")}</span>
-                    <button onClick={() => makeExePermanent(exe)} className="text-[7px] font-black label-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-highlight-2 hover:text-ink transition-colors">{t("blocks.perm")}</button>
+                    <button onClick={() => makeExePermanent(exe)} className="text-[7px] font-black label-action-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-highlight-2 hover:text-ink transition-colors">{t("blocks.perm")}</button>
                     <button onClick={() => removeBlock(exe)} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
                       <Trash2 size={14} />
                     </button>
@@ -698,7 +698,7 @@ export function BlockRegistry({
                 >
                   <span className="font-bold text-sm truncate pr-2 text-ink tracking-tight italic flex-1">{exe}</span>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => makeExeSession(exe)} className="text-[7px] font-black label-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-ink transition-colors">{t("blocks.session")}</button>
+                    <button onClick={() => makeExeSession(exe)} className="text-[7px] font-black label-action-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-ink transition-colors">{t("blocks.session")}</button>
                     <span className="text-[7px] font-black label-plain px-2 py-0.5 bg-highlight-2 border-1 border-ink rounded text-ink">24/7</span>
                     <button onClick={() => removePermanentExe(exe)} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
                       <Trash2 size={14} />
@@ -716,7 +716,7 @@ export function BlockRegistry({
           </div>
         </section>
 
-        <footer className="p-6 rounded-2xl border-1 border-ink shadow-[var(--shadow-3)] bg-ink text-surface-inverse" style={{ marginBottom: '180px' }}>
+        <footer className="p-6 rounded-2xl border-1 border-ink shadow-[shadow:var(--shadow-3)] bg-ink text-surface-inverse" style={{ marginBottom: '180px' }}>
           <p className="text-[9px] font-black label-sm mb-4 text-surface-inverse/40">Vault Status</p>
           <div className="grid grid-cols-2 gap-px bg-surface-inverse/10 rounded-lg overflow-hidden border border-surface-inverse/10">
             {/* WEB GUARD */}
@@ -768,7 +768,7 @@ export function BlockRegistry({
               className={`relative w-full max-w-[480px] bg-surface border-2 p-8 flex flex-col gap-6 ${
                 pendingAdd.verdict.verdict === "warn"
                   ? "border-danger-600 shadow-[12px_12px_0px_var(--danger-deep)]"
-                  : "border-ink shadow-[var(--shadow-5)]"
+                  : "border-ink shadow-[shadow:var(--shadow-5)]"
               }`}
             >
               <div className="flex items-center gap-4">
@@ -812,14 +812,14 @@ export function BlockRegistry({
                 <button
                   onClick={() => setPendingAdd(null)}
                   disabled={pendingBusy}
-                  className="flex-1 py-4 border-1 border-ink bg-surface text-ink font-black text-[10px] label-sm hover:bg-ground transition-all disabled:opacity-40"
+                  className="flex-1 py-4 border-1 border-ink bg-surface text-ink font-black text-[10px] label-action-sm hover:bg-ground transition-all disabled:opacity-40"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmPendingAdd}
                   disabled={pendingBusy}
-                  className={`flex-1 py-4 border-1 font-black text-[10px] label-sm transition-all disabled:opacity-40 ${
+                  className={`flex-1 py-4 border-1 font-black text-[10px] label-action-sm transition-all disabled:opacity-40 ${
                     pendingAdd.verdict.verdict === "warn"
                       ? "bg-danger-600 border-danger-800 text-surface-inverse hover:bg-danger-deep"
                       : "bg-ink border-ink text-surface-inverse hover:bg-highlight hover:text-ink"
@@ -852,7 +852,7 @@ export function BlockRegistry({
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-[500px] bg-surface border-2 border-ink shadow-[var(--shadow-5)] p-8 flex flex-col max-h-[80vh]"
+              className="relative w-full max-w-[500px] bg-surface border-2 border-ink shadow-[shadow:var(--shadow-5)] p-8 flex flex-col max-h-[80vh]"
             >
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-4">
@@ -896,7 +896,7 @@ export function BlockRegistry({
                         setIsScannerOpen(false);
                         await requestAddBlock(app);
                       }}
-                      className="w-full text-left bg-surface border-1 border-ink p-4 flex items-center justify-between group hover:bg-highlight transition-all hover:-translate-y-1 hover:shadow-[var(--shadow-2)] active:translate-y-0 active:shadow-none"
+                      className="w-full text-left bg-surface border-1 border-ink p-4 flex items-center justify-between group hover:bg-highlight transition-all hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-0 active:shadow-none"
                     >
                       <span className="font-bold text-sm text-ink">{app}</span>
                       <Plus size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />

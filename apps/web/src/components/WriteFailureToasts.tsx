@@ -90,7 +90,7 @@ export function WriteFailureToasts() {
             exit={{ opacity: 0, x: -20 }}
             className={
               item.kind === "info"
-                ? "pointer-events-auto flex items-start gap-3 bg-surface border-1 border-ink shadow-[var(--shadow-2)] rounded-lg px-4 py-3 font-mono"
+                ? "pointer-events-auto flex items-start gap-3 bg-surface border-1 border-ink shadow-[shadow:var(--shadow-2)] rounded-lg px-4 py-3 font-mono"
                 : "pointer-events-auto flex items-start gap-3 bg-surface border-1 border-danger shadow-[4px_4px_0px_var(--danger-shadow)] rounded-lg px-4 py-3 font-mono"
             }
             role={item.kind === "info" ? "status" : "alert"}
@@ -114,7 +114,7 @@ export function WriteFailureToasts() {
             <button
               onClick={() => dismiss(item.id)}
               className="text-ink/30 hover:text-ink transition-colors shrink-0"
-              aria-label="Dismiss"
+              aria-label-action="Dismiss"
             >
               <X size={14} />
             </button>

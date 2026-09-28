@@ -229,12 +229,12 @@ export function ThePack({ userId }: ThePackProps) {
               onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
               placeholder={t("pack.placeholder") ?? ""}
               disabled={isAdding}
-              className={`w-48 bg-surface border-1 border-ink rounded-lg px-4 py-2 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] transition-all shadow-[var(--shadow-1)] focus:shadow-none ${isAdding ? 'opacity-50' : ''}`}
+              className={`w-48 bg-surface border-1 border-ink rounded-lg px-4 py-2 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] transition-all shadow-[shadow:var(--shadow-1)] focus:shadow-none ${isAdding ? 'opacity-50' : ''}`}
             />
             <button 
               onClick={handleAddFriend}
               disabled={isAdding || !inviteUsername.trim()}
-              className={`${addSuccess ? 'bg-success-500 text-surface-inverse' : 'bg-ink text-surface-inverse'} border-1 border-ink w-10 h-10 rounded-lg font-black text-xl flex items-center justify-center shadow-[var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-50`}
+              className={`${addSuccess ? 'bg-success-500 text-surface-inverse' : 'bg-ink text-surface-inverse'} border-1 border-ink w-10 h-10 rounded-lg font-black text-xl flex items-center justify-center shadow-[shadow:var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-50`}
             >
               {isAdding ? "..." : (addSuccess ? "✓" : "+")}
             </button>
@@ -244,7 +244,7 @@ export function ThePack({ userId }: ThePackProps) {
         <div className="relative flex flex-col items-center">
           <button
             onClick={handleCopy}
-            className="bg-highlight text-ink border-1 border-ink rounded-lg py-2 px-6 font-black label-plain text-sm shadow-[var(--shadow-2)] active:translate-y-[4px] active:shadow-none hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all whitespace-nowrap"
+            className="bg-highlight text-ink border-1 border-ink rounded-lg py-2 px-6 font-black label-action-plain text-sm shadow-[shadow:var(--shadow-2)] active:translate-y-[4px] active:shadow-none hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all whitespace-nowrap"
           >
             Copy Invite Link
           </button>
@@ -269,7 +269,7 @@ export function ThePack({ userId }: ThePackProps) {
             {activeFriends.map((friend) => (
               <div 
                 key={friend.id}
-                className="flex items-center justify-between py-3 px-4 rounded-lg bg-surface border-1 border-ink shadow-[var(--shadow-1)]"
+                className="flex items-center justify-between py-3 px-4 rounded-lg bg-surface border-1 border-ink shadow-[shadow:var(--shadow-1)]"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-2.5 h-2.5 bg-alert-bright rounded-full animate-pulse border border-ink shadow-[0_0_8px_rgb(var(--alert-bright-rgb)/0.5)]"></div>
@@ -287,7 +287,7 @@ export function ThePack({ userId }: ThePackProps) {
             {onlineFriends.map((friend) => (
               <div 
                 key={friend.id}
-                className="flex items-center justify-between py-3 px-4 rounded-lg bg-surface border-1 border-ink shadow-[var(--shadow-1)]"
+                className="flex items-center justify-between py-3 px-4 rounded-lg bg-surface border-1 border-ink shadow-[shadow:var(--shadow-1)]"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-2.5 h-2.5 bg-online rounded-full border border-ink shadow-[0_0_8px_rgb(var(--online-rgb)/0.5)]"></div>
@@ -344,7 +344,7 @@ export function ThePack({ userId }: ThePackProps) {
             <button 
               onClick={fetchLeaderboard}
               disabled={isLoadingLeaderboard}
-              className="bg-surface border-1 border-ink text-ink px-3 py-1 rounded-md font-black text-[10px] label-sm shadow-[var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-50"
+              className="bg-surface border-1 border-ink text-ink px-3 py-1 rounded-md font-black text-[10px] label-action-sm shadow-[shadow:var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-50"
             >
               {isLoadingLeaderboard ? t("pack.syncing") : t("pack.refresh")}
             </button>
@@ -363,8 +363,8 @@ export function ThePack({ userId }: ThePackProps) {
                 key={user.rank}
                 className={`flex items-center justify-between py-3 px-4 rounded-lg ${
                   user.rank === 1 
-                    ? "bg-highlight border-1 border-ink shadow-[var(--shadow-1)]" 
-                    : "bg-surface border-1 border-ink shadow-[var(--shadow-1)]"
+                    ? "bg-highlight border-1 border-ink shadow-[shadow:var(--shadow-1)]" 
+                    : "bg-surface border-1 border-ink shadow-[shadow:var(--shadow-1)]"
                 }`}
               >
                 <div className="flex items-center gap-4">

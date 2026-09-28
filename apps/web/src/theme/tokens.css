@@ -3,7 +3,7 @@
  *
  * Every colour, font, radius, border and shadow the app uses is named here by
  * ROLE, and each theme redefines the same names. Components never name a
- * colour — they name a role (bg-surface, text-ink, shadow-[var(--shadow-2)]).
+ * colour — they name a role (bg-surface, text-ink, shadow-[shadow:var(--shadow-2)]).
  *
  * Operator is the original look and its values are exactly what shipped in
  * 1.2.4, so selecting it is pixel-identical to the app before themes existed.
@@ -130,6 +130,14 @@
   --chart-bar-today: rgb(var(--ink-rgb));
   --chart-label: rgb(var(--ink-rgb) / 0.5);
 
+  --transform-eyebrow: none;
+  --transform-text: none;
+
+  --radius-auth-card: 0px;
+  --radius-auth-field: 0px;
+  --border-auth: var(--border-1);
+  --rotate-logo: 0deg;
+
   /* Layout + decoration switches read by the dashboard and the header. */
   --dashboard-layout: columns;
   --grid-image: none;
@@ -181,7 +189,8 @@
   --tracking-label-sm: 0.1em;
   --tracking-label-lg: 0.3em;
   --tracking-label-xl: 0.4em;
-  --transform-label: uppercase;
+  --transform-eyebrow: uppercase;
+  --transform-text: uppercase;
 
   --radius-nav: 32px;      /* the BottomNav pill, unchanged from 1.2.4 */
 
@@ -207,6 +216,21 @@
   --header-band: initial;
   --header-ink: initial;
   --header-muted: initial;
+
+
+  /* Auth screens (login, verification, welcome). Operator's values are the
+     pixel values these screens used to hardcode. */
+  --radius-auth-card: 0px;
+  --radius-auth-field: 0px;
+  --border-auth: 3px;
+  --rotate-logo: -1deg;
+  --highlight-ink-rgb: var(--ink-rgb);
+  --shadow-offset-sm: 4px 4px 0px rgb(var(--surface-rgb) / 0.1);
+  --shadow-offset-md: 6px 6px 0px rgb(var(--surface-rgb) / 0.2);
+  --shadow-offset-lg: 8px 8px 0px rgb(var(--surface-rgb) / 0.08);
+  --shadow-ok: 4px 4px 0px var(--success);
+  --shadow-hero: 8px 8px 0px var(--highlight);
+  --shadow-glow: 0 0 60px rgb(var(--online-rgb) / 0.6);
 
 }
 
@@ -255,7 +279,8 @@
   --tracking-label-sm: 0.02em;
   --tracking-label-lg: 0.03em;
   --tracking-label-xl: 0.04em;
-  --transform-label: none;
+  --transform-eyebrow: none;
+  --transform-text: none;
 
   /* The wobble: every corner slightly different so nothing looks machined. */
   --radius-xl: 12px 14px 11px 15px / 14px 11px 15px 12px;
@@ -286,6 +311,20 @@
   --header-band: initial;
   --header-ink: initial;
   --header-muted: initial;
+
+
+  /* Auth screens. Paper has no drop shadow, so the offsets go flat. */
+  --radius-auth-card: 14px 16px 13px 17px / 16px 13px 17px 14px;
+  --radius-auth-field: 12px 14px 11px 15px / 14px 11px 15px 12px;
+  --border-auth: 2.5px;
+  --rotate-logo: -1deg;
+  --highlight-ink-rgb: var(--ink-rgb);
+  --shadow-offset-sm: none;
+  --shadow-offset-md: none;
+  --shadow-offset-lg: none;
+  --shadow-ok: none;
+  --shadow-hero: none;
+  --shadow-glow: 0 0 60px rgb(var(--online-rgb) / 0.6);
 
 }
 
@@ -342,7 +381,8 @@
   --tracking-label-sm: 0em;
   --tracking-label-lg: 0em;
   --tracking-label-xl: 0em;
-  --transform-label: none;
+  --transform-eyebrow: none;
+  --transform-text: none;
 
   --radius-xl: 16px;
   --radius-2xl: 24px;
@@ -365,6 +405,28 @@
   --header-band: initial;
   --header-ink: initial;
   --header-muted: initial;
+
+
+  /* Auth screens: rounded tiles, no border, soft elevation, and white on the
+     accent button rather than near-black. */
+  --radius-auth-card: 24px;
+  --radius-auth-field: 16px;
+  --border-auth: 0px;
+  --rotate-logo: 0deg;
+  --highlight-ink-rgb: 255 255 255;
+  --shadow-offset-sm: 0 2px 8px rgb(23 24 28 / 0.08);
+  --shadow-offset-md: 0 6px 20px rgb(23 24 28 / 0.10);
+  --shadow-offset-lg: 0 10px 30px rgb(23 24 28 / 0.12);
+  --shadow-ok: 0 6px 20px rgb(23 24 28 / 0.10);
+  --shadow-hero: 0 10px 30px rgb(23 24 28 / 0.12);
+  --shadow-glow: 0 0 60px rgb(var(--online-rgb) / 0.6);
+
+  /* Bento is a soft-elevation theme, not a flat one. */
+  --shadow-1: 0 1px 2px rgb(23 24 28 / 0.06);
+  --shadow-2: 0 2px 8px rgb(23 24 28 / 0.08);
+  --shadow-3: 0 6px 20px rgb(23 24 28 / 0.10);
+  --shadow-4: 0 10px 30px rgb(23 24 28 / 0.12);
+  --shadow-5: 0 18px 48px rgb(23 24 28 / 0.14);
 
 }
 
@@ -426,7 +488,8 @@
   --tracking-label-sm: 0.04em;
   --tracking-label-lg: 0.06em;
   --tracking-label-xl: 0.08em;
-  --transform-label: uppercase;
+  --transform-eyebrow: uppercase;
+  --transform-text: none;
 
   --radius-xl: 6px;
   --radius-2xl: 10px;
@@ -446,6 +509,20 @@
   --chart-bar: rgb(var(--ink-rgb) / 0.35);
   --chart-bar-today: rgb(var(--ink-rgb));
   --chart-label: rgb(var(--ink-rgb) / 0.5);
+
+
+  /* Auth screens. */
+  --radius-auth-card: 16px;
+  --radius-auth-field: 10px;
+  --border-auth: 1px;
+  --rotate-logo: 0deg;
+  --highlight-ink-rgb: var(--ink-rgb);
+  --shadow-offset-sm: none;
+  --shadow-offset-md: none;
+  --shadow-offset-lg: none;
+  --shadow-ok: none;
+  --shadow-hero: none;
+  --shadow-glow: 0 0 60px rgb(var(--online-rgb) / 0.6);
 
 }
 
@@ -467,6 +544,7 @@
   --accent-ink: rgb(var(--accent-ink-rgb));
   --highlight: rgb(var(--highlight-rgb));
   --highlight-2: rgb(var(--highlight-2-rgb));
+  --highlight-ink: rgb(var(--highlight-ink-rgb));
   --nav-active-bg: rgb(var(--nav-active-bg-rgb));
   --nav-active-ink: rgb(var(--nav-active-ink-rgb));
   --track: rgb(var(--track-rgb));
@@ -492,14 +570,27 @@
  * "uppercase tracking-[0.2em]" pairs; they are now one class the theme
  * controls, so Bento can drop the caps and Notebook can switch the font.
  */
+/* Two transforms, not one. The small category labels above a card ("CURRENT
+   INTENTIONS") are a different thing from running text that happens to want
+   the label face — buttons, nav items, subtitles. Operator shouts both;
+   Botanical shouts only the eyebrows; Notebook and Bento shout neither. */
 .label,
 .label-sm,
-.label-lg,
-.label-xl,
-.label-plain {
-  text-transform: var(--transform-label);
+.label-lg {
+  text-transform: var(--transform-eyebrow);
   font-family: var(--font-label);
 }
+.label-xl,
+.label-plain,
+.label-action,
+.label-action-sm {
+  text-transform: var(--transform-text);
+  font-family: var(--font-label);
+}
+/* A button is running text that happens to want the eyebrow's letter-spacing.
+   Same tracking as .label / .label-sm, but it follows --transform-text. */
+.label-action { letter-spacing: var(--tracking-label); }
+.label-action-sm { letter-spacing: var(--tracking-label-sm); }
 .label { letter-spacing: var(--tracking-label); }
 .label-sm { letter-spacing: var(--tracking-label-sm); }
 .label-lg { letter-spacing: var(--tracking-label-lg); }

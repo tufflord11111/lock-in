@@ -231,7 +231,7 @@ export function Dashboard({
   const missionCard = (
     <>
       {/* STRATEGIC OBJECTIVE */}
-            <section className={`${bento ? "bg-surface-tint" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
+            <section className={`${bento ? "bg-surface-tint" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative`}>
               <Sticker slot="mission" />
               <div className="flex items-center gap-3 mb-6">
                 <Target size={18} className="text-ink" />
@@ -252,7 +252,7 @@ export function Dashboard({
   const tasksCard = (
     <>
       {/* INTENTIONS / TO-DO LIST */}
-            <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative flex flex-col">
+            <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative flex flex-col">
               <Sticker slot="todo" />
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
@@ -272,11 +272,11 @@ export function Dashboard({
                   onChange={(e) => setNewIntention(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && addIntention()}
                   placeholder={t("todo.placeholder") ?? ""}
-                  className="flex-1 bg-surface border-1 border-ink shadow-[var(--shadow-1)] rounded-lg px-5 py-3 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] focus:shadow-none transition-all"
+                  className="flex-1 bg-surface border-1 border-ink shadow-[shadow:var(--shadow-1)] rounded-lg px-5 py-3 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] focus:shadow-none transition-all"
                 />
                 <button
                   onClick={addIntention}
-                  className="bg-ink text-surface-inverse px-5 rounded-lg text-xs font-black label-plain active:translate-y-[2px] transition-all border-1 border-ink shadow-[var(--shadow-2)] active:shadow-none"
+                  className="bg-ink text-surface-inverse px-5 rounded-lg text-xs font-black label-action-plain active:translate-y-[2px] transition-all border-1 border-ink shadow-[shadow:var(--shadow-2)] active:shadow-none"
                 >
                   {t("todo.add")}
                 </button>
@@ -291,7 +291,7 @@ export function Dashboard({
                   <div 
                     key={item.id}
                     className={`flex items-center justify-between p-4 rounded-xl border-1 border-ink transition-all group ${
-                      item.completed ? "bg-ground opacity-70 shadow-none translate-y-[2px]" : "bg-surface shadow-[var(--shadow-2)]"
+                      item.completed ? "bg-ground opacity-70 shadow-none translate-y-[2px]" : "bg-surface shadow-[shadow:var(--shadow-2)]"
                     }`}
                   >
                     <button 
@@ -329,7 +329,7 @@ export function Dashboard({
   const sessionCard = (
     <>
       {/* TIMER UNIT */}
-            <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[var(--shadow-3)] flex flex-col items-center justify-center text-center relative`}>
+            <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[shadow:var(--shadow-3)] flex flex-col items-center justify-center text-center relative`}>
               <Sticker slot="session" />
               {isActive ? (
                 <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
@@ -345,7 +345,7 @@ export function Dashboard({
   
                   <button
                     onClick={onEndSession}
-                    className="w-full bg-highlight text-ink py-5 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
+                    className="w-full bg-highlight text-ink py-5 rounded-full font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
                   >
                     Emergency Abort
                   </button>
@@ -365,7 +365,7 @@ export function Dashboard({
                         key={p.minutes}
                         aria-pressed={selectedMinutes === p.minutes}
                         onClick={() => setSelectedMinutes(p.minutes)}
-                        className={`flex flex-col items-center p-6 border-1 border-ink shadow-[var(--shadow-1)] rounded-xl hover:-translate-y-1 hover:shadow-[var(--shadow-2)] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""} ${
+                        className={`flex flex-col items-center p-6 border-1 border-ink shadow-[shadow:var(--shadow-1)] rounded-xl hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""} ${
                           selectedMinutes === p.minutes ? "bg-accent text-accent-ink" : "bg-surface"
                         }`}
                       >
@@ -377,7 +377,7 @@ export function Dashboard({
   
                   <button
                     onClick={() => startWithObjective(selectedMinutes)}
-                    className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
+                    className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
                   >
                     {t("session.start")}
                   </button>
@@ -403,7 +403,7 @@ export function Dashboard({
   const streakCard = (
     <>
       {/* FIX 2: STREAK CARD — no emoji, three stat pills */}
-            <section className={`${bento ? "bg-accent card-accent" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
+            <section className={`${bento ? "bg-accent card-accent" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative`}>
               <Sticker slot="streak" />
               <div className="flex items-center gap-3 mb-6">
                 <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("streak.label")}</h2>
@@ -420,7 +420,7 @@ export function Dashboard({
                   <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
                     <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.avg")}: </span>
                     <span className="text-[9px] font-black text-ink/60 label-sm">
-                      {avgSessionMins !== null ? `${avgSessionMins} MIN` : '-- MIN'}
+                      {avgSessionMins !== null ? `${avgSessionMins} ${t("streak.minUnit")}` : `-- ${t("streak.minUnit")}`}
                     </span>
                   </div>
                   <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
@@ -430,8 +430,8 @@ export function Dashboard({
                     </span>
                   </div>
                   <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
-                    <span className="text-[9px] font-black label-sm text-ink/40">BEST: </span>
-                    <span className="text-[9px] font-black text-ink/60 label-sm">{bestStreak} DAYS</span>
+                    <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.bestEver")}: </span>
+                    <span className="text-[9px] font-black text-ink/60 label-sm">{bestStreak} {t("streak.daysUnit")}</span>
                   </div>
                 </div>
   
@@ -464,12 +464,12 @@ export function Dashboard({
   const historyCard = (
     <>
       {/* OPERATOR HEATMAP (BOTTOM FULL WIDTH) */}
-        <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] shrink-0 w-full mb-8">
+        <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] shrink-0 w-full mb-8">
           <div className="flex justify-between items-center mb-8">
             <h2 className="text-xl font-bold text-ink tracking-tight">{t("history.title")}</h2>
             
             <div className="flex items-center gap-6">
-              <div className="bg-highlight border-1 border-ink px-4 py-2 rounded-full shadow-[var(--shadow-1)]">
+              <div className="bg-highlight border-1 border-ink px-4 py-2 rounded-full shadow-[shadow:var(--shadow-1)]">
                 <span className="font-black text-ink label-sm text-xs">Current Streak: {currentStreak} Days</span>
               </div>
             </div>
@@ -482,7 +482,7 @@ export function Dashboard({
                 onClick={() => setSelectedDay(day)}
                 className={`aspect-square rounded-md cursor-pointer hover:-translate-y-1 transition-transform ${
                   day.state === 'met' 
-                    ? 'bg-highlight border-1 border-ink shadow-[var(--shadow-1)]' 
+                    ? 'bg-highlight border-1 border-ink shadow-[shadow:var(--shadow-1)]' 
                     : day.state === 'partial'
                       ? 'bg-track border border-ink/20'
                       : 'bg-ground border border-ink/20'
@@ -536,7 +536,7 @@ export function Dashboard({
       {/* TELEMETRY DETAIL MODAL */}
       {selectedDay && (
         <div className="fixed inset-0 z-[100] bg-shadow-ink/40 flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-ground border-1 border-ink shadow-[var(--shadow-2)] p-8 max-w-md w-full rounded-xl flex flex-col animate-in zoom-in-95 duration-200">
+          <div className="bg-ground border-1 border-ink shadow-[shadow:var(--shadow-2)] p-8 max-w-md w-full rounded-xl flex flex-col animate-in zoom-in-95 duration-200">
             <h2 className="text-2xl font-black text-ink mb-6">{selectedDay.date} // Telemetry Data</h2>
             
             <div className="flex flex-col gap-2 mb-8">
@@ -564,7 +564,7 @@ export function Dashboard({
 
             <button 
               onClick={() => setSelectedDay(null)}
-              className="w-full bg-surface border-1 border-ink text-ink py-4 rounded-lg font-black label-plain text-sm shadow-[var(--shadow-2)] active:translate-y-[4px] active:shadow-none hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all"
+              className="w-full bg-surface border-1 border-ink text-ink py-4 rounded-lg font-black label-action-plain text-sm shadow-[shadow:var(--shadow-2)] active:translate-y-[4px] active:shadow-none hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all"
             >
               Close
             </button>

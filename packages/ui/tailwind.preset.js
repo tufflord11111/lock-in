@@ -21,6 +21,7 @@ module.exports = {
         surface: token("surface"),
         "surface-alt": token("surface-alt"),
         "surface-inverse": token("surface-inverse"),
+        "highlight-ink": token("highlight-ink"),
         "surface-tint": token("surface-tint"),
         "surface-dark": token("surface-dark"),
         ink: token("ink"),
@@ -71,6 +72,8 @@ module.exports = {
         "info-50": token("info-50"),
       },
       borderRadius: {
+        "auth-card": "var(--radius-auth-card)",
+        "auth-field": "var(--radius-auth-field)",
         sm: "var(--radius-sm)",
         md: "var(--radius-md)",
         lg: "var(--radius-lg)",
@@ -82,6 +85,7 @@ module.exports = {
       borderWidth: {
         1: "var(--border-1)",
         2: "var(--border-2)",
+        auth: "var(--border-auth)",
       },
       fontFamily: {
         display: "var(--font-display)",

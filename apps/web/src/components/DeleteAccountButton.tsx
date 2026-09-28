@@ -192,14 +192,14 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
             <button
               onClick={cancelReauth}
               disabled={busy}
-              className="flex-1 py-3 border-1 border-ink bg-surface text-ink font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
+              className="flex-1 py-3 border-1 border-ink bg-surface text-ink font-black text-[10px] label-action-sm rounded-lg disabled:opacity-40"
             >
               Cancel
             </button>
             <button
               onClick={confirmReauth}
               disabled={busy || !password}
-              className="flex-1 py-3 bg-danger border-1 border-danger-shadow text-surface-inverse font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
+              className="flex-1 py-3 bg-danger border-1 border-danger-shadow text-surface-inverse font-black text-[10px] label-action-sm rounded-lg disabled:opacity-40"
             >
               {busy ? "Deleting…" : "Confirm & delete"}
             </button>
@@ -210,14 +210,14 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
           <button
             onClick={() => setConfirming(false)}
             disabled={busy}
-            className="flex-1 py-3 border-1 border-ink bg-surface text-ink font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
+            className="flex-1 py-3 border-1 border-ink bg-surface text-ink font-black text-[10px] label-action-sm rounded-lg disabled:opacity-40"
           >
             Cancel
           </button>
           <button
             onClick={handleDelete}
             disabled={busy}
-            className="flex-1 py-3 bg-danger border-1 border-danger-shadow text-surface-inverse font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
+            className="flex-1 py-3 bg-danger border-1 border-danger-shadow text-surface-inverse font-black text-[10px] label-action-sm rounded-lg disabled:opacity-40"
           >
             {busy ? "Deleting…" : "Delete everything"}
           </button>
@@ -225,7 +225,7 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
       ) : (
         <button
           onClick={() => setConfirming(true)}
-          className="w-full py-3 bg-surface border-1 border-danger text-danger font-black text-[10px] label-sm rounded-lg hover:bg-danger hover:text-surface-inverse transition-colors"
+          className="w-full py-3 bg-surface border-1 border-danger text-danger font-black text-[10px] label-action-sm rounded-lg hover:bg-danger hover:text-surface-inverse transition-colors"
         >
           Delete my account
         </button>

@@ -35,7 +35,7 @@ export function KillFeed() {
               initial={{ opacity: 0, x: 100, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 50, scale: 0.9 }}
-              className="bg-surface border-1 border-ink p-5 rounded-xl shadow-[var(--shadow-2)] flex flex-col"
+              className="bg-surface border-1 border-ink p-5 rounded-xl shadow-[shadow:var(--shadow-2)] flex flex-col"
             >
               <div className="flex justify-between items-center mb-2">
                 <span className="text-[9px] font-black text-ink/40 label-plain tracking-[0.2em]">

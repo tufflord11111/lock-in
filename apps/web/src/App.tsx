@@ -121,7 +121,7 @@ function DegradedScreen({
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <button
             onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-ink text-surface-inverse font-black text-[10px] label-sm rounded-lg border-1 border-ink shadow-[var(--shadow-1)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-2)] active:translate-y-0 active:shadow-none transition-all"
+            className="px-6 py-3 bg-ink text-surface-inverse font-black text-[10px] label-action-sm rounded-lg border-1 border-ink shadow-[shadow:var(--shadow-1)] hover:-translate-y-0.5 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-0 active:shadow-none transition-all"
           >
             Retry Connection
           </button>
@@ -129,7 +129,7 @@ function DegradedScreen({
           {authDegraded && (
             <button
               onClick={onForceOffline}
-              className="px-6 py-3 bg-transparent text-ink/50 font-black text-[10px] label-sm rounded-lg border-1 border-ink/20 hover:border-ink/50 hover:text-ink transition-all"
+              className="px-6 py-3 bg-transparent text-ink/50 font-black text-[10px] label-action-sm rounded-lg border-1 border-ink/20 hover:border-ink/50 hover:text-ink transition-all"
             >
               Continue Offline
             </button>
@@ -575,7 +575,7 @@ function AppInner() {
                   }}
                   onKeyDown={(e) => e.key === "Enter" && handleUsernameSubmit()}
                   placeholder="e.g. IRONCLAD"
-                  className="w-full bg-surface border-1 border-ink shadow-[var(--shadow-2)] rounded-xl px-6 py-5 text-2xl font-black text-ink placeholder:text-ink/20 outline-none label-sm focus:translate-y-[2px] focus:shadow-[var(--shadow-1)] transition-all"
+                  className="w-full bg-surface border-1 border-ink shadow-[shadow:var(--shadow-2)] rounded-xl px-6 py-5 text-2xl font-black text-ink placeholder:text-ink/20 outline-none label-sm focus:translate-y-[2px] focus:shadow-[shadow:var(--shadow-1)] transition-all"
                   style={{ textTransform: "label-plain" }}
                 />
                 {(usernameError || profile.handleError) && (
@@ -585,7 +585,7 @@ function AppInner() {
               <button
                 onClick={handleUsernameSubmit}
                 disabled={usernameSubmitting || !usernameInput.trim()}
-                className="w-full bg-ink text-surface-inverse py-5 rounded-xl font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:bg-highlight-2 hover:text-ink hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-40"
+                className="w-full bg-ink text-surface-inverse py-5 rounded-xl font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] hover:bg-highlight-2 hover:text-ink hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-40"
               >
                 {usernameSubmitting ? t("handle.submitting") : t("handle.submit")}
               </button>
@@ -689,7 +689,7 @@ function AppInner() {
           <div className="flex items-center gap-10">
             <button 
               onClick={logout}
-              className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-sm shadow-[var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all"
+              className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-action-sm shadow-[shadow:var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all"
             >
               {t("signout")}
             </button>
@@ -699,7 +699,7 @@ function AppInner() {
               <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="flex items-center gap-4 bg-ink text-surface-inverse px-6 py-3 rounded-xl border-1 border-ink shadow-[var(--shadow-2)]"
+                className="flex items-center gap-4 bg-ink text-surface-inverse px-6 py-3 rounded-xl border-1 border-ink shadow-[shadow:var(--shadow-2)]"
               >
                 <div className="flex flex-col items-end">
                   <p className="text-[8px] font-black label-sm text-surface-inverse/60 leading-none mb-1">{t("session.active")}</p>
