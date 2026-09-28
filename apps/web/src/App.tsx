@@ -21,6 +21,7 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { ThePack } from "./screens/ThePack";
 import { useAuth } from "./hooks/useAuth";
 import { useHandleProfile, reserveHandle, asHandleError, HandleTakenError } from "./hooks/useHandleProfile";
+import { ThemeProvider, useTheme, useAccountTheme, THEMES } from "./theme/ThemeProvider";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
@@ -139,7 +140,7 @@ function DegradedScreen({
   );
 }
 
-export function App() {
+function AppInner() {
   const {
     user,
     loading,
@@ -157,9 +158,27 @@ export function App() {
     forceOfflineMode,
   } = useAuth();
   const [currentTab, setCurrentTab] = useState<AppTab>("home");
+  const { theme, setTheme } = useTheme();
+  useAccountTheme(user?.uid);
   // Test-only UI, gated on a DEV_MODE file in the app data dir (see Rust
   // is_dev_mode). Outside Tauri the invoke fails and it stays off.
   const [devMode, setDevMode] = useState(false);
+  // Ctrl+Shift+T cycles themes so every screen can be checked quickly.
+  // Test-only: without the DEV_MODE file the listener is never attached.
+  useEffect(() => {
+    if (!devMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
+        e.preventDefault();
+        const next = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+        console.info(`[LOCK-IN] dev theme switch -> ${next}`);
+        setTheme(next);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [devMode, theme, setTheme]);
+
   useEffect(() => {
     invoke<boolean>("is_dev_mode")
       .then((on) => setDevMode(on === true))
@@ -494,7 +513,12 @@ export function App() {
   }
 
   return (
-    <div className="relative w-screen h-screen m-0 p-0 box-border bg-ground text-ink overflow-hidden flex flex-col font-sans">
+    <div
+      className="relative w-screen h-screen m-0 p-0 box-border bg-ground text-ink overflow-hidden flex flex-col font-sans"
+      /* The paper texture belongs to the app shell: the shell is opaque, so a
+         texture on <body> would never be seen. Themes without one set none. */
+      style={{ backgroundImage: "var(--grid-image)", backgroundSize: "var(--grid-size)" }}
+    >
       {/* NEW USER ONBOARDING SEQUENCE */}
       {/* Show when: isNewUser flag is set OR onboardingComplete is explicitly false (fresh DB entry) */}
       <AnimatePresence>
@@ -661,4 +685,14 @@ export function App() {
   );
 }
 
-
+/**
+ * The provider sits outside AppInner so Login and the verification gate — which
+ * render before a uid exists — are themed from the localStorage mirror.
+ */
+export function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
+  );
+}

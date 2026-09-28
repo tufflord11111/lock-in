@@ -9,6 +9,7 @@ import { ref, onValue, set, remove, update } from "firebase/database";
 import { guardWrite, reportWriteFailure } from "../writeFailures";
 import { getDeviceId } from "../deviceId";
 import { DeleteAccountButton } from "../components/DeleteAccountButton";
+import { AppearancePicker } from "../theme/AppearancePicker";
 
 const DEFAULT_WEB_BLOCKS = [
   'tiktok.com', 'youtube.com', 'netflix.com', 'instagram.com', 'facebook.com',
@@ -431,6 +432,9 @@ export function BlockRegistry({
       <div className="flex flex-row gap-8 w-full" style={{ paddingBottom: '200px', alignItems: 'flex-start' }}>
         {/* LEFT COLUMN: GLOBAL CONTROLS */}
         <div className="w-[450px] shrink-0 flex flex-col gap-8 self-start" style={{ minWidth: '280px' }}>
+        {/* APPEARANCE — first, because it changes everything below it */}
+        <AppearancePicker />
+
         {/* IDENTITY */}
         <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[var(--shadow-2)]">
           <div className="flex items-center gap-3 mb-6">

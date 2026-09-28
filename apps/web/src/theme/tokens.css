@@ -67,7 +67,7 @@
 }
 
 /* ── Operator — the original look ────────────────────────────────────────── */
-:root[data-theme="operator"] {
+[data-theme="operator"] {
   --ground-rgb: 249 248 244;        /* #F9F8F4 app shell */
   --ground-deep-rgb: 245 245 240;   /* #F5F5F0 html/body behind it */
   --surface-rgb: 255 255 255;       /* #FFFFFF cards */
@@ -121,7 +121,7 @@
 }
 
 /* ── Notebook — paper, stickers, softer words ────────────────────────────── */
-:root[data-theme="notebook"] {
+[data-theme="notebook"] {
   --ground-rgb: 251 247 234;        /* #FBF7EA */
   --ground-deep-rgb: 251 247 234;
   --surface-rgb: 255 255 255;
@@ -187,7 +187,7 @@
 }
 
 /* ── Bento — tiles, big numbers, one accent ──────────────────────────────── */
-:root[data-theme="bento"] {
+[data-theme="bento"] {
   --ground-rgb: 236 234 241;        /* #ECEAF1 */
   --ground-deep-rgb: 236 234 241;
   --surface-rgb: 255 255 255;
@@ -252,13 +252,13 @@
 }
 
 /* Bento's four accents. */
-:root[data-theme="bento"][data-accent="orange"] { --accent-rgb: 244 86 42; }
-:root[data-theme="bento"][data-accent="sage"] { --accent-rgb: 123 182 97; }
-:root[data-theme="bento"][data-accent="lavender"] { --accent-rgb: 139 127 214; }
-:root[data-theme="bento"][data-accent="teal"] { --accent-rgb: 31 122 109; }
+[data-theme="bento"][data-accent="orange"] { --accent-rgb: 244 86 42; }
+[data-theme="bento"][data-accent="sage"] { --accent-rgb: 123 182 97; }
+[data-theme="bento"][data-accent="lavender"] { --accent-rgb: 139 127 214; }
+[data-theme="bento"][data-accent="teal"] { --accent-rgb: 31 122 109; }
 
 /* ── Botanical — forest green, linen, serif ──────────────────────────────── */
-:root[data-theme="botanical"] {
+[data-theme="botanical"] {
   --ground-rgb: 245 237 225;        /* #F5EDE1 */
   --ground-deep-rgb: 245 237 225;
   --surface-rgb: 249 243 233;       /* #F9F3E9 */
@@ -321,7 +321,10 @@
 }
 
 /* ── Aliases every theme shares ──────────────────────────────────────────── */
-:root {
+/* Declared on [data-theme] (not :root) so a nested preview recomputes them
+   from its own values rather than inheriting the page's. */
+:root,
+[data-theme] {
   --ground: rgb(var(--ground-rgb));
   --ground-deep: rgb(var(--ground-deep-rgb));
   --surface: rgb(var(--surface-rgb));
@@ -353,7 +356,7 @@
 }
 
 /* Bento's line is genuinely transparent (tiles have no border). */
-:root[data-theme="bento"] { --line: transparent; }
+[data-theme="bento"] { --line: transparent; }
 
 /**
  * The label utility. Most of the app's 191 uppercase labels were
