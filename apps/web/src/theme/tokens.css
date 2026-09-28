@@ -157,18 +157,19 @@
   --hero-rgb: 10 15 29;             /* #0A0F1D */
   --hero-panel-rgb: 0 26 58;        /* #001A3A */
   --danger-rgb: 179 38 30;          /* #B3261E */
-  --danger-soft-rgb: 239 68 68;     /* #EF4444 — also Tailwind red-500 */
+  --danger-soft-rgb: 170 48 48;     /* #AA3030 — 4.6:1 at worst; the REMOVE
+                                       and dismiss controls are 8px text */
   --danger-deep-rgb: 185 28 28;     /* #B91C1C — also red-700 */
   --danger-shadow-rgb: 127 29 29;   /* #7F1D1D */
   --alert-rgb: 255 68 68;           /* #FF4444 */
   --alert-bright-rgb: 255 79 79;    /* #FF4F4F */
-  --success-rgb: 22 163 74;         /* #16A34A — also green-600 */
-  --success-strong-rgb: 15 123 69;  /* #0F7B45 */
+  --success-rgb: 15 108 49;         /* #0F6C31 — 4.5:1 on every surface */
+  --success-strong-rgb: 11 82 37;   /* #0B5225 — stays darker than success */
   --success-edge-rgb: 10 92 51;     /* #0A5C33 */
   --online-rgb: 74 222 128;         /* #4ADE80 — also green-400 */
 
   /* ink at the opacity used most often (45 of the 131 modified usages). */
-  --ink-muted-alpha: 0.4;
+  --ink-muted-alpha: 0.7;
 
   --font-display: 'Inter', system-ui, sans-serif;
   --font-ui: 'Inter', system-ui, sans-serif;
@@ -189,6 +190,24 @@
   --shadow-3: 6px 6px 0px var(--line);
   --shadow-4: 8px 8px 0px var(--line);
   --shadow-5: 12px 12px 0px var(--line);
+
+  /* Declared rather than left to the var() fallback so a nested preview of
+     this theme cannot pick up the surrounding theme's value. */
+  --ink-muted-rgb: var(--ink-rgb);
+  --ink-muted-alpha: 0.7;           /* 5.7:1 on white; 0.4 was 2.4:1 */
+
+  --surface-tint-rgb: var(--surface-rgb);
+  --surface-dark-rgb: var(--hero-rgb);
+  --chart-bar: rgb(var(--ink-rgb) / 0.35);
+  --chart-bar-today: rgb(var(--ink-rgb));
+  --chart-label: rgb(var(--ink-rgb) / 0.5);
+
+  /* No header band in this theme; App.tsx reads the token and renders the
+     ordinary header when it is empty. `initial` makes var() fall back. */
+  --header-band: initial;
+  --header-ink: initial;
+  --header-muted: initial;
+
 }
 
 /* ── Notebook — paper, stickers, softer words ────────────────────────────── */
@@ -202,7 +221,7 @@
   --ink-2-rgb: 47 74 109;
   --line-rgb: 47 74 109;
   --accent-rgb: 106 155 216;        /* #6A9BD8 */
-  --accent-ink-rgb: 255 255 255;
+  --accent-ink-rgb: 31 49 73;      /* #1F3149 — 4.6:1 on the accent; white was 2.9:1 */
   --highlight-rgb: 245 198 74;      /* #F5C64A */
   --highlight-2-rgb: 245 198 74;
   --nav-active-bg-rgb: 245 198 74;
@@ -211,19 +230,19 @@
   --hero-rgb: 47 74 109;
   --hero-panel-rgb: 47 74 109;
   --danger-rgb: 179 38 30;
-  --danger-soft-rgb: 239 68 68;
+  --danger-soft-rgb: 170 48 48;
   --danger-deep-rgb: 185 28 28;
   --danger-shadow-rgb: 127 29 29;
   --alert-rgb: 255 68 68;
   --alert-bright-rgb: 255 79 79;
-  --success-rgb: 22 163 74;
-  --success-strong-rgb: 15 123 69;
+  --success-rgb: 15 108 49;
+  --success-strong-rgb: 11 82 37;
   --success-edge-rgb: 10 92 51;
   --online-rgb: 74 222 128;
 
   /* ink-muted is #6A9BD8 here, which is only ~3.3:1 on white — the .label
      utility and decorations use it; body text stays on ink. */
-  --ink-muted-rgb: 106 155 216;
+  --ink-muted-rgb: 77 113 158;      /* #4D719E — was #6A9BD8 at 2.9:1 */
   --ink-muted-alpha: 1;
 
   --font-display: 'Patrick Hand', 'Comic Sans MS', cursive;
@@ -255,6 +274,19 @@
     linear-gradient(rgb(var(--accent-rgb) / 0.22) 1.5px, transparent 1.5px),
     linear-gradient(90deg, rgb(var(--accent-rgb) / 0.22) 1.5px, transparent 1.5px);
   --grid-size: 28px 28px;
+
+  --surface-tint-rgb: var(--surface-rgb);
+  --surface-dark-rgb: var(--hero-rgb);
+  --chart-bar: rgb(var(--ink-rgb) / 0.35);
+  --chart-bar-today: rgb(var(--ink-rgb));
+  --chart-label: rgb(var(--ink-rgb) / 0.5);
+
+  /* No header band in this theme; App.tsx reads the token and renders the
+     ordinary header when it is empty. `initial` makes var() fall back. */
+  --header-band: initial;
+  --header-ink: initial;
+  --header-muted: initial;
+
 }
 
 /* ── Bento — tiles, big numbers, one accent ──────────────────────────────── */
@@ -267,27 +299,29 @@
   --ink-rgb: 23 24 28;              /* #17181C */
   --ink-2-rgb: 23 24 28;
   --line-rgb: 0 0 0;                /* transparent via --line below */
-  --accent-rgb: 244 86 42;          /* default: orange #F4562A */
+  --accent-rgb: 207 73 36;          /* default: orange #CF4924 */
   --accent-ink-rgb: 255 255 255;
   --highlight-rgb: var(--accent-rgb);
-  --highlight-2-rgb: var(--accent-rgb);
+  --highlight-2-rgb: 244 86 42;      /* #F4562A — the bright orange. It is only
+                                       used as text on the dark status panel
+                                       (5.3:1); --accent is the darker fill. */
   --nav-active-bg-rgb: 23 24 28;
   --nav-active-ink-rgb: 255 255 255;
   --track-rgb: 244 243 247;
   --hero-rgb: 23 24 28;
   --hero-panel-rgb: 38 39 45;       /* #26272D preset chips */
   --danger-rgb: 179 38 30;
-  --danger-soft-rgb: 239 68 68;
+  --danger-soft-rgb: 170 48 48;
   --danger-deep-rgb: 185 28 28;
   --danger-shadow-rgb: 127 29 29;
   --alert-rgb: 255 68 68;
   --alert-bright-rgb: 255 79 79;
-  --success-rgb: 22 163 74;
-  --success-strong-rgb: 15 123 69;
+  --success-rgb: 15 108 49;
+  --success-strong-rgb: 11 82 37;
   --success-edge-rgb: 10 92 51;
   --online-rgb: 74 222 128;
 
-  --ink-muted-rgb: 138 139 147;     /* #8A8B93 — 3.5:1, large text only */
+  --ink-muted-rgb: 92 93 98;        /* #5C5D62 — was #8A8B93 at 3.4:1 */
   --ink-muted-alpha: 1;
 
   --surface-dark-rgb: 23 24 28;      /* #17181C session card */
@@ -325,13 +359,22 @@
   --shadow-nav: 0 8px 24px rgb(23 24 28 / 0.08);
 
   --dashboard-layout: bento;
+
+  /* No header band in this theme; App.tsx reads the token and renders the
+     ordinary header when it is empty. `initial` makes var() fall back. */
+  --header-band: initial;
+  --header-ink: initial;
+  --header-muted: initial;
+
 }
 
-/* Bento's four accents. */
-[data-theme="bento"][data-accent="orange"] { --accent-rgb: 244 86 42; }
-[data-theme="bento"][data-accent="sage"] { --accent-rgb: 123 182 97; }
-[data-theme="bento"][data-accent="lavender"] { --accent-rgb: 139 127 214; }
-[data-theme="bento"][data-accent="teal"] { --accent-rgb: 31 122 109; }
+/* Bento's four accents. Each is the darkest point at which the white text that
+   sits on it — the streak tile, the selected preset — clears 4.5:1. The
+   undarkened hues were 3.4:1 (orange), 2.4:1 (sage) and 3.4:1 (lavender). */
+[data-theme="bento"][data-accent="orange"] { --accent-rgb: 207 73 36; }    /* #CF4924 */
+[data-theme="bento"][data-accent="sage"] { --accent-rgb: 87 129 69; }      /* #578145 */
+[data-theme="bento"][data-accent="lavender"] { --accent-rgb: 118 108 182; }/* #766CB6 */
+[data-theme="bento"][data-accent="teal"] { --accent-rgb: 31 122 109; }     /* #1F7A6D, already 5.2:1 */
 
 /* ── Botanical — forest green, linen, serif ──────────────────────────────── */
 [data-theme="botanical"] {
@@ -346,24 +389,25 @@
   --accent-rgb: 31 77 46;
   --accent-ink-rgb: 245 237 225;
   --highlight-rgb: 31 77 46;
-  --highlight-2-rgb: 31 77 46;
+  --highlight-2-rgb: 214 182 117;   /* #D6B675 — 5.0:1 on the dark panel it is
+                                       used on; it used to equal --ink */
   --nav-active-bg-rgb: 31 77 46;
   --nav-active-ink-rgb: 245 237 225;
   --track-rgb: 239 230 214;
   --hero-rgb: 31 77 46;
   --hero-panel-rgb: 31 77 46;
   --danger-rgb: 179 38 30;
-  --danger-soft-rgb: 239 68 68;
+  --danger-soft-rgb: 170 48 48;
   --danger-deep-rgb: 185 28 28;
   --danger-shadow-rgb: 127 29 29;
   --alert-rgb: 255 68 68;
   --alert-bright-rgb: 255 79 79;
-  --success-rgb: 22 163 74;
-  --success-strong-rgb: 15 123 69;
+  --success-rgb: 15 108 49;
+  --success-strong-rgb: 11 82 37;
   --success-edge-rgb: 10 92 51;
   --online-rgb: 74 222 128;
 
-  --ink-muted-rgb: 110 127 107;     /* #6E7F6B */
+  --ink-muted-rgb: 92 107 90;       /* #5C6B5A — was #6E7F6B at 3.9:1 */
   --ink-muted-alpha: 1;
 
   --header-band: rgb(31 77 46);
@@ -394,6 +438,13 @@
   --shadow-3: none;
   --shadow-4: none;
   --shadow-5: none;
+
+  --surface-tint-rgb: var(--surface-rgb);
+  --surface-dark-rgb: var(--hero-rgb);
+  --chart-bar: rgb(var(--ink-rgb) / 0.35);
+  --chart-bar-today: rgb(var(--ink-rgb));
+  --chart-label: rgb(var(--ink-rgb) / 0.5);
+
 }
 
 /* ── Aliases every theme shares ──────────────────────────────────────────── */
@@ -408,7 +459,7 @@
   --surface-inverse: rgb(var(--surface-inverse-rgb));
   --ink: rgb(var(--ink-rgb));
   --ink-2: rgb(var(--ink-2-rgb));
-  --ink-muted: rgb(var(--ink-muted-rgb, var(--ink-rgb)) / var(--ink-muted-alpha, 0.4));
+  --ink-muted: rgb(var(--ink-muted-rgb, var(--ink-rgb)) / var(--ink-muted-alpha, 0.7));
   --line: rgb(var(--line-rgb));
   --accent: rgb(var(--accent-rgb));
   --accent-ink: rgb(var(--accent-ink-rgb));
@@ -472,8 +523,10 @@
 [data-theme="bento"] .card-accent {
   --ink-rgb: 255 255 255;
   --ink-2-rgb: 255 255 255;
-  --surface-rgb: 255 255 255;
-  --ground-rgb: 255 255 255;
+  /* The inset chips are dark on the accent, not white-on-white: they carry
+     white text, so their fill has to be the dark tone, giving 14.9:1. */
+  --surface-rgb: var(--hero-panel-rgb);
+  --ground-rgb: var(--hero-panel-rgb);
   --line-rgb: 255 255 255;
   --ink-muted: rgb(255 255 255 / 0.75);
 }

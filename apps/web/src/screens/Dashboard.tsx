@@ -431,7 +431,7 @@ export function Dashboard({
                   </div>
                   <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
                     <span className="text-[9px] font-black label-sm text-ink/40">BEST: </span>
-                    <span className="text-[9px] font-black text-highlight-2 label-sm">{bestStreak} DAYS</span>
+                    <span className="text-[9px] font-black text-ink/60 label-sm">{bestStreak} DAYS</span>
                   </div>
                 </div>
   
