@@ -21,6 +21,8 @@ module.exports = {
         surface: token("surface"),
         "surface-alt": token("surface-alt"),
         "surface-inverse": token("surface-inverse"),
+        "surface-tint": token("surface-tint"),
+        "surface-dark": token("surface-dark"),
         ink: token("ink"),
         "ink-2": token("ink-2"),
         // Fixed alpha (ink at the most-used opacity), so no <alpha-value>.

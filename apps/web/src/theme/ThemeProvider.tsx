@@ -171,6 +171,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
  * once, from inside the app tree, so there is exactly one auth subscription
  * in the app and the provider itself stays uid-free.
  */
+/**
+ * Reads a CSS custom property off <html>. Re-reads whenever the theme or the
+ * accent changes, which is what makes a layout switch (--dashboard-layout)
+ * reach React rather than only reaching the stylesheet.
+ */
+export function useThemeToken(name: string, fallback = ""): string {
+  const { theme, accent } = useTheme();
+  return useMemo(() => {
+    if (typeof document === "undefined") return fallback;
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, accent, name, fallback]);
+}
+
 export function useAccountTheme(userId: string | undefined): void {
   const { adopt, bindAccount } = useTheme();
   useEffect(() => {

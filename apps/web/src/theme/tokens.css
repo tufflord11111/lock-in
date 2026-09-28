@@ -120,6 +120,16 @@
   --border-1: 2px;
   --border-2: 4px;
 
+  /* Tinted / inverted card surfaces. Only Bento sets these apart; every other
+     theme resolves them back to its ordinary card and hero colours. */
+  --surface-tint-rgb: var(--surface-rgb);
+  --surface-dark-rgb: var(--hero-rgb);
+
+  /* Seven-day bar chart on the streak card. */
+  --chart-bar: rgb(var(--ink-rgb) / 0.35);
+  --chart-bar-today: rgb(var(--ink-rgb));
+  --chart-label: rgb(var(--ink-rgb) / 0.5);
+
   /* Layout + decoration switches read by the dashboard and the header. */
   --dashboard-layout: columns;
   --grid-image: none;
@@ -280,8 +290,13 @@
   --ink-muted-rgb: 138 139 147;     /* #8A8B93 — 3.5:1, large text only */
   --ink-muted-alpha: 1;
 
-  --surface-dark: rgb(23 24 28);
-  --surface-tint: rgb(217 211 240);  /* #D9D3F0 */
+  --surface-dark-rgb: 23 24 28;      /* #17181C session card */
+  --surface-tint-rgb: 217 211 240;   /* #D9D3F0 mission card */
+
+  /* The streak card sits on the accent, so its chart is drawn in white. */
+  --chart-bar: rgb(255 255 255 / 0.35);
+  --chart-bar-today: rgb(255 255 255);
+  --chart-label: rgb(255 255 255 / 0.7);
 
   --font-display: 'Manrope', system-ui, sans-serif;
   --font-ui: 'Manrope', system-ui, sans-serif;
@@ -438,3 +453,27 @@
 .label-xl { letter-spacing: var(--tracking-label-xl); }
 /* .label-plain sets no letter-spacing: it replaced a bare `uppercase`, which
    had none, so the rendering is unchanged and only the casing is themeable. */
+
+/* ── Bento's two inverted dashboard tiles ────────────────────────────────────
+   The session card is a dark tile and the streak card sits on the accent. Both
+   re-point the ink and surface roles for their whole subtree, so the cards keep
+   the same markup as every other theme and only the values change. --ink-muted
+   is an alias with a baked-in alpha, so it has to be restated here; the -rgb
+   triplets are substituted at the point of use and do not. */
+[data-theme="bento"] .card-inverse {
+  --ink-rgb: 255 255 255;
+  --ink-2-rgb: 255 255 255;
+  --surface-rgb: var(--hero-panel-rgb);   /* preset chips on #26272D */
+  --ground-rgb: var(--hero-panel-rgb);
+  --line-rgb: 255 255 255;
+  --ink-muted: rgb(255 255 255 / 0.6);
+}
+
+[data-theme="bento"] .card-accent {
+  --ink-rgb: 255 255 255;
+  --ink-2-rgb: 255 255 255;
+  --surface-rgb: 255 255 255;
+  --ground-rgb: 255 255 255;
+  --line-rgb: 255 255 255;
+  --ink-muted: rgb(255 255 255 / 0.75);
+}
