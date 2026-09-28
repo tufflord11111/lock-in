@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, get, child } from "firebase/database";
 import { useFriends, FriendAddError } from "../hooks/useFriends";
@@ -26,6 +26,7 @@ export function ThePack({ userId }: ThePackProps) {
   const [friends, setFriends] = useState<FriendStatus[]>([]);
   const [copied, setCopied] = useState(false);
   const [inviteUsername, setInviteUsername] = useState("");
+  const inviteInputRef = useRef<HTMLInputElement | null>(null);
   const [visibleFriends, setVisibleFriends] = useState(10);
   const [visibleLeaderboard, setVisibleLeaderboard] = useState(10);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -164,6 +165,9 @@ export function ThePack({ userId }: ThePackProps) {
       await addFriend(inviteUsername);
       setAddSuccess(true);
       setInviteUsername("");
+      // Adding one friend is usually adding three, and the input is disabled
+      // while the write is in flight, which drops focus. Put it back.
+      inviteInputRef.current?.focus();
       setTimeout(() => setAddSuccess(false), 2000);
     } catch (err) {
       if (err instanceof FriendAddError) {
@@ -218,6 +222,7 @@ export function ThePack({ userId }: ThePackProps) {
           <h2 className="text-lg font-bold text-ink">{t("pack.add")}</h2>
           <div className="flex gap-2">
             <input
+              ref={inviteInputRef}
               type="text"
               value={inviteUsername}
               onChange={(e) => setInviteUsername(e.target.value)}

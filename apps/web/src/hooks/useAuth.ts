@@ -127,19 +127,21 @@ export function useAuth() {
             const snapshot = await Promise.race([get(configRef), networkTimeout]);
 
             if (snapshot && !snapshot.exists()) {
-              const fallbackName = u.email?.split('@')[0].toUpperCase() || "OPERATOR";
+              // No name is derived from the address. The local part of an
+              // e-mail is often a real name, and users/$uid/public is readable
+              // by every signed-in user — so recovering a profile must not put
+              // any part of the address where other people can see it. The
+              // config goes in without a userName and public is left absent
+              // entirely; the handle overlay collects one on the next render,
+              // and writes both paths together.
               await update(ref(db), {
                 [`users/${u.uid}/config`]: {
-                  userName: fallbackName,
                   email: u.email,
                   createdAt: new Date().toISOString(),
                   emailVerified: u.emailVerified,
                   onboardingComplete: false,
                   usernameSet: false,
                 },
-                // Seed the friend-visible name alongside the private config so
-                // a recovered profile is renderable in The Pack immediately.
-                [`users/${u.uid}/public`]: { userName: fallbackName },
               });
             }
           } catch (err) {

@@ -40,7 +40,13 @@ export function WriteFailureToasts() {
   useEffect(
     () =>
       onWriteFailure((failure) =>
-        setItems((prev) => capVisible([...prev, failure]))
+        setItems((prev) =>
+          // A repeat of a toast already on screen replaces it, so its "xN"
+          // badge updates in place rather than a second copy appearing.
+          prev.some((i) => i.id === failure.id)
+            ? prev.map((i) => (i.id === failure.id ? failure : i))
+            : capVisible([...prev, failure])
+        )
       ),
     []
   );
@@ -97,6 +103,14 @@ export function WriteFailureToasts() {
             <span className="text-[10px] font-bold text-ink leading-relaxed flex-1">
               {item.message}
             </span>
+            {item.count > 1 && (
+              <span
+                className="text-[9px] font-black text-ink-muted shrink-0 tabular-nums"
+                aria-label={`Repeated ${item.count} times`}
+              >
+                &times;{item.count}
+              </span>
+            )}
             <button
               onClick={() => dismiss(item.id)}
               className="text-ink/30 hover:text-ink transition-colors shrink-0"

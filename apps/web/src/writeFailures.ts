@@ -29,6 +29,11 @@ export type WriteFailure = {
    * something happens (a queued write being acknowledged), not for 10 s.
    */
   sticky: boolean;
+  /**
+   * How many times this same message has been reported while it was still
+   * live. The toast shows "xN" rather than stacking N identical toasts.
+   */
+  count: number;
 };
 
 type Listener = (failure: WriteFailure) => void;
@@ -80,14 +85,33 @@ export function reportWriteFailure(
   } else {
     console.info(`[LOCK-IN] ${message}`);
   }
+  pruneRecent();
+
+  // A write that fails once usually fails again a second later. Repeating the
+  // same sentence three times tells the operator nothing the first one did not,
+  // so a duplicate of a message that is still live bumps a counter instead.
+  const existing = recent.find((f) => f.message === message && f.kind === kind);
+  if (existing) {
+    existing.count++;
+    existing.at = Date.now();
+    for (const listener of listeners) {
+      try {
+        listener({ ...existing });
+      } catch {
+        /* a broken listener must never break the caller's write path */
+      }
+    }
+    return existing.id;
+  }
+
   const failure: WriteFailure = {
     id: nextId++,
     message,
     at: Date.now(),
     kind,
     sticky: options.sticky === true,
+    count: 1,
   };
-  pruneRecent();
   recent.push(failure);
   for (const listener of listeners) {
     try {

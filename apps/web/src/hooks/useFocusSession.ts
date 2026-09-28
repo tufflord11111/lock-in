@@ -39,7 +39,10 @@ function warnIfSessionEndUnsaved(write: Promise<void>, uid: string): void {
 
   const onSettled = (acked: boolean) => {
     settled = true;
-    if (warned && acked) logUiEvent("session-end-acked", uid);
+    // Both outcomes are logged once the operator has been warned, so the
+    // trail ends either way: acked means the queued write landed, refused
+    // means it came back rejected and guardWrite raised the error toast.
+    if (warned) logUiEvent(acked ? "session-end-acked" : "session-end-refused", uid);
     // Acked: the notice is no longer true. Refused: guardWrite shows the error.
     if (toastId !== null) dismissWriteFailure(toastId);
   };

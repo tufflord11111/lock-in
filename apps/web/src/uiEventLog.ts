@@ -9,6 +9,7 @@ export type UiEvent =
   | "session-end-timeout-offline"
   | "session-end-timeout-connected"
   | "session-end-acked"
+  | "session-end-refused"
   | "reconcile-write"
   | "name-repair";
 
