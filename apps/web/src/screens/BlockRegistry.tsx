@@ -10,6 +10,7 @@ import { guardWrite, reportWriteFailure } from "../writeFailures";
 import { getDeviceId } from "../deviceId";
 import { DeleteAccountButton } from "../components/DeleteAccountButton";
 import { AppearancePicker } from "../theme/AppearancePicker";
+import { useCopy } from "../theme/copy";
 
 const DEFAULT_WEB_BLOCKS = [
   'tiktok.com', 'youtube.com', 'netflix.com', 'instagram.com', 'facebook.com',
@@ -59,6 +60,7 @@ export function BlockRegistry({
   const [extensionLastSeen, setExtensionLastSeen] = useState<number | null>(null);
   const [blockedAppsCount, setBlockedAppsCount] = useState(0);
   const [lastSessionMins, setLastSessionMins] = useState<number | null>(null);
+  const t = useCopy();
   const [now, setNow] = useState(Date.now());
 
   // Web Blocker Registry state
@@ -439,7 +441,7 @@ export function BlockRegistry({
         <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[var(--shadow-2)]">
           <div className="flex items-center gap-3 mb-6">
             <User size={18} className="text-ink" />
-            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">Operator Identity</h2>
+            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.identity")}</h2>
           </div>
           <input
             value={userName}
@@ -458,7 +460,7 @@ export function BlockRegistry({
           <div>
             <div className="flex items-center gap-3 mb-8">
               <Clock size={18} className="text-ink" />
-              <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">Session Telemetry</h2>
+              <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.telemetry")}</h2>
             </div>
             
             <div className="flex flex-col gap-6 mb-8">
@@ -471,7 +473,7 @@ export function BlockRegistry({
           </div>
           
           <div className="w-full bg-ground border-1 border-dashed border-ink/20 py-4 rounded-lg flex items-center justify-center">
-             <span className="font-black label-plain text-[10px] tracking-widest text-ink/40">Operator Uptime</span>
+             <span className="font-black label-plain text-[10px] tracking-widest text-ink/40">{t("blocks.uptime")}</span>
           </div>
         </section>
 
@@ -479,11 +481,11 @@ export function BlockRegistry({
         <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[var(--shadow-2)]">
           <div className="flex items-center gap-3 mb-4">
             <Power size={18} className="text-ink" />
-            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">Boot Initialization</h2>
+            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.boot")}</h2>
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-black text-ink label-plain tracking-tight">LAUNCH ON STARTUP</p>
+              <p className="text-sm font-black text-ink label-plain tracking-tight">{t("blocks.autostart")}</p>
               <p className="text-[9px] font-bold text-ink/40 mt-1">Lock-In opens when your PC starts so uptime tracking begins automatically</p>
             </div>
             <button
@@ -527,26 +529,26 @@ export function BlockRegistry({
         <section className="w-full bg-surface-alt border-1 border-ink-2 p-6 rounded-2xl shadow-[4px_4px_0px_var(--ink-2)] flex flex-col gap-4" style={{ height: 'auto', alignSelf: 'flex-start' }}>
           <div className="flex items-center gap-3">
             <Lock size={18} className="text-ink-2" />
-            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink-2/60">Web Blocker Registry</h2>
+            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink-2/60">{t("blocks.web")}</h2>
           </div>
 
           {/* BLOCKED SITES REGISTRY */}
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[9px] font-black label-sm text-ink-2/50">BLOCKED SITES</span>
+              <span className="text-[9px] font-black label-sm text-ink-2/50">{t("blocks.sites")}</span>
               <span className="text-[8px] font-black bg-ink-2 text-surface-inverse px-1.5 py-0.5 rounded-full">{visibleDefaultDomains.length + Object.keys(customWebBlocks).length}</span>
             </div>
             <div style={{ maxHeight: '200px', overflowY: 'auto' }} className="flex flex-col gap-1">
-              <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/30 mb-1">// DEFAULT</p>
+              <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/30 mb-1">{t("blocks.default")}</p>
               {visibleDefaultDomains.map(domain => (
                 <div key={domain} className="flex items-center justify-between px-3 py-1.5 bg-surface border border-ink-2/10 rounded-md">
                   <span className="text-[10px] font-mono text-ink-2/70">{domain}</span>
-                  <button onClick={() => removeDefaultBlock(domain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-sm transition-colors">REMOVE</button>
+                  <button onClick={() => removeDefaultBlock(domain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-sm transition-colors">{t("blocks.remove")}</button>
                 </div>
               ))}
-              <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/30 mt-2 mb-1">// CUSTOM</p>
+              <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/30 mt-2 mb-1">{t("blocks.custom")}</p>
               {Object.keys(customWebBlocks).length === 0 && Object.keys(permanentWebBlocks).length === 0 ? (
-                <p className="text-[9px] font-black label-plain tracking-wider text-ink-2/25 py-2 text-center">NO CUSTOM BLOCKS ADDED</p>
+                <p className="text-[9px] font-black label-plain tracking-wider text-ink-2/25 py-2 text-center">{t("blocks.none")}</p>
               ) : (
                 <>
                   {Object.entries(customWebBlocks).map(([key, value]) => {
@@ -554,7 +556,7 @@ export function BlockRegistry({
                     return (
                       <div key={key} className="flex items-center justify-between px-3 py-1.5 bg-surface border border-ink-2/10 rounded-md gap-2">
                         <span className="text-[10px] font-mono text-ink-2/70 flex-1 truncate">{displayDomain}</span>
-                        <button onClick={() => makeWebPermanent(displayDomain)} className="text-[7px] font-black label-plain px-1.5 py-0.5 border border-ink-2/30 rounded text-ink-2/50 hover:bg-ink-2 hover:text-surface-inverse transition-colors">PERM</button>
+                        <button onClick={() => makeWebPermanent(displayDomain)} className="text-[7px] font-black label-plain px-1.5 py-0.5 border border-ink-2/30 rounded text-ink-2/50 hover:bg-ink-2 hover:text-surface-inverse transition-colors">{t("blocks.perm")}</button>
                         <button onClick={() => removeCustomBlock(displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-sm transition-colors">✕</button>
                       </div>
                     );
@@ -565,7 +567,7 @@ export function BlockRegistry({
                       <div key={key} className="flex items-center justify-between px-3 py-1.5 bg-highlight-2/10 border border-highlight-2 rounded-md gap-2">
                         <span className="text-[10px] font-mono text-ink-2 flex-1 truncate">{displayDomain}</span>
                         <span className="text-[7px] font-black label-plain px-1.5 py-0.5 bg-highlight-2 text-ink-2 border border-ink-2 rounded">24/7</span>
-                        <button onClick={() => makeWebSession(displayDomain)} className="text-[8px] font-black text-ink-2/40 hover:text-ink-2 label-sm transition-colors">SESSION</button>
+                        <button onClick={() => makeWebSession(displayDomain)} className="text-[8px] font-black text-ink-2/40 hover:text-ink-2 label-sm transition-colors">{t("blocks.session")}</button>
                         <button onClick={() => removePermanentWeb(key, displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-sm transition-colors">✕</button>
                       </div>
                     );
@@ -577,8 +579,8 @@ export function BlockRegistry({
 
           {/* C: MANUAL ADD */}
           <div className="flex gap-2 pt-3 border-t border-ink-2/10">
-            <input type="text" value={newWebDomain} onChange={(e) => setNewWebDomain(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addWebBlockManual()} placeholder="e.g. twitch.tv" className="flex-1 bg-surface border border-ink-2/30 rounded-lg px-3 py-2 text-[10px] font-mono text-ink-2 placeholder:text-ink-2/30 outline-none focus:border-ink-2 transition-colors" />
-            <button onClick={addWebBlockManual} className="bg-ink-2 text-surface-inverse px-4 py-2 rounded-lg text-[9px] font-black label-sm hover:bg-ink transition-colors">+ ADD</button>
+            <input type="text" value={newWebDomain} onChange={(e) => setNewWebDomain(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addWebBlockManual()} placeholder={t("blocks.sitePlaceholder") ?? ""} className="flex-1 bg-surface border border-ink-2/30 rounded-lg px-3 py-2 text-[10px] font-mono text-ink-2 placeholder:text-ink-2/30 outline-none focus:border-ink-2 transition-colors" />
+            <button onClick={addWebBlockManual} className="bg-ink-2 text-surface-inverse px-4 py-2 rounded-lg text-[9px] font-black label-sm hover:bg-ink transition-colors">{t("blocks.addSite")}</button>
           </div>
         </section>
       </div>
@@ -588,7 +590,7 @@ export function BlockRegistry({
         <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] flex flex-col" style={{ paddingBottom: '40px' }}>
           <div className="flex items-center gap-3 mb-8">
             <ShieldAlert size={18} className="text-ink" />
-            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">Restricted Registry</h2>
+            <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.apps")}</h2>
           </div>
 
           {errorMessage && (
@@ -611,7 +613,7 @@ export function BlockRegistry({
           >
              <Plus size={40} strokeWidth={1} className={`mb-4 transition-colors duration-300 ${isDragging ? 'text-ink' : 'text-ink/20'}`} />
              <p className={`text-[10px] font-black label-plain tracking-[0.3em] text-center mb-6 transition-colors duration-300 ${isDragging ? 'text-ink' : 'text-ink/40'}`}>
-               {isDragging ? "DROP TO REGISTER" : "Drag & Drop .exe files here"}
+               {isDragging ? t("blocks.dropActive") : t("blocks.drop")}
              </p>
 
              <button
@@ -628,7 +630,7 @@ export function BlockRegistry({
               type="text"
               value={newExe}
               onChange={(e) => setNewExe(e.target.value)}
-              placeholder="e.g. discord.exe"
+              placeholder={t("blocks.appPlaceholder") ?? ""}
               className="flex-1 bg-surface border-1 border-ink shadow-[var(--shadow-1)] focus:translate-y-[2px] focus:shadow-none rounded-lg px-6 py-4 font-bold text-sm text-ink placeholder:text-ink/40 focus:outline-none transition-all disabled:opacity-50"
             />
             <button
@@ -657,7 +659,7 @@ export function BlockRegistry({
             className="mb-8 w-full bg-ground border-1 border-ink border-dashed p-4 rounded-xl flex items-center justify-center gap-4 text-ink/40 hover:text-ink hover:border-solid hover:bg-surface transition-all group"
           >
             <MousePointer2 size={16} className="group-hover:animate-bounce" />
-            <span className="text-[10px] font-black label-sm">Choose from Running Apps</span>
+            <span className="text-[10px] font-black label-sm">{t("blocks.browse")}</span>
           </button>
 
           <div className="space-y-3 pr-2 pb-4">
@@ -680,8 +682,8 @@ export function BlockRegistry({
                 >
                   <span className="font-bold text-sm truncate pr-2 text-ink/80 tracking-tight italic flex-1">{exe}</span>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[7px] font-black label-plain px-2 py-0.5 border-1 border-ink rounded text-ink">SESSION</span>
-                    <button onClick={() => makeExePermanent(exe)} className="text-[7px] font-black label-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-highlight-2 hover:text-ink transition-colors">PERM</button>
+                    <span className="text-[7px] font-black label-plain px-2 py-0.5 border-1 border-ink rounded text-ink">{t("blocks.session")}</span>
+                    <button onClick={() => makeExePermanent(exe)} className="text-[7px] font-black label-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-highlight-2 hover:text-ink transition-colors">{t("blocks.perm")}</button>
                     <button onClick={() => removeBlock(exe)} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
                       <Trash2 size={14} />
                     </button>
@@ -696,7 +698,7 @@ export function BlockRegistry({
                 >
                   <span className="font-bold text-sm truncate pr-2 text-ink tracking-tight italic flex-1">{exe}</span>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => makeExeSession(exe)} className="text-[7px] font-black label-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-ink transition-colors">SESSION</button>
+                    <button onClick={() => makeExeSession(exe)} className="text-[7px] font-black label-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-ink transition-colors">{t("blocks.session")}</button>
                     <span className="text-[7px] font-black label-plain px-2 py-0.5 bg-highlight-2 border-1 border-ink rounded text-ink">24/7</span>
                     <button onClick={() => removePermanentExe(exe)} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
                       <Trash2 size={14} />
@@ -707,7 +709,7 @@ export function BlockRegistry({
               {blockedApps.length === 0 && permanentApps.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-4 opacity-10" style={{ height: '80px', padding: '1rem' }}>
                   <ShieldAlert size={32} strokeWidth={1} />
-                  <p className="text-[10px] font-black label-plain tracking-[0.3em] mt-2">Registry Clear</p>
+                  <p className="text-[10px] font-black label-plain tracking-[0.3em] mt-2">{t("blocks.clear")}</p>
                 </div>
               )}
             </div>

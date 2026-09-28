@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Shield, Zap, User, Mail, Key, RotateCcw, ArrowLeft, CheckCircle } from "lucide-react";
 import { parseAuthError } from "../hooks/useAuth";
 import { EnforcerDisarmPanel } from "../components/EnforcerDisarmPanel";
+import { useCopy } from "../theme/copy";
 
 interface LoginProps {
   onLogin: (email: string, pass: string) => Promise<any>;
@@ -51,6 +52,7 @@ function useAppVersion(): string {
 export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
   const [view, setView] = useState<AuthView>("login");
   const appVersion = useAppVersion();
+  const t = useCopy();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
@@ -150,9 +152,9 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
           </h1>
         </div>
         <p className="text-ink/60 font-bold leading-tight label-plain text-xs tracking-wider">
-          {view === "login" && <>Establish secure link to cockpit.<br />Protocol: STATION_LOGIN</>}
-          {view === "register" && <>Establish secure link to cockpit.<br />Protocol: REGISTER_NEW_OPERATOR</>}
-          {view === "forgot" && <>Recovery sequence initiated.<br />Protocol: RESET_ACCESS_KEY</>}
+          {view === "login" && <>{t("login.subtitle")}<br />{t("login.protocol")}</>}
+          {view === "register" && <>{t("login.subtitle")}<br />{t("login.protocolRegister")}</>}
+          {view === "forgot" && <>{t("login.subtitleForgot")}<br />{t("login.protocolForgot")}</>}
         </p>
       </div>
 
@@ -192,7 +194,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2 mb-1">
                     <Mail size={14} className="text-ink" />
-                    <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">Comm Link (Email)</span>
+                    <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">{t("login.email")}</span>
                   </div>
                   <input
                     id="forgot-email"
@@ -219,7 +221,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
                   <div className="flex items-center justify-center gap-3">
                     <RotateCcw className="text-ink" size={18} />
                     <span className="text-lg font-black text-ink label-plain tracking-wider">
-                      {isLoading ? "Sending..." : "Send Reset Link"}
+                      {isLoading ? t("login.sending") : t("login.sendReset")}
                     </span>
                   </div>
                 </button>
@@ -261,7 +263,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <User size={14} className="text-ink" />
-                    <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">Operator Handle</span>
+                    <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">{t("login.handle")}</span>
                   </div>
                   <input
                     id="register-username"
@@ -280,7 +282,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 mb-1">
                 <Mail size={14} className="text-ink" />
-                <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">Comm Link (Email)</span>
+                <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">{t("login.email")}</span>
               </div>
               <input
                 id="auth-email"
@@ -297,7 +299,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 mb-1">
                 <Key size={14} className="text-ink" />
-                <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">Security Clearance</span>
+                <span className="text-[10px] font-black label-plain text-ink/40 tracking-widest">{t("login.password")}</span>
               </div>
               <input
                 id="auth-password"
@@ -317,7 +319,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
                 onClick={() => resetForm("forgot")}
                 className="self-end text-[10px] font-black text-ink/40 label-plain tracking-[0.15em] hover:text-ink transition-colors -mt-2"
               >
-                Forgot Access Key?
+                {t("login.forgot")}
               </button>
             )}
 
@@ -338,7 +340,7 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
               <div className="flex items-center justify-center gap-3">
                 <Zap className="text-ink group-hover:animate-pulse" size={20} />
                 <span className="text-lg font-black text-ink label-plain tracking-wider">
-                  {isLoading ? "Syncing..." : view === "register" ? "Confirm Registration" : "Engage Protocol"}
+                  {isLoading ? t("login.submitting") : view === "register" ? t("login.register") : t("login.submit")}
                 </span>
               </div>
             </button>
@@ -349,14 +351,14 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
               onClick={() => resetForm(view === "login" ? "register" : "login")}
               className="text-center text-[10px] font-black text-ink/40 label-plain tracking-[0.2em] hover:text-ink transition-colors mt-2"
             >
-              {view === "register" ? "Already documented? Login here" : "First time arriving? Create Account"}
+              {view === "register" ? t("login.toLogin") : t("login.toRegister")}
             </button>
 
             {/* Footer badges */}
             <div className="flex items-center justify-center gap-6 mt-4">
               <div className="flex items-center gap-2 text-ink/40 font-black text-[10px] label-sm">
                 <Shield size={12} />
-                <span>Encrypted Layer</span>
+                <span>{t("login.encrypted")}</span>
               </div>
               <div className="w-px h-4 bg-ink/10" />
               <div className="text-ink/40 font-black text-[10px] label-sm">
@@ -369,10 +371,10 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
 
       {/* DECORATIVE BACKGROUND TEXT */}
       <div className="fixed bottom-12 left-12 opacity-5 transform -rotate-12 pointer-events-none select-none">
-        <h2 className="text-8xl font-black text-ink leading-none label-plain">FOCUS</h2>
+        <h2 className="text-8xl font-black text-ink leading-none label-plain">{t("watermark.left")}</h2>
       </div>
       <div className="fixed top-12 right-12 opacity-5 transform rotate-12 pointer-events-none select-none">
-        <h2 className="text-8xl font-black text-ink leading-none label-plain">GRIND</h2>
+        <h2 className="text-8xl font-black text-ink leading-none label-plain">{t("watermark.right")}</h2>
       </div>
     </div>
   );

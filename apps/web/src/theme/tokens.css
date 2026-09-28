@@ -222,11 +222,11 @@
   --font-mono: 'Patrick Hand', 'Comic Sans MS', cursive;
   --weight-display: 400;
   --weight-ui: 400;
-  --tracking-label: 0.12em;
-  --tracking-label-sm: 0.08em;
-  --tracking-label-lg: 0.14em;
-  --tracking-label-xl: 0.16em;
-  --transform-label: uppercase;
+  --tracking-label: 0.02em;
+  --tracking-label-sm: 0.02em;
+  --tracking-label-lg: 0.03em;
+  --tracking-label-xl: 0.04em;
+  --transform-label: none;
 
   /* The wobble: every corner slightly different so nothing looks machined. */
   --radius-xl: 12px 14px 11px 15px / 14px 11px 15px 12px;

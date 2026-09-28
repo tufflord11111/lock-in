@@ -22,6 +22,7 @@ import { ThePack } from "./screens/ThePack";
 import { useAuth } from "./hooks/useAuth";
 import { useHandleProfile, reserveHandle, asHandleError, HandleTakenError } from "./hooks/useHandleProfile";
 import { ThemeProvider, useTheme, useAccountTheme, THEMES } from "./theme/ThemeProvider";
+import { useCopy, daypart, weekday } from "./theme/copy";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
@@ -159,6 +160,7 @@ function AppInner() {
   } = useAuth();
   const [currentTab, setCurrentTab] = useState<AppTab>("home");
   const { theme, setTheme } = useTheme();
+  const t = useCopy();
   useAccountTheme(user?.uid);
   // Test-only UI, gated on a DEV_MODE file in the app data dir (see Rust
   // is_dev_mode). Outside Tauri the invoke fails and it stays off.
@@ -544,10 +546,10 @@ function AppInner() {
             className="fixed inset-0 z-[200] bg-ground flex items-center justify-center"
           >
             <div className="w-full max-w-md flex flex-col items-center gap-8 px-8">
-              <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30">// Operator Registration</p>
+              <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30">{t("handle.eyebrow")}</p>
               <div className="text-center">
-                <h1 className="text-5xl font-black text-ink label-plain tracking-tight mb-3">Choose Your Handle</h1>
-                <p className="text-xs font-bold text-ink/40 label-plain tracking-wider">This cannot be changed after confirmation.</p>
+                <h1 className="text-5xl font-black text-ink label-plain tracking-tight mb-3">{t("handle.title")}</h1>
+                <p className="text-xs font-bold text-ink/40 label-plain tracking-wider">{t("handle.sub")}</p>
               </div>
               <div className="w-full flex flex-col gap-3">
                 <input
@@ -578,7 +580,7 @@ function AppInner() {
                 disabled={usernameSubmitting || !usernameInput.trim()}
                 className="w-full bg-ink text-surface-inverse py-5 rounded-xl font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:bg-highlight-2 hover:text-ink hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-40"
               >
-                {usernameSubmitting ? "Locking In..." : "Lock In Handle"}
+                {usernameSubmitting ? t("handle.submitting") : t("handle.submit")}
               </button>
             </div>
           </motion.div>
@@ -594,10 +596,16 @@ function AppInner() {
           <div className="flex items-center gap-6">
             <div className="flex flex-col">
               <p className="text-[9px] font-black label-plain tracking-[0.3em] text-ink/30 mb-1">
-                Operator // {userName}
+                {t("header.greeting", { handle: userName, weekday: weekday(), daypart: daypart() })}
               </p>
               <h1 className="text-3xl font-bold tracking-tight text-ink capitalize">
-                {currentTab === "home" ? "Cockpit Dashboard" : currentTab === "analytics" ? "Strategic Planner" : currentTab === "pack" ? "The Pack" : "System Protocols"}
+                {currentTab === "home"
+                  ? t("dashboard.title")
+                  : currentTab === "analytics"
+                  ? t("plan.title")
+                  : currentTab === "pack"
+                  ? t("pack.title")
+                  : t("blocks.title")}
               </h1>
             </div>
           </div>
@@ -607,7 +615,7 @@ function AppInner() {
               onClick={logout}
               className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-sm shadow-[var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all"
             >
-              Sign Out
+              {t("signout")}
             </button>
 
             {/* GLOBAL ACTIVE TIMER */}
@@ -618,20 +626,20 @@ function AppInner() {
                 className="flex items-center gap-4 bg-ink text-surface-inverse px-6 py-3 rounded-xl border-1 border-ink shadow-[var(--shadow-2)]"
               >
                 <div className="flex flex-col items-end">
-                  <p className="text-[8px] font-black label-sm text-surface-inverse/60 leading-none mb-1">Active Session</p>
+                  <p className="text-[8px] font-black label-sm text-surface-inverse/60 leading-none mb-1">{t("session.active")}</p>
                   <p className="text-xl font-black tabular-nums leading-none tracking-tight">{formatTime(timeLeft)}</p>
                 </div>
                 <div className="h-6 w-px bg-surface-inverse/20" />
                 <p className="text-[10px] font-bold label-plain tracking-tight text-surface-inverse/90 max-w-[100px] truncate leading-tight">
-                  {taskLabel || "Untethered"}
+                  {taskLabel || t("session.untitled")}
                 </p>
               </motion.div>
             )}
 
             <div className="text-right flex flex-col">
-              <p className="text-[9px] font-black label-sm text-ink/20 mb-1">Uptime today</p>
+              <p className="text-[9px] font-black label-sm text-ink/20 mb-1">{t("uptime.label")}</p>
               <p className="text-2xl font-black text-ink leading-none">
-                {Math.floor(totalMinutesToday)}<span className="text-xs ml-0.5 opacity-30">MIN</span>
+                {Math.floor(totalMinutesToday)}<span className="text-xs ml-0.5 opacity-30">{t("uptime.unit")}</span>
               </p>
             </div>
           </div>

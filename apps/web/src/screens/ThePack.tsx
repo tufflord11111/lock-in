@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, get, child } from "firebase/database";
 import { useFriends, FriendAddError } from "../hooks/useFriends";
+import { useCopy } from "../theme/copy";
 import { reportWriteFailure } from "../writeFailures";
 
 interface FriendStatus {
@@ -33,6 +34,7 @@ export function ThePack({ userId }: ThePackProps) {
   const [addSuccess, setAddSuccess] = useState(false);
 
   const { addFriend } = useFriends(userId);
+  const t = useCopy();
 
   useEffect(() => {
     const friendsRef = ref(db, `users/${userId}/friends`);
@@ -136,7 +138,7 @@ export function ThePack({ userId }: ThePackProps) {
           .sort((a, b) => b.uptimeToday - a.uptimeToday)
           .map((user, index) => ({
             rank: index + 1,
-            name: user.username || "Unknown Operator",
+            name: user.username || (t("pack.unknown") ?? ""),
             hours: Number(user.displayUptime)
           }));
           
@@ -213,14 +215,14 @@ export function ThePack({ userId }: ThePackProps) {
       {/* TOP RECRUITMENT BAR */}
       <div className="flex flex-row justify-between items-center gap-6 p-4 border-b-1 border-ink mb-8">
         <div className="flex items-center gap-4">
-          <h2 className="text-lg font-bold text-ink">Add Operator</h2>
+          <h2 className="text-lg font-bold text-ink">{t("pack.add")}</h2>
           <div className="flex gap-2">
             <input
               type="text"
               value={inviteUsername}
               onChange={(e) => setInviteUsername(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
-              placeholder="Handle..."
+              placeholder={t("pack.placeholder") ?? ""}
               disabled={isAdding}
               className={`w-48 bg-surface border-1 border-ink rounded-lg px-4 py-2 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] transition-all shadow-[var(--shadow-1)] focus:shadow-none ${isAdding ? 'opacity-50' : ''}`}
             />
@@ -256,7 +258,7 @@ export function ThePack({ userId }: ThePackProps) {
         <div className="flex-1 flex flex-col min-w-0">
           {/* Active Operators */}
           <div className="mb-4">
-            <h2 className="text-xl font-bold text-ink">Active Operators // Live Status</h2>
+            <h2 className="text-xl font-bold text-ink">{t("pack.online")}</h2>
           </div>
           <div className="flex flex-col gap-3 mb-8">
             {activeFriends.map((friend) => (
@@ -298,7 +300,7 @@ export function ThePack({ userId }: ThePackProps) {
 
           {/* Offline Operators */}
           <div className="mb-4">
-            <h2 className="text-xl font-bold text-ink">Offline Operators</h2>
+            <h2 className="text-xl font-bold text-ink">{t("pack.offline")}</h2>
           </div>
           <div className="flex flex-col gap-3">
             {offlineFriends.slice(0, Math.max(0, visibleFriends - activeFriends.length - onlineFriends.length)).map((friend) => (
@@ -333,21 +335,21 @@ export function ThePack({ userId }: ThePackProps) {
         {/* RIGHT COLUMN: THE ARENA */}
         <div className="flex-1 flex flex-col min-w-0 border-l-1 border-ink/10 pl-12">
           <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-ink">The Weekly Arena // Leaderboard</h2>
+            <h2 className="text-xl font-bold text-ink">{t("pack.leaderboard")}</h2>
             <button 
               onClick={fetchLeaderboard}
               disabled={isLoadingLeaderboard}
               className="bg-surface border-1 border-ink text-ink px-3 py-1 rounded-md font-black text-[10px] label-sm shadow-[var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-50"
             >
-              {isLoadingLeaderboard ? "SYNCING..." : "Refresh Ranks"}
+              {isLoadingLeaderboard ? t("pack.syncing") : t("pack.refresh")}
             </button>
           </div>
           
           <div className="flex flex-col gap-3">
             {leaderboard.length === 0 && !isLoadingLeaderboard && (
               <div className="py-20 flex flex-col items-center justify-center border-1 border-dashed border-ink/20 rounded-2xl bg-ground/50">
-                <span className="text-[10px] font-black text-ink/30 label-lg mb-2">No Records Found</span>
-                <p className="text-sm font-bold text-ink/40 italic">"THE BOARD IS CLEAR. BE THE FIRST."</p>
+                <span className="text-[10px] font-black text-ink/30 label-lg mb-2">{t("pack.empty")}</span>
+                <p className="text-sm font-bold text-ink/40 italic">{t("pack.emptyHint")}</p>
               </div>
             )}
 
@@ -373,7 +375,7 @@ export function ThePack({ userId }: ThePackProps) {
                 
                 <div className="flex flex-col items-end">
                   <span className={`text-xl leading-none ${user.rank === 1 ? "font-black text-ink" : "font-bold text-ink"}`}>
-                    {user.hours} <span className="text-xs opacity-60 ml-0.5 font-bold">HRS</span>
+                    {user.hours} <span className="text-xs opacity-60 ml-0.5 font-bold">{t("pack.hours")}</span>
                   </span>
                 </div>
               </div>

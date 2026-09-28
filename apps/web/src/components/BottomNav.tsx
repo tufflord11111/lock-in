@@ -1,4 +1,5 @@
 import { Calendar, Home, Settings, Users } from "lucide-react";
+import { useCopy } from "../theme/copy";
 
 export type AppTab = "home" | "analytics" | "settings" | "pack";
 
@@ -8,6 +9,7 @@ type BottomNavProps = {
 };
 
 export function BottomNav({ currentTab, onChange }: BottomNavProps) {
+  const t = useCopy();
   return (
     <nav className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 bg-surface border-1 border-ink p-2 rounded-nav shadow-[var(--shadow-2)] min-w-[340px]">
       <div className="flex items-center justify-between gap-2">
@@ -21,7 +23,7 @@ export function BottomNav({ currentTab, onChange }: BottomNavProps) {
           }`}
         >
           <Home className="h-4 w-4" strokeWidth={3} />
-          <span>Cockpit</span>
+          <span>{t("nav.home")}</span>
         </button>
         <button
           type="button"
@@ -33,7 +35,7 @@ export function BottomNav({ currentTab, onChange }: BottomNavProps) {
           }`}
         >
           <Calendar className="h-4 w-4" strokeWidth={3} />
-          <span>Planner</span>
+          <span>{t("nav.plan")}</span>
         </button>
         <button
           type="button"
@@ -45,7 +47,7 @@ export function BottomNav({ currentTab, onChange }: BottomNavProps) {
           }`}
         >
           <Users className="h-4 w-4" strokeWidth={3} />
-          <span>The Pack</span>
+          <span>{t("nav.pack")}</span>
         </button>
         <button
           type="button"
@@ -57,7 +59,7 @@ export function BottomNav({ currentTab, onChange }: BottomNavProps) {
           }`}
         >
           <Settings className="h-4 w-4" strokeWidth={3} />
-          <span>Protocols</span>
+          <span>{t("nav.blocks")}</span>
         </button>
       </div>
     </nav>

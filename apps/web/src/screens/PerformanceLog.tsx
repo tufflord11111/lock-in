@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useCopy } from "../theme/copy";
 import { CheckCircle, Circle, Plus, Trash2, X, Calendar } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { db } from "@lock-in/firebase";
@@ -28,6 +29,7 @@ interface PerformanceLogProps {
 }
 
 export function PerformanceLog({ userId }: PerformanceLogProps) {
+  const t = useCopy();
   const [plan, setPlan] = useState<WeeklyPlan>(() => {
     const saved = localStorage.getItem("lockin_weekly_plan");
     return saved ? JSON.parse(saved) : initialPlan;
@@ -124,11 +126,11 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
 
       {/* GOOGLE CALENDAR SECTION */}
       <div className="bg-surface-alt border-1 border-ink-2 rounded-xl p-6 shadow-[4px_4px_0px_var(--ink-2)]">
-        <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/40 mb-1">// GOOGLE CALENDAR SYNC</p>
+        <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/40 mb-1">{t("plan.calendar")}</p>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-black text-ink-2 label-plain tracking-tight">YOUR SCHEDULE</h2>
+          <h2 className="text-xl font-black text-ink-2 label-plain tracking-tight">{t("plan.schedule")}</h2>
           {calendarUrl && (
-            <button onClick={disconnectCalendar} className="text-[9px] font-black label-sm text-ink-2/40 hover:text-danger-soft transition-colors">DISCONNECT</button>
+            <button onClick={disconnectCalendar} className="text-[9px] font-black label-sm text-ink-2/40 hover:text-danger-soft transition-colors">{t("plan.disconnect")}</button>
           )}
         </div>
 
@@ -172,7 +174,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
               className="relative w-full max-w-[480px] bg-surface-alt border-1 border-ink-2 shadow-[8px_8px_0px_var(--ink-2)] p-8 rounded-xl"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-black text-ink-2 label-plain tracking-tight">Connect Calendar</h2>
+                <h2 className="text-lg font-black text-ink-2 label-plain tracking-tight">{t("plan.connect")}</h2>
                 <button onClick={() => setShowCalendarModal(false)} className="text-ink-2/30 hover:text-ink-2 transition-colors">
                   <X size={20} />
                 </button>
@@ -243,7 +245,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
                     value={newTasks[day]}
                     onChange={e => setNewTasks(prev => ({ ...prev, [day]: e.target.value }))}
                     onKeyDown={e => e.key === "Enter" && addTask(day)}
-                    placeholder="Log..."
+                    placeholder={t("plan.logPlaceholder") ?? ""}
                     className="flex-1 min-w-0 bg-ground border-1 border-ink shadow-[inset_0px_2px_0px_rgb(var(--shadow-ink-rgb)/0.05)] rounded-lg px-3 py-2 text-xs font-bold text-ink placeholder:text-ink/30 outline-none focus:bg-surface transition-all"
                   />
                   <button
@@ -290,7 +292,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
                   ))}
                   {plan[day].length === 0 && (
                     <div className="flex flex-col items-center justify-center py-10 opacity-20 border-1 border-dashed border-ink/20 rounded-lg mt-2">
-                      <p className="text-[9px] font-black label-sm text-ink">Empty</p>
+                      <p className="text-[9px] font-black label-sm text-ink">{t("plan.empty")}</p>
                     </div>
                   )}
                 </div>

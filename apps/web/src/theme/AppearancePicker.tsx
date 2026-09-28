@@ -1,3 +1,4 @@
+import { useCopy } from "./copy";
 import {
   ACCENTS,
   THEMES,
@@ -59,12 +60,13 @@ function Preview({ theme, accent }: { theme: ThemeName; accent: AccentName }) {
  */
 export function AppearancePicker() {
   const { theme, accent, setTheme, setAccent } = useTheme();
+  const t = useCopy();
 
   return (
     <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[var(--shadow-2)]">
-      <h2 className="text-sm font-black text-ink label-plain tracking-tight">Theme</h2>
+      <h2 className="text-sm font-black text-ink label-plain tracking-tight">{t("theme.title")}</h2>
       <p className="text-[9px] font-bold text-ink-muted mt-1 mb-4 leading-relaxed">
-        Changes the look and the wording. Blocking works the same in every theme.
+        {t("theme.sub")}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
