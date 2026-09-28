@@ -18,6 +18,10 @@ import type { ThemeName } from "./ThemeProvider";
 const operator = {
   // ── Header, navigation, shell ──────────────────────────────────────────
   "header.greeting": "Operator // {handle}",
+  "header.sub": null as string | null,
+  "stats.streak": null as string | null,
+  "stats.tasks": null as string | null,
+  "stats.blocks": null as string | null,
   "dashboard.title": "Cockpit Dashboard",
   "plan.title": "Strategic Planner",
   "pack.title": "The Pack",
@@ -366,6 +370,10 @@ const bento: Overrides = {
 /** Calm, full sentences that sit well in a serif. */
 const botanical: Overrides = {
   "header.greeting": "Good {daypart}, {handle}",
+  "header.sub": "{weekday} · a quiet place to get things done.",
+  "stats.streak": "{streak}-day streak",
+  "stats.tasks": "{open} tasks open",
+  "stats.blocks": "{apps} apps · {sites} sites blocked",
   "dashboard.title": "",
   "plan.title": "Plan",
   "pack.title": "Friends",

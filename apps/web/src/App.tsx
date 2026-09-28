@@ -21,8 +21,9 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { ThePack } from "./screens/ThePack";
 import { useAuth } from "./hooks/useAuth";
 import { useHandleProfile, reserveHandle, asHandleError, HandleTakenError } from "./hooks/useHandleProfile";
-import { ThemeProvider, useTheme, useAccountTheme, THEMES } from "./theme/ThemeProvider";
+import { ThemeProvider, useTheme, useAccountTheme, useThemeToken, THEMES } from "./theme/ThemeProvider";
 import { useCopy, daypart, weekday } from "./theme/copy";
+import { useLockInStats } from "./hooks/useLockInStats";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
@@ -161,6 +162,9 @@ function AppInner() {
   const [currentTab, setCurrentTab] = useState<AppTab>("home");
   const { theme, setTheme } = useTheme();
   const t = useCopy();
+  /* Botanical replaces the header strip with a full-width band. The token is
+     only set by that theme, so everywhere else this is the empty string. */
+  const headerBand = useThemeToken("--header-band", "");
   useAccountTheme(user?.uid);
   // Test-only UI, gated on a DEV_MODE file in the app data dir (see Rust
   // is_dev_mode). Outside Tauri the invoke fails and it stays off.
@@ -255,6 +259,7 @@ function AppInner() {
   const deviceId = useMemo(getDeviceId, []);
 
   // Sync blockedApps for Rust process killer.
+  const stats = useLockInStats(user?.uid);
   const [blockedApps, setBlockedApps] = useState<string[]>([]);
   // Raw {key: exe} and the parallel {key: originDeviceId} map, needed to tell
   // Rust which entries this device vouches for.
@@ -593,6 +598,75 @@ function AppInner() {
       <WriteFailureToasts />
 
       {/* GLOBAL HEADER */}
+      {headerBand ? (
+        /* ── Botanical: a full-width band, then a three-cell stat strip ───── */
+        <header
+          className="shrink-0 z-20"
+          style={{ background: "var(--header-band)", color: "var(--header-ink)" }}
+        >
+          <div className="max-w-[1600px] mx-auto w-full px-10 pt-10 pb-8">
+            <div className="flex justify-between items-start gap-8">
+              <div className="min-w-0">
+                <h1
+                  className="tracking-tight truncate"
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    fontWeight: "var(--weight-display)" as never,
+                    fontSize: 46,
+                    lineHeight: 1.05,
+                  }}
+                >
+                  {t("header.greeting", { handle: userName, weekday: weekday(), daypart: daypart() })}
+                </h1>
+                {t("header.sub") && (
+                  <p className="mt-2 text-sm font-bold" style={{ color: "var(--header-muted)" }}>
+                    {t("header.sub", { weekday: weekday(), daypart: daypart() })}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-8 shrink-0">
+                {isActive && (
+                  <div className="flex flex-col items-end">
+                    <p className="text-[9px] font-bold mb-1" style={{ color: "var(--header-muted)" }}>{t("session.active")}</p>
+                    <p className="text-xl font-black tabular-nums leading-none">{formatTime(timeLeft)}</p>
+                  </div>
+                )}
+                <div className="text-right flex flex-col">
+                  <p className="text-[9px] font-bold mb-1" style={{ color: "var(--header-muted)" }}>{t("uptime.label")}</p>
+                  <p className="text-2xl font-black leading-none">
+                    {Math.floor(totalMinutesToday)}<span className="text-xs ml-0.5 opacity-60">{t("uptime.unit")}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={logout}
+                  className="px-4 py-2 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
+                  style={{ border: "1px solid var(--header-muted)", color: "var(--header-ink)" }}
+                >
+                  {t("signout")}
+                </button>
+              </div>
+            </div>
+
+            {/* Three cells, hairline dividers between them. */}
+            <div className="mt-8 flex items-center">
+              {[
+                t("stats.streak", { streak: String(stats.streak) }),
+                t("stats.tasks", { open: String(intentions.filter((i) => !i.completed).length) }),
+                t("stats.blocks", { apps: String(stats.apps), sites: String(stats.sites) }),
+              ].map((cell, i) => (
+                <div
+                  key={i}
+                  className="flex-1 text-sm font-bold px-6 first:pl-0 last:pr-0"
+                  style={i === 0 ? undefined : { borderLeft: "1px solid var(--header-muted)" }}
+                >
+                  {cell}
+                </div>
+              ))}
+            </div>
+          </div>
+        </header>
+      ) : (
       <header className="shrink-0 px-10 py-8 border-b border-ink/5 bg-surface-inverse/50 backdrop-blur-2xl z-20">
         <div className="flex justify-between items-center max-w-[1600px] mx-auto w-full">
           <div className="flex items-center gap-6">
@@ -647,6 +721,7 @@ function AppInner() {
           </div>
         </div>
       </header>
+      )}
 
       <ConnectionGate userId={user.uid} engineOffline={engineOffline} />
 

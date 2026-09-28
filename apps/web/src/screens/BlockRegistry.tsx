@@ -12,7 +12,7 @@ import { DeleteAccountButton } from "../components/DeleteAccountButton";
 import { AppearancePicker } from "../theme/AppearancePicker";
 import { useCopy } from "../theme/copy";
 
-const DEFAULT_WEB_BLOCKS = [
+export const DEFAULT_WEB_BLOCKS = [
   'tiktok.com', 'youtube.com', 'netflix.com', 'instagram.com', 'facebook.com',
   'twitter.com', 'crazygames.com', 'reddit.com', 'twitch.tv', 'x.com',
   'pinterest.com', 'snapchat.com',

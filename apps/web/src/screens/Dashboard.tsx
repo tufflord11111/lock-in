@@ -3,6 +3,7 @@ import { Trash2, CheckCircle, Circle, Target } from "lucide-react";
 import { db } from "@lock-in/firebase";
 import { useCopy } from "../theme/copy";
 import { useThemeToken } from "../theme/ThemeProvider";
+import { useLockInStats } from "../hooks/useLockInStats";
 import { Sticker } from "../theme/stickers";
 import { ref, onValue } from "firebase/database";
 
@@ -42,6 +43,7 @@ export function Dashboard({
 }: DashboardProps) {
   const t = useCopy();
   const layout = useThemeToken("--dashboard-layout", "columns");
+  const stats = useLockInStats(userId);
   const bento = layout === "bento";
   const [objective, setObjective] = useState("");
   /** Which preset the start button will use. Bento draws it on the accent. */
@@ -226,6 +228,273 @@ export function Dashboard({
     return DOW[dayTotals.indexOf(maxMins)];
   }, [history]);
 
+  const missionCard = (
+    <>
+      {/* STRATEGIC OBJECTIVE */}
+            <section className={`${bento ? "bg-surface-tint" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
+              <Sticker slot="mission" />
+              <div className="flex items-center gap-3 mb-6">
+                <Target size={18} className="text-ink" />
+                <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("mission.label")}</h2>
+              </div>
+              <input
+                type="text"
+                value={objective}
+                onChange={(e) => setObjective(e.target.value)}
+                disabled={isActive}
+                placeholder={t("mission.placeholder") ?? ""}
+                className="w-full bg-transparent border-b border-ink/10 py-3 text-4xl font-bold text-ink outline-none focus:border-ink transition-all disabled:opacity-50"
+              />
+            </section>
+    </>
+  );
+
+  const tasksCard = (
+    <>
+      {/* INTENTIONS / TO-DO LIST */}
+            <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative flex flex-col">
+              <Sticker slot="todo" />
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <CheckCircle size={18} className="text-ink" />
+                  <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("todo.label")}</h2>
+                </div>
+                <span className="text-[10px] font-bold text-ink/20 label-sm">
+                  {t("todo.count", { done: String(intentions.filter(i => i.completed).length), total: String(intentions.length) })}
+                </span>
+              </div>
+  
+              {/* Input row — stays fixed above the scroll zone */}
+              <div className="flex gap-3 mb-6">
+                <input
+                  type="text"
+                  value={newIntention}
+                  onChange={(e) => setNewIntention(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addIntention()}
+                  placeholder={t("todo.placeholder") ?? ""}
+                  className="flex-1 bg-surface border-1 border-ink shadow-[var(--shadow-1)] rounded-lg px-5 py-3 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] focus:shadow-none transition-all"
+                />
+                <button
+                  onClick={addIntention}
+                  className="bg-ink text-surface-inverse px-5 rounded-lg text-xs font-black label-plain active:translate-y-[2px] transition-all border-1 border-ink shadow-[var(--shadow-2)] active:shadow-none"
+                >
+                  {t("todo.add")}
+                </button>
+              </div>
+  
+              {/* FIX 1: Scrollable intentions list */}
+              <div
+                className="intentions-scroll flex flex-col space-y-3"
+                style={{ maxHeight: '280px', overflowY: 'auto', scrollbarWidth: 'thin' }}
+              >
+                {intentions.map((item) => (
+                  <div 
+                    key={item.id}
+                    className={`flex items-center justify-between p-4 rounded-xl border-1 border-ink transition-all group ${
+                      item.completed ? "bg-ground opacity-70 shadow-none translate-y-[2px]" : "bg-surface shadow-[var(--shadow-2)]"
+                    }`}
+                  >
+                    <button 
+                      onClick={() => toggleIntention(item.id)}
+                      className="flex items-center gap-4 flex-1 text-left"
+                    >
+                      {item.completed ? (
+                        <CheckCircle size={22} className="text-ink fill-highlight" strokeWidth={2.5} />
+                      ) : (
+                        <Circle size={22} className="text-ink" strokeWidth={3} />
+                      )}
+                      <span className={`text-sm font-bold tracking-tight ${item.completed ? "line-through" : "text-slate-ink"}`}>
+                        {item.text}
+                      </span>
+                    </button>
+                    <button 
+                      onClick={() => deleteIntention(item.id)}
+                      className="text-ink/0 group-hover:text-ink/20 hover:text-amber-deep transition-all p-1"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                {intentions.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-20 opacity-10">
+                    <CheckCircle size={48} strokeWidth={1} />
+                    <p className="text-[10px] font-black label-plain tracking-[0.3em] mt-4">{t("todo.empty")}</p>
+                  </div>
+                )}
+              </div>
+            </section>
+    </>
+  );
+
+  const sessionCard = (
+    <>
+      {/* TIMER UNIT */}
+            <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[var(--shadow-3)] flex flex-col items-center justify-center text-center relative`}>
+              <Sticker slot="session" />
+              {isActive ? (
+                <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
+                  <p className="text-[10px] font-black label-plain tracking-[0.5em] text-ink mb-6 animate-pulse">{t("session.running")}</p>
+                  
+                  <h1 className="text-[6rem] font-black text-ink tracking-tighter tabular-nums mb-2 leading-none drop-shadow-[4px_4px_0px_var(--highlight)]">
+                    {formatTime(timeLeft)}
+                  </h1>
+                  
+                  <p className="text-[10px] font-black label-sm text-ink/60 mb-10 text-center w-full truncate px-4">
+                    {t("session.target", { task: taskLabel || (t("session.untitledTarget") ?? "") })}
+                  </p>
+  
+                  <button
+                    onClick={onEndSession}
+                    className="w-full bg-highlight text-ink py-5 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
+                  >
+                    Emergency Abort
+                  </button>
+                </div>
+              ) : (
+                <div className="w-full flex flex-col items-center">
+                  <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30 mb-8">{t("session.label")}</p>
+                  {t("session.sub", { apps: String(stats.apps), sites: String(stats.sites) }) && (
+                    <p className="text-[11px] font-bold text-ink-muted -mt-6 mb-8">
+                      {t("session.sub", { apps: String(stats.apps), sites: String(stats.sites) })}
+                    </p>
+                  )}
+                  
+                  <div className="grid grid-cols-2 gap-4 w-full mb-8">
+                    {(devMode ? [...presets, MICRO_PRESET] : presets).map((p) => (
+                      <button
+                        key={p.minutes}
+                        aria-pressed={selectedMinutes === p.minutes}
+                        onClick={() => setSelectedMinutes(p.minutes)}
+                        className={`flex flex-col items-center p-6 border-1 border-ink shadow-[var(--shadow-1)] rounded-xl hover:-translate-y-1 hover:shadow-[var(--shadow-2)] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""} ${
+                          selectedMinutes === p.minutes ? "bg-accent text-accent-ink" : "bg-surface"
+                        }`}
+                      >
+                        <span className={`text-2xl font-black leading-none mb-1 ${selectedMinutes === p.minutes ? "text-accent-ink" : "text-ink"}`}>{p.minutes}</span>
+                        <span className={`text-[8px] font-black label-sm ${selectedMinutes === p.minutes ? "text-accent-ink/80" : "text-ink/40 group-hover:text-ink"}`}>{t(`preset.${p.minutes}` as never)}</span>
+                      </button>
+                    ))}
+                  </div>
+  
+                  <button
+                    onClick={() => startWithObjective(selectedMinutes)}
+                    className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
+                  >
+                    {t("session.start")}
+                  </button>
+  
+                  {/* Present in every theme; Bento just draws it much larger. */}
+                  <p className={`mt-4 font-bold text-ink-muted tabular-nums ${bento ? "text-[40px] leading-none" : "text-[11px]"}`}>
+                    {t("session.endsAt", { time: endsAt })}
+                  </p>
+  
+                  {/* Advisory, not a gate — starting offline is allowed, and the
+                      enforcer falls back to its last persisted target list. */}
+                  {!blocklistHydrated && (
+                    <p className="mt-4 text-[9px] font-black label-plain tracking-wider text-ink/40 text-center leading-relaxed">
+                      Blocklist syncing — starting now will use your last saved list
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+    </>
+  );
+
+  const streakCard = (
+    <>
+      {/* FIX 2: STREAK CARD — no emoji, three stat pills */}
+            <section className={`${bento ? "bg-accent card-accent" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
+              <Sticker slot="streak" />
+              <div className="flex items-center gap-3 mb-6">
+                <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("streak.label")}</h2>
+              </div>
+              <div className="flex flex-col items-center text-center gap-2">
+                <span className="text-[3rem] font-black text-ink leading-none tabular-nums">
+                  {currentStreak === 0 ? "0" : currentStreak}
+                </span>
+                <span className="text-[10px] font-black label-plain tracking-[0.3em] text-ink/30">
+                  {currentStreak === 0 ? t("streak.empty") : t("streak.unit")}
+                </span>
+                {/* FIX 2D: Three pills in one row */}
+                <div className="mt-4 flex flex-row gap-2 flex-wrap justify-center">
+                  <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
+                    <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.avg")}: </span>
+                    <span className="text-[9px] font-black text-ink/60 label-sm">
+                      {avgSessionMins !== null ? `${avgSessionMins} MIN` : '-- MIN'}
+                    </span>
+                  </div>
+                  <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
+                    <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.best")}: </span>
+                    <span className="text-[9px] font-black text-ink/60 label-sm">
+                      {bestDayOfWeek ?? '--'}
+                    </span>
+                  </div>
+                  <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
+                    <span className="text-[9px] font-black label-sm text-ink/40">BEST: </span>
+                    <span className="text-[9px] font-black text-highlight-2 label-sm">{bestStreak} DAYS</span>
+                  </div>
+                </div>
+  
+                {/* Seven-day bars. Bento only: the other themes already show the
+                    same data, at thirty days, in the history card below. */}
+                {bento && (
+                  <div className="mt-8 w-full flex items-end justify-between gap-2" style={{ height: 96 }}>
+                    {weekBars.map((d) => (
+                      <div key={d.key} className="flex-1 flex flex-col items-center justify-end h-full gap-2">
+                        <span
+                          className="w-full rounded-sm"
+                          style={{
+                            height: `${Math.max(d.pct, 3)}%`,
+                            background: d.today ? "var(--chart-bar-today)" : "var(--chart-bar)",
+                          }}
+                          title={`${d.mins} min`}
+                        />
+                        <span className="text-[9px] font-black" style={{ color: "var(--chart-label)" }}>
+                          {d.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+    </>
+  );
+
+  const historyCard = (
+    <>
+      {/* OPERATOR HEATMAP (BOTTOM FULL WIDTH) */}
+        <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] shrink-0 w-full mb-8">
+          <div className="flex justify-between items-center mb-8">
+            <h2 className="text-xl font-bold text-ink tracking-tight">{t("history.title")}</h2>
+            
+            <div className="flex items-center gap-6">
+              <div className="bg-highlight border-1 border-ink px-4 py-2 rounded-full shadow-[var(--shadow-1)]">
+                <span className="font-black text-ink label-sm text-xs">Current Streak: {currentStreak} Days</span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-10 gap-3">
+            {heatmapData.map((day, idx) => (
+              <button 
+                key={idx} 
+                onClick={() => setSelectedDay(day)}
+                className={`aspect-square rounded-md cursor-pointer hover:-translate-y-1 transition-transform ${
+                  day.state === 'met' 
+                    ? 'bg-highlight border-1 border-ink shadow-[var(--shadow-1)]' 
+                    : day.state === 'partial'
+                      ? 'bg-track border border-ink/20'
+                      : 'bg-ground border border-ink/20'
+                }`}
+              />
+            ))}
+          </div>
+  
+        </section>
+    </>
+  );
+
   return (
     <div className="flex flex-col h-full overflow-y-auto pb-40 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pr-2">
       {/* FIX 1: webkit scrollbar styles for intentions list */}
@@ -239,498 +508,28 @@ export function Dashboard({
         /* Bento: one twelve-column grid. The session and streak tiles are two
            rows tall, so the tasks card sits under the mission card. */
         <div className="grid grid-cols-12 gap-6 w-full shrink-0">
-          <div className="col-span-12 min-[1100px]:col-span-5 flex [&>section]:w-full [&>section]:h-full">{/* STRATEGIC OBJECTIVE */}
-          <section className={`${bento ? "bg-surface-tint" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
-            <Sticker slot="mission" />
-            <div className="flex items-center gap-3 mb-6">
-              <Target size={18} className="text-ink" />
-              <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("mission.label")}</h2>
-            </div>
-            <input
-              type="text"
-              value={objective}
-              onChange={(e) => setObjective(e.target.value)}
-              disabled={isActive}
-              placeholder={t("mission.placeholder") ?? ""}
-              className="w-full bg-transparent border-b border-ink/10 py-3 text-4xl font-bold text-ink outline-none focus:border-ink transition-all disabled:opacity-50"
-            />
-          </section></div>
-          <div className="col-span-12 min-[1100px]:col-span-4 min-[1100px]:row-span-2 flex [&>section]:w-full [&>section]:h-full">{/* TIMER UNIT */}
-          <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[var(--shadow-3)] flex flex-col items-center justify-center text-center relative`}>
-            <Sticker slot="session" />
-            {isActive ? (
-              <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
-                <p className="text-[10px] font-black label-plain tracking-[0.5em] text-ink mb-6 animate-pulse">{t("session.running")}</p>
-                
-                <h1 className="text-[6rem] font-black text-ink tracking-tighter tabular-nums mb-2 leading-none drop-shadow-[4px_4px_0px_var(--highlight)]">
-                  {formatTime(timeLeft)}
-                </h1>
-                
-                <p className="text-[10px] font-black label-sm text-ink/60 mb-10 text-center w-full truncate px-4">
-                  {t("session.target", { task: taskLabel || (t("session.untitledTarget") ?? "") })}
-                </p>
-
-                <button
-                  onClick={onEndSession}
-                  className="w-full bg-highlight text-ink py-5 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
-                >
-                  Emergency Abort
-                </button>
-              </div>
-            ) : (
-              <div className="w-full flex flex-col items-center">
-                <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30 mb-8">{t("session.label")}</p>
-                {t("session.sub") && (
-                  <p className="text-[11px] font-bold text-ink-muted -mt-6 mb-8">{t("session.sub")}</p>
-                )}
-                
-                <div className="grid grid-cols-2 gap-4 w-full mb-8">
-                  {(devMode ? [...presets, MICRO_PRESET] : presets).map((p) => (
-                    <button
-                      key={p.minutes}
-                      aria-pressed={selectedMinutes === p.minutes}
-                      onClick={() => setSelectedMinutes(p.minutes)}
-                      className={`flex flex-col items-center p-6 border-1 border-ink shadow-[var(--shadow-1)] rounded-xl hover:-translate-y-1 hover:shadow-[var(--shadow-2)] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""} ${
-                        selectedMinutes === p.minutes ? "bg-accent text-accent-ink" : "bg-surface"
-                      }`}
-                    >
-                      <span className={`text-2xl font-black leading-none mb-1 ${selectedMinutes === p.minutes ? "text-accent-ink" : "text-ink"}`}>{p.minutes}</span>
-                      <span className={`text-[8px] font-black label-sm ${selectedMinutes === p.minutes ? "text-accent-ink/80" : "text-ink/40 group-hover:text-ink"}`}>{t(`preset.${p.minutes}` as never)}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => startWithObjective(selectedMinutes)}
-                  className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
-                >
-                  {t("session.start")}
-                </button>
-
-                {/* Present in every theme; Bento just draws it much larger. */}
-                <p className={`mt-4 font-bold text-ink-muted tabular-nums ${bento ? "text-[40px] leading-none" : "text-[11px]"}`}>
-                  {t("session.endsAt", { time: endsAt })}
-                </p>
-
-                {/* Advisory, not a gate — starting offline is allowed, and the
-                    enforcer falls back to its last persisted target list. */}
-                {!blocklistHydrated && (
-                  <p className="mt-4 text-[9px] font-black label-plain tracking-wider text-ink/40 text-center leading-relaxed">
-                    Blocklist syncing — starting now will use your last saved list
-                  </p>
-                )}
-              </div>
-            )}
-          </section></div>
-          <div className="col-span-12 min-[1100px]:col-span-3 min-[1100px]:row-span-2 flex [&>section]:w-full [&>section]:h-full">{/* FIX 2: STREAK CARD — no emoji, three stat pills */}
-          <section className={`${bento ? "bg-accent card-accent" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
-            <Sticker slot="streak" />
-            <div className="flex items-center gap-3 mb-6">
-              <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("streak.label")}</h2>
-            </div>
-            <div className="flex flex-col items-center text-center gap-2">
-              <span className="text-[3rem] font-black text-ink leading-none tabular-nums">
-                {currentStreak === 0 ? "0" : currentStreak}
-              </span>
-              <span className="text-[10px] font-black label-plain tracking-[0.3em] text-ink/30">
-                {currentStreak === 0 ? t("streak.empty") : t("streak.unit")}
-              </span>
-              {/* FIX 2D: Three pills in one row */}
-              <div className="mt-4 flex flex-row gap-2 flex-wrap justify-center">
-                <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
-                  <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.avg")}: </span>
-                  <span className="text-[9px] font-black text-ink/60 label-sm">
-                    {avgSessionMins !== null ? `${avgSessionMins} MIN` : '-- MIN'}
-                  </span>
-                </div>
-                <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
-                  <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.best")}: </span>
-                  <span className="text-[9px] font-black text-ink/60 label-sm">
-                    {bestDayOfWeek ?? '--'}
-                  </span>
-                </div>
-                <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
-                  <span className="text-[9px] font-black label-sm text-ink/40">BEST: </span>
-                  <span className="text-[9px] font-black text-highlight-2 label-sm">{bestStreak} DAYS</span>
-                </div>
-              </div>
-
-              {/* Seven-day bars. Bento only: the other themes already show the
-                  same data, at thirty days, in the history card below. */}
-              {bento && (
-                <div className="mt-8 w-full flex items-end justify-between gap-2" style={{ height: 96 }}>
-                  {weekBars.map((d) => (
-                    <div key={d.key} className="flex-1 flex flex-col items-center justify-end h-full gap-2">
-                      <span
-                        className="w-full rounded-sm"
-                        style={{
-                          height: `${Math.max(d.pct, 3)}%`,
-                          background: d.today ? "var(--chart-bar-today)" : "var(--chart-bar)",
-                        }}
-                        title={`${d.mins} min`}
-                      />
-                      <span className="text-[9px] font-black" style={{ color: "var(--chart-label)" }}>
-                        {d.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section></div>
-          <div className="col-span-12 min-[1100px]:col-span-5 flex [&>section]:w-full [&>section]:h-full">{/* INTENTIONS / TO-DO LIST */}
-          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative flex flex-col">
-            <Sticker slot="todo" />
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <CheckCircle size={18} className="text-ink" />
-                <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("todo.label")}</h2>
-              </div>
-              <span className="text-[10px] font-bold text-ink/20 label-sm">
-                {t("todo.count", { done: String(intentions.filter(i => i.completed).length), total: String(intentions.length) })}
-              </span>
-            </div>
-
-            {/* Input row — stays fixed above the scroll zone */}
-            <div className="flex gap-3 mb-6">
-              <input
-                type="text"
-                value={newIntention}
-                onChange={(e) => setNewIntention(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addIntention()}
-                placeholder={t("todo.placeholder") ?? ""}
-                className="flex-1 bg-surface border-1 border-ink shadow-[var(--shadow-1)] rounded-lg px-5 py-3 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] focus:shadow-none transition-all"
-              />
-              <button
-                onClick={addIntention}
-                className="bg-ink text-surface-inverse px-5 rounded-lg text-xs font-black label-plain active:translate-y-[2px] transition-all border-1 border-ink shadow-[var(--shadow-2)] active:shadow-none"
-              >
-                {t("todo.add")}
-              </button>
-            </div>
-
-            {/* FIX 1: Scrollable intentions list */}
-            <div
-              className="intentions-scroll flex flex-col space-y-3"
-              style={{ maxHeight: '280px', overflowY: 'auto', scrollbarWidth: 'thin' }}
-            >
-              {intentions.map((item) => (
-                <div 
-                  key={item.id}
-                  className={`flex items-center justify-between p-4 rounded-xl border-1 border-ink transition-all group ${
-                    item.completed ? "bg-ground opacity-70 shadow-none translate-y-[2px]" : "bg-surface shadow-[var(--shadow-2)]"
-                  }`}
-                >
-                  <button 
-                    onClick={() => toggleIntention(item.id)}
-                    className="flex items-center gap-4 flex-1 text-left"
-                  >
-                    {item.completed ? (
-                      <CheckCircle size={22} className="text-ink fill-highlight" strokeWidth={2.5} />
-                    ) : (
-                      <Circle size={22} className="text-ink" strokeWidth={3} />
-                    )}
-                    <span className={`text-sm font-bold tracking-tight ${item.completed ? "line-through" : "text-slate-ink"}`}>
-                      {item.text}
-                    </span>
-                  </button>
-                  <button 
-                    onClick={() => deleteIntention(item.id)}
-                    className="text-ink/0 group-hover:text-ink/20 hover:text-amber-deep transition-all p-1"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
-              {intentions.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 opacity-10">
-                  <CheckCircle size={48} strokeWidth={1} />
-                  <p className="text-[10px] font-black label-plain tracking-[0.3em] mt-4">{t("todo.empty")}</p>
-                </div>
-              )}
-            </div>
-          </section></div>
-          <div className="col-span-12 flex [&>section]:w-full [&>section]:h-full" style={{ minHeight: 200 }}>{/* OPERATOR HEATMAP (BOTTOM FULL WIDTH) */}
-      <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] shrink-0 w-full mb-8">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-xl font-bold text-ink tracking-tight">{t("history.title")}</h2>
-          
-          <div className="flex items-center gap-6">
-            <div className="bg-highlight border-1 border-ink px-4 py-2 rounded-full shadow-[var(--shadow-1)]">
-              <span className="font-black text-ink label-sm text-xs">Current Streak: {currentStreak} Days</span>
-            </div>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-10 gap-3">
-          {heatmapData.map((day, idx) => (
-            <button 
-              key={idx} 
-              onClick={() => setSelectedDay(day)}
-              className={`aspect-square rounded-md cursor-pointer hover:-translate-y-1 transition-transform ${
-                day.state === 'met' 
-                  ? 'bg-highlight border-1 border-ink shadow-[var(--shadow-1)]' 
-                  : day.state === 'partial'
-                    ? 'bg-track border border-ink/20'
-                    : 'bg-ground border border-ink/20'
-              }`}
-            />
-          ))}
-        </div>
-
-      </section></div>
+          <div className="col-span-12 min-[1100px]:col-span-5 flex [&>section]:w-full [&>section]:h-full">{missionCard}</div>
+          <div className="col-span-12 min-[1100px]:col-span-4 min-[1100px]:row-span-2 flex [&>section]:w-full [&>section]:h-full">{sessionCard}</div>
+          <div className="col-span-12 min-[1100px]:col-span-3 min-[1100px]:row-span-2 flex [&>section]:w-full [&>section]:h-full">{streakCard}</div>
+          <div className="col-span-12 min-[1100px]:col-span-5 flex [&>section]:w-full [&>section]:h-full">{tasksCard}</div>
+          <div className="col-span-12 flex [&>section]:w-full [&>section]:h-full" style={{ minHeight: 200 }}>{historyCard}</div>
         </div>
       ) : (
         <>
           <div className="flex flex-col min-[1100px]:flex-row gap-8 shrink-0 w-full">
             {/* LEFT COLUMN: MISSION & INTENTIONS */}
             <div className="flex-1 flex flex-col gap-8 min-w-0">
-              {/* STRATEGIC OBJECTIVE */}
-          <section className={`${bento ? "bg-surface-tint" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
-            <Sticker slot="mission" />
-            <div className="flex items-center gap-3 mb-6">
-              <Target size={18} className="text-ink" />
-              <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("mission.label")}</h2>
-            </div>
-            <input
-              type="text"
-              value={objective}
-              onChange={(e) => setObjective(e.target.value)}
-              disabled={isActive}
-              placeholder={t("mission.placeholder") ?? ""}
-              className="w-full bg-transparent border-b border-ink/10 py-3 text-4xl font-bold text-ink outline-none focus:border-ink transition-all disabled:opacity-50"
-            />
-          </section>
-              {/* INTENTIONS / TO-DO LIST */}
-          <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative flex flex-col">
-            <Sticker slot="todo" />
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <CheckCircle size={18} className="text-ink" />
-                <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("todo.label")}</h2>
-              </div>
-              <span className="text-[10px] font-bold text-ink/20 label-sm">
-                {t("todo.count", { done: String(intentions.filter(i => i.completed).length), total: String(intentions.length) })}
-              </span>
-            </div>
-
-            {/* Input row — stays fixed above the scroll zone */}
-            <div className="flex gap-3 mb-6">
-              <input
-                type="text"
-                value={newIntention}
-                onChange={(e) => setNewIntention(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addIntention()}
-                placeholder={t("todo.placeholder") ?? ""}
-                className="flex-1 bg-surface border-1 border-ink shadow-[var(--shadow-1)] rounded-lg px-5 py-3 text-sm font-bold text-ink placeholder-ink/40 outline-none focus:translate-y-[2px] focus:shadow-none transition-all"
-              />
-              <button
-                onClick={addIntention}
-                className="bg-ink text-surface-inverse px-5 rounded-lg text-xs font-black label-plain active:translate-y-[2px] transition-all border-1 border-ink shadow-[var(--shadow-2)] active:shadow-none"
-              >
-                {t("todo.add")}
-              </button>
-            </div>
-
-            {/* FIX 1: Scrollable intentions list */}
-            <div
-              className="intentions-scroll flex flex-col space-y-3"
-              style={{ maxHeight: '280px', overflowY: 'auto', scrollbarWidth: 'thin' }}
-            >
-              {intentions.map((item) => (
-                <div 
-                  key={item.id}
-                  className={`flex items-center justify-between p-4 rounded-xl border-1 border-ink transition-all group ${
-                    item.completed ? "bg-ground opacity-70 shadow-none translate-y-[2px]" : "bg-surface shadow-[var(--shadow-2)]"
-                  }`}
-                >
-                  <button 
-                    onClick={() => toggleIntention(item.id)}
-                    className="flex items-center gap-4 flex-1 text-left"
-                  >
-                    {item.completed ? (
-                      <CheckCircle size={22} className="text-ink fill-highlight" strokeWidth={2.5} />
-                    ) : (
-                      <Circle size={22} className="text-ink" strokeWidth={3} />
-                    )}
-                    <span className={`text-sm font-bold tracking-tight ${item.completed ? "line-through" : "text-slate-ink"}`}>
-                      {item.text}
-                    </span>
-                  </button>
-                  <button 
-                    onClick={() => deleteIntention(item.id)}
-                    className="text-ink/0 group-hover:text-ink/20 hover:text-amber-deep transition-all p-1"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
-              {intentions.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 opacity-10">
-                  <CheckCircle size={48} strokeWidth={1} />
-                  <p className="text-[10px] font-black label-plain tracking-[0.3em] mt-4">{t("todo.empty")}</p>
-                </div>
-              )}
-            </div>
-          </section>
+              {missionCard}
+              {tasksCard}
             </div>
 
             {/* RIGHT COLUMN: TIMER & ENFORCEMENT */}
             <div className="w-full min-[1100px]:w-[400px] flex flex-col gap-8 shrink-0">
-              {/* TIMER UNIT */}
-          <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[var(--shadow-3)] flex flex-col items-center justify-center text-center relative`}>
-            <Sticker slot="session" />
-            {isActive ? (
-              <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
-                <p className="text-[10px] font-black label-plain tracking-[0.5em] text-ink mb-6 animate-pulse">{t("session.running")}</p>
-                
-                <h1 className="text-[6rem] font-black text-ink tracking-tighter tabular-nums mb-2 leading-none drop-shadow-[4px_4px_0px_var(--highlight)]">
-                  {formatTime(timeLeft)}
-                </h1>
-                
-                <p className="text-[10px] font-black label-sm text-ink/60 mb-10 text-center w-full truncate px-4">
-                  {t("session.target", { task: taskLabel || (t("session.untitledTarget") ?? "") })}
-                </p>
-
-                <button
-                  onClick={onEndSession}
-                  className="w-full bg-highlight text-ink py-5 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
-                >
-                  Emergency Abort
-                </button>
-              </div>
-            ) : (
-              <div className="w-full flex flex-col items-center">
-                <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30 mb-8">{t("session.label")}</p>
-                {t("session.sub") && (
-                  <p className="text-[11px] font-bold text-ink-muted -mt-6 mb-8">{t("session.sub")}</p>
-                )}
-                
-                <div className="grid grid-cols-2 gap-4 w-full mb-8">
-                  {(devMode ? [...presets, MICRO_PRESET] : presets).map((p) => (
-                    <button
-                      key={p.minutes}
-                      aria-pressed={selectedMinutes === p.minutes}
-                      onClick={() => setSelectedMinutes(p.minutes)}
-                      className={`flex flex-col items-center p-6 border-1 border-ink shadow-[var(--shadow-1)] rounded-xl hover:-translate-y-1 hover:shadow-[var(--shadow-2)] transition-all group active:translate-y-[2px] active:shadow-none${p === MICRO_PRESET ? " col-span-2" : ""} ${
-                        selectedMinutes === p.minutes ? "bg-accent text-accent-ink" : "bg-surface"
-                      }`}
-                    >
-                      <span className={`text-2xl font-black leading-none mb-1 ${selectedMinutes === p.minutes ? "text-accent-ink" : "text-ink"}`}>{p.minutes}</span>
-                      <span className={`text-[8px] font-black label-sm ${selectedMinutes === p.minutes ? "text-accent-ink/80" : "text-ink/40 group-hover:text-ink"}`}>{t(`preset.${p.minutes}` as never)}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => startWithObjective(selectedMinutes)}
-                  className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
-                >
-                  {t("session.start")}
-                </button>
-
-                {/* Present in every theme; Bento just draws it much larger. */}
-                <p className={`mt-4 font-bold text-ink-muted tabular-nums ${bento ? "text-[40px] leading-none" : "text-[11px]"}`}>
-                  {t("session.endsAt", { time: endsAt })}
-                </p>
-
-                {/* Advisory, not a gate — starting offline is allowed, and the
-                    enforcer falls back to its last persisted target list. */}
-                {!blocklistHydrated && (
-                  <p className="mt-4 text-[9px] font-black label-plain tracking-wider text-ink/40 text-center leading-relaxed">
-                    Blocklist syncing — starting now will use your last saved list
-                  </p>
-                )}
-              </div>
-            )}
-          </section>
-              {/* FIX 2: STREAK CARD — no emoji, three stat pills */}
-          <section className={`${bento ? "bg-accent card-accent" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] relative`}>
-            <Sticker slot="streak" />
-            <div className="flex items-center gap-3 mb-6">
-              <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("streak.label")}</h2>
-            </div>
-            <div className="flex flex-col items-center text-center gap-2">
-              <span className="text-[3rem] font-black text-ink leading-none tabular-nums">
-                {currentStreak === 0 ? "0" : currentStreak}
-              </span>
-              <span className="text-[10px] font-black label-plain tracking-[0.3em] text-ink/30">
-                {currentStreak === 0 ? t("streak.empty") : t("streak.unit")}
-              </span>
-              {/* FIX 2D: Three pills in one row */}
-              <div className="mt-4 flex flex-row gap-2 flex-wrap justify-center">
-                <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
-                  <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.avg")}: </span>
-                  <span className="text-[9px] font-black text-ink/60 label-sm">
-                    {avgSessionMins !== null ? `${avgSessionMins} MIN` : '-- MIN'}
-                  </span>
-                </div>
-                <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
-                  <span className="text-[9px] font-black label-sm text-ink/40">{t("streak.best")}: </span>
-                  <span className="text-[9px] font-black text-ink/60 label-sm">
-                    {bestDayOfWeek ?? '--'}
-                  </span>
-                </div>
-                <div className="px-3 py-1.5 bg-ground border border-ink/10 rounded-lg">
-                  <span className="text-[9px] font-black label-sm text-ink/40">BEST: </span>
-                  <span className="text-[9px] font-black text-highlight-2 label-sm">{bestStreak} DAYS</span>
-                </div>
-              </div>
-
-              {/* Seven-day bars. Bento only: the other themes already show the
-                  same data, at thirty days, in the history card below. */}
-              {bento && (
-                <div className="mt-8 w-full flex items-end justify-between gap-2" style={{ height: 96 }}>
-                  {weekBars.map((d) => (
-                    <div key={d.key} className="flex-1 flex flex-col items-center justify-end h-full gap-2">
-                      <span
-                        className="w-full rounded-sm"
-                        style={{
-                          height: `${Math.max(d.pct, 3)}%`,
-                          background: d.today ? "var(--chart-bar-today)" : "var(--chart-bar)",
-                        }}
-                        title={`${d.mins} min`}
-                      />
-                      <span className="text-[9px] font-black" style={{ color: "var(--chart-label)" }}>
-                        {d.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
+              {sessionCard}
+              {streakCard}
             </div>
           </div>
-          {/* OPERATOR HEATMAP (BOTTOM FULL WIDTH) */}
-      <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[var(--shadow-2)] shrink-0 w-full mb-8">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-xl font-bold text-ink tracking-tight">{t("history.title")}</h2>
-          
-          <div className="flex items-center gap-6">
-            <div className="bg-highlight border-1 border-ink px-4 py-2 rounded-full shadow-[var(--shadow-1)]">
-              <span className="font-black text-ink label-sm text-xs">Current Streak: {currentStreak} Days</span>
-            </div>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-10 gap-3">
-          {heatmapData.map((day, idx) => (
-            <button 
-              key={idx} 
-              onClick={() => setSelectedDay(day)}
-              className={`aspect-square rounded-md cursor-pointer hover:-translate-y-1 transition-transform ${
-                day.state === 'met' 
-                  ? 'bg-highlight border-1 border-ink shadow-[var(--shadow-1)]' 
-                  : day.state === 'partial'
-                    ? 'bg-track border border-ink/20'
-                    : 'bg-ground border border-ink/20'
-              }`}
-            />
-          ))}
-        </div>
-
-      </section>
+          {historyCard}
         </>
       )}
 
