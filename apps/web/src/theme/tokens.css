@@ -13,6 +13,67 @@
  * --name alias for use inside arbitrary values and hand-written CSS.
  */
 
+/**
+ * Fonts are bundled, not fetched. The app is a desktop app that must render
+ * correctly with no network at all; a Google Fonts <link> meant Operator fell
+ * back to Segoe UI offline and the other three themes would have lost their
+ * identity entirely.
+ *
+ * Inter, Nunito, Manrope and Figtree ship as single variable files covering
+ * their whole weight range (Google serves one file per subset for these), so
+ * one @font-face each declares a range rather than one file per weight.
+ * Latin subset only. font-display: swap so text paints immediately.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Patrick Hand';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/patrickhand-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url('/fonts/nunito-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url('/fonts/manrope-var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/instrumentserif-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/instrumentserif-400i.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-var.woff2') format('woff2');
+}
+
 /* ── Shared scale ─────────────────────────────────────────────────────────
    Colours that are not part of a theme's identity: validation states and a
    few one-offs. A theme may override any of them, but none has to. */
