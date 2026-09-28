@@ -3,97 +3,28 @@
 @tailwind utilities;
 
 /**
- * Colour tokens.
- *
- * Phase A is extraction only: every value below is exactly the colour that was
- * previously hardcoded in the components, so the app renders identically. No
- * theme switching yet — that arrives in Phase B, which only has to add a
- * second block that redefines these same names.
- *
- * Each colour is defined once as a space-separated "R G B" triple. Tailwind's
- * <alpha-value> placeholder (see tailwind.preset.js) turns that into
- * rgb(R G B / a) so opacity modifiers like text-navy/40 keep working — 131
- * usages depend on that. The plain --name is the same colour as a ready-made
- * rgb() for places a bare colour is needed: arbitrary values such as
- * shadow-[4px_4px_0px_var(--navy)], and hand-written CSS.
+ * Base layer only. Every colour, font, radius, border and shadow now lives in
+ * apps/web/src/theme/tokens.css, which defines one block per theme; this file
+ * just applies the ground and ink roles to the document.
  */
-:root {
-  /* ── Core palette ─────────────────────────────────────────────────────── */
-  --navy-rgb: 0 40 85;          /* #002855 — text, borders, shadows, fills */
-  --navy-2-rgb: 27 42 74;       /* #1B2A4A — secondary navy */
-  --paper-rgb: 249 248 244;     /* #F9F8F4 — app background */
-  --canvas-rgb: 245 245 240;    /* #F5F5F0 — html/body behind the app */
-  --sand-rgb: 242 237 228;      /* #F2EDE4 — inset panels */
-  --gold-rgb: 255 209 102;      /* #FFD166 — primary accent */
-  --gold-2-rgb: 245 200 66;     /* #F5C842 — accent, toggles */
-  --danger-rgb: 179 38 30;      /* #B3261E — destructive */
-  --danger-2-rgb: 127 29 29;    /* #7F1D1D — destructive shadow */
-  --surface-rgb: 255 255 255;   /* #FFFFFF — cards, overlays */
-
-  /* ── One-offs, each kept at its exact value (no folding: every candidate
-     pair measured ΔE76 > 4, so merging any of them would shift pixels) ──── */
-  --track-rgb: 226 232 240;         /* #E2E8F0 — empty progress track */
-  --alert-rgb: 255 68 68;           /* #FF4444 — Web Guard offline label */
-  --alert-bright-rgb: 255 79 79;    /* #FF4F4F — offline presence dot */
-  --alert-soft-rgb: 239 68 68;      /* #EF4444 — degraded-state glow */
-  --danger-deep-rgb: 185 28 28;     /* #B91C1C — armed danger shadow */
-  --online-rgb: 74 222 128;         /* #4ADE80 — online presence dot */
-  --success-rgb: 22 163 74;         /* #16A34A — success shadow */
-  --success-solid-rgb: 15 123 69;   /* #0F7B45 — disarm confirmation */
-  --success-edge-rgb: 10 92 51;     /* #0A5C33 — its border */
-  --hero-rgb: 10 15 29;             /* #0A0F1D — onboarding hero panel */
-  --hero-panel-rgb: 0 26 58;        /* #001A3A — onboarding modal */
-  --shadow-ink-rgb: 0 0 0;          /* #000000 — inset shadow only */
-
-  /* Values the previous preset tokens resolved to, kept so the classes that
-     used them render unchanged (text-royal-navy, hover:text-amber-accent). */
-  --slate-ink-rgb: 51 65 85;        /* #334155 — completed intention text */
-  --amber-deep-rgb: 217 119 6;      /* #D97706 — intention delete hover */
-
-  /* Ready-made colours for arbitrary values and plain CSS. */
-  --navy: rgb(var(--navy-rgb));
-  --navy-2: rgb(var(--navy-2-rgb));
-  --paper: rgb(var(--paper-rgb));
-  --canvas: rgb(var(--canvas-rgb));
-  --sand: rgb(var(--sand-rgb));
-  --gold: rgb(var(--gold-rgb));
-  --gold-2: rgb(var(--gold-2-rgb));
-  --danger: rgb(var(--danger-rgb));
-  --danger-2: rgb(var(--danger-2-rgb));
-  --surface: rgb(var(--surface-rgb));
-  --track: rgb(var(--track-rgb));
-  --alert: rgb(var(--alert-rgb));
-  --alert-bright: rgb(var(--alert-bright-rgb));
-  --alert-soft: rgb(var(--alert-soft-rgb));
-  --danger-deep: rgb(var(--danger-deep-rgb));
-  --online: rgb(var(--online-rgb));
-  --success: rgb(var(--success-rgb));
-  --success-solid: rgb(var(--success-solid-rgb));
-  --success-edge: rgb(var(--success-edge-rgb));
-  --hero: rgb(var(--hero-rgb));
-  --hero-panel: rgb(var(--hero-panel-rgb));
-  --slate-ink: rgb(var(--slate-ink-rgb));
-  --amber-deep: rgb(var(--amber-deep-rgb));
-
-  /* Default text colour. An alias of --navy, named for its role. */
-  --ink: var(--navy);
-}
-
 @layer base {
   html, body {
     @apply h-full w-full overflow-hidden m-0 p-0;
-    background-color: var(--canvas);
+    background-color: var(--ground-deep);
     color: var(--ink);
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-ui);
   }
 }
 
 body {
-  background-color: var(--canvas);
+  background-color: var(--ground-deep);
   color: var(--ink);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-ui);
+  /* The paper texture (Notebook) or nothing (every other theme). */
+  background-image: var(--grid-image);
+  background-size: var(--grid-size);
 }
 
 ::selection {
-  background-color: rgb(var(--navy-rgb) / 0.2);
+  background-color: rgb(var(--ink-rgb) / 0.2);
 }

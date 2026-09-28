@@ -72,13 +72,12 @@ function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="w-full h-12 bg-gold-2 text-navy-2 flex items-center justify-between px-6 z-30 shrink-0 font-mono text-xs font-bold shadow-[0_4px_0px_rgb(var(--navy-2-rgb)/0.1)]"
-        style={{ fontFamily: "'Space Mono', monospace" }}
+        className="w-full h-12 bg-highlight-2 text-ink-2 flex items-center justify-between px-6 z-30 shrink-0 font-mono text-xs font-bold shadow-[0_4px_0px_rgb(var(--ink-2-rgb)/0.1)]"
       >
         <span className="flex-1 text-center truncate pr-4">{message}</span>
         <button
           onClick={() => setDismissed(true)}
-          className="hover:bg-navy-2/10 p-1 rounded transition-colors"
+          className="hover:bg-ink-2/10 p-1 rounded transition-colors"
         >
           <X size={16} />
         </button>
@@ -104,14 +103,14 @@ function DegradedScreen({
   onForceOffline: () => void;
 }) {
   return (
-    <div className="w-screen h-screen bg-paper flex items-center justify-center">
+    <div className="w-screen h-screen bg-ground flex items-center justify-center">
       <div className="flex flex-col items-center gap-6 px-8 text-center">
-        <div className="w-12 h-12 border-4 border-navy/20 border-t-navy rounded-full animate-spin" />
+        <div className="w-12 h-12 border-2 border-ink/20 border-t-ink rounded-full animate-spin" />
         <div className="flex flex-col gap-2">
-          <span className="text-[11px] font-black uppercase tracking-widest text-navy">
+          <span className="text-[11px] font-black label-sm text-ink">
             Network Initializing...
           </span>
-          <span className="text-[10px] font-bold text-navy/40 uppercase tracking-wide">
+          <span className="text-[10px] font-bold text-ink/40 label-plain tracking-wide">
             Waiting for connection. The app will load automatically.
           </span>
         </div>
@@ -119,7 +118,7 @@ function DegradedScreen({
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <button
             onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-navy text-white font-black text-[10px] uppercase tracking-widest rounded-xl border-2 border-navy shadow-[2px_2px_0px_var(--navy)] hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_var(--navy)] active:translate-y-0 active:shadow-none transition-all"
+            className="px-6 py-3 bg-ink text-surface-inverse font-black text-[10px] label-sm rounded-lg border-1 border-ink shadow-[var(--shadow-1)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-2)] active:translate-y-0 active:shadow-none transition-all"
           >
             Retry Connection
           </button>
@@ -127,7 +126,7 @@ function DegradedScreen({
           {authDegraded && (
             <button
               onClick={onForceOffline}
-              className="px-6 py-3 bg-transparent text-navy/50 font-black text-[10px] uppercase tracking-widest rounded-xl border-2 border-navy/20 hover:border-navy/50 hover:text-navy transition-all"
+              className="px-6 py-3 bg-transparent text-ink/50 font-black text-[10px] label-sm rounded-lg border-1 border-ink/20 hover:border-ink/50 hover:text-ink transition-all"
             >
               Continue Offline
             </button>
@@ -457,10 +456,10 @@ export function App() {
       );
     }
     return (
-      <div className="w-screen h-screen bg-paper flex items-center justify-center">
+      <div className="w-screen h-screen bg-ground flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-8 h-8 border-4 border-navy border-t-transparent rounded-full animate-spin" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-navy/40 italic">
+          <div className="w-8 h-8 border-2 border-ink border-t-transparent rounded-full animate-spin" />
+          <span className="text-[10px] font-black label-sm text-ink/40 italic">
             Syncing Cockpit...
           </span>
         </div>
@@ -495,7 +494,7 @@ export function App() {
   }
 
   return (
-    <div className="relative w-screen h-screen m-0 p-0 box-border bg-paper text-navy overflow-hidden flex flex-col font-sans">
+    <div className="relative w-screen h-screen m-0 p-0 box-border bg-ground text-ink overflow-hidden flex flex-col font-sans">
       {/* NEW USER ONBOARDING SEQUENCE */}
       {/* Show when: isNewUser flag is set OR onboardingComplete is explicitly false (fresh DB entry) */}
       <AnimatePresence>
@@ -518,13 +517,13 @@ export function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-paper flex items-center justify-center"
+            className="fixed inset-0 z-[200] bg-ground flex items-center justify-center"
           >
             <div className="w-full max-w-md flex flex-col items-center gap-8 px-8">
-              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-navy/30">// Operator Registration</p>
+              <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30">// Operator Registration</p>
               <div className="text-center">
-                <h1 className="text-5xl font-black text-navy uppercase tracking-tight mb-3">Choose Your Handle</h1>
-                <p className="text-xs font-bold text-navy/40 uppercase tracking-wider">This cannot be changed after confirmation.</p>
+                <h1 className="text-5xl font-black text-ink label-plain tracking-tight mb-3">Choose Your Handle</h1>
+                <p className="text-xs font-bold text-ink/40 label-plain tracking-wider">This cannot be changed after confirmation.</p>
               </div>
               <div className="w-full flex flex-col gap-3">
                 <input
@@ -543,17 +542,17 @@ export function App() {
                   }}
                   onKeyDown={(e) => e.key === "Enter" && handleUsernameSubmit()}
                   placeholder="e.g. IRONCLAD"
-                  className="w-full bg-white border-2 border-navy shadow-[4px_4px_0px_var(--navy)] rounded-2xl px-6 py-5 text-2xl font-black text-navy placeholder:text-navy/20 outline-none uppercase tracking-widest focus:translate-y-[2px] focus:shadow-[2px_2px_0px_var(--navy)] transition-all"
-                  style={{ textTransform: "uppercase" }}
+                  className="w-full bg-surface border-1 border-ink shadow-[var(--shadow-2)] rounded-xl px-6 py-5 text-2xl font-black text-ink placeholder:text-ink/20 outline-none label-sm focus:translate-y-[2px] focus:shadow-[var(--shadow-1)] transition-all"
+                  style={{ textTransform: "label-plain" }}
                 />
                 {(usernameError || profile.handleError) && (
-                  <p className="text-[10px] font-bold text-red-500 uppercase tracking-wider px-1">{usernameError || profile.handleError}</p>
+                  <p className="text-[10px] font-bold text-danger-soft label-plain tracking-wider px-1">{usernameError || profile.handleError}</p>
                 )}
               </div>
               <button
                 onClick={handleUsernameSubmit}
                 disabled={usernameSubmitting || !usernameInput.trim()}
-                className="w-full bg-navy text-white py-5 rounded-2xl font-black uppercase tracking-widest text-sm border-2 border-navy shadow-[4px_4px_0px_var(--navy)] hover:bg-gold-2 hover:text-navy hover:translate-y-[2px] hover:shadow-[2px_2px_0px_var(--navy)] transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-40"
+                className="w-full bg-ink text-surface-inverse py-5 rounded-xl font-black label-sm text-sm border-1 border-ink shadow-[var(--shadow-2)] hover:bg-highlight-2 hover:text-ink hover:translate-y-[2px] hover:shadow-[var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none disabled:opacity-40"
               >
                 {usernameSubmitting ? "Locking In..." : "Lock In Handle"}
               </button>
@@ -566,14 +565,14 @@ export function App() {
       <WriteFailureToasts />
 
       {/* GLOBAL HEADER */}
-      <header className="shrink-0 px-10 py-8 border-b border-navy/5 bg-white/50 backdrop-blur-2xl z-20">
+      <header className="shrink-0 px-10 py-8 border-b border-ink/5 bg-surface-inverse/50 backdrop-blur-2xl z-20">
         <div className="flex justify-between items-center max-w-[1600px] mx-auto w-full">
           <div className="flex items-center gap-6">
             <div className="flex flex-col">
-              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-navy/30 mb-1">
+              <p className="text-[9px] font-black label-plain tracking-[0.3em] text-ink/30 mb-1">
                 Operator // {userName}
               </p>
-              <h1 className="text-3xl font-bold tracking-tight text-navy capitalize">
+              <h1 className="text-3xl font-bold tracking-tight text-ink capitalize">
                 {currentTab === "home" ? "Cockpit Dashboard" : currentTab === "analytics" ? "Strategic Planner" : currentTab === "pack" ? "The Pack" : "System Protocols"}
               </h1>
             </div>
@@ -582,7 +581,7 @@ export function App() {
           <div className="flex items-center gap-10">
             <button 
               onClick={logout}
-              className="px-4 py-2 border-2 border-navy bg-white text-navy font-black text-[9px] uppercase tracking-widest shadow-[2px_2px_0px_var(--navy)] active:translate-y-[2px] active:shadow-none transition-all"
+              className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-sm shadow-[var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all"
             >
               Sign Out
             </button>
@@ -592,22 +591,22 @@ export function App() {
               <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="flex items-center gap-4 bg-navy text-white px-6 py-3 rounded-2xl border-2 border-navy shadow-[4px_4px_0px_var(--navy)]"
+                className="flex items-center gap-4 bg-ink text-surface-inverse px-6 py-3 rounded-xl border-1 border-ink shadow-[var(--shadow-2)]"
               >
                 <div className="flex flex-col items-end">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-white/60 leading-none mb-1">Active Session</p>
+                  <p className="text-[8px] font-black label-sm text-surface-inverse/60 leading-none mb-1">Active Session</p>
                   <p className="text-xl font-black tabular-nums leading-none tracking-tight">{formatTime(timeLeft)}</p>
                 </div>
-                <div className="h-6 w-px bg-white/20" />
-                <p className="text-[10px] font-bold uppercase tracking-tight text-white/90 max-w-[100px] truncate leading-tight">
+                <div className="h-6 w-px bg-surface-inverse/20" />
+                <p className="text-[10px] font-bold label-plain tracking-tight text-surface-inverse/90 max-w-[100px] truncate leading-tight">
                   {taskLabel || "Untethered"}
                 </p>
               </motion.div>
             )}
 
             <div className="text-right flex flex-col">
-              <p className="text-[9px] font-black uppercase tracking-widest text-navy/20 mb-1">Uptime today</p>
-              <p className="text-2xl font-black text-navy leading-none">
+              <p className="text-[9px] font-black label-sm text-ink/20 mb-1">Uptime today</p>
+              <p className="text-2xl font-black text-ink leading-none">
                 {Math.floor(totalMinutesToday)}<span className="text-xs ml-0.5 opacity-30">MIN</span>
               </p>
             </div>

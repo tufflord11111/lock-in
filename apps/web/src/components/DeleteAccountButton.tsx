@@ -149,26 +149,26 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
   };
 
   return (
-    <section className="bg-white border-2 border-danger p-6 rounded-3xl shadow-[4px_4px_0px_var(--danger-2)]">
+    <section className="bg-surface border-1 border-danger p-6 rounded-2xl shadow-[4px_4px_0px_var(--danger-shadow)]">
       <div className="flex items-center gap-3 mb-4">
         <Trash2 size={18} className="text-danger" />
-        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-danger/60">Danger Zone</h2>
+        <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-danger/60">Danger Zone</h2>
       </div>
-      <p className="text-sm font-black text-navy uppercase tracking-tight">Delete account</p>
-      <p className="text-[9px] font-bold text-navy/40 mt-1 mb-4 leading-relaxed">
+      <p className="text-sm font-black text-ink label-plain tracking-tight">Delete account</p>
+      <p className="text-[9px] font-bold text-ink/40 mt-1 mb-4 leading-relaxed">
         Permanently removes all your data — sessions, blocklists, history, presence, and
         your operator handle. This cannot be undone.
       </p>
 
       {error && (
-        <p className="mb-3 text-[9px] font-bold text-danger bg-danger/5 border border-danger/20 rounded-lg p-2 break-words">
+        <p className="mb-3 text-[9px] font-bold text-danger bg-danger/5 border border-danger/20 rounded-md p-2 break-words">
           {error}
         </p>
       )}
 
       {needsReauth ? (
         <div className="flex flex-col gap-3">
-          <p className="text-[9px] font-bold text-navy/60 leading-relaxed">
+          <p className="text-[9px] font-bold text-ink/60 leading-relaxed">
             Your data is already deleted. Confirm your password to remove the
             account itself — Firebase requires a recent sign-in for this.
           </p>
@@ -181,7 +181,7 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
             }}
             placeholder="Password"
             autoFocus
-            className="w-full px-4 py-3 border-2 border-navy rounded-xl text-[11px] font-bold text-navy placeholder:text-navy/30 focus:outline-none"
+            className="w-full px-4 py-3 border-1 border-ink rounded-lg text-[11px] font-bold text-ink placeholder:text-ink/30 focus:outline-none"
           />
           {reauthError && (
             <p className="text-[9px] font-bold text-danger break-words">
@@ -192,14 +192,14 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
             <button
               onClick={cancelReauth}
               disabled={busy}
-              className="flex-1 py-3 border-2 border-navy bg-white text-navy font-black text-[10px] uppercase tracking-widest rounded-xl disabled:opacity-40"
+              className="flex-1 py-3 border-1 border-ink bg-surface text-ink font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
             >
               Cancel
             </button>
             <button
               onClick={confirmReauth}
               disabled={busy || !password}
-              className="flex-1 py-3 bg-danger border-2 border-danger-2 text-white font-black text-[10px] uppercase tracking-widest rounded-xl disabled:opacity-40"
+              className="flex-1 py-3 bg-danger border-1 border-danger-shadow text-surface-inverse font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
             >
               {busy ? "Deleting…" : "Confirm & delete"}
             </button>
@@ -210,14 +210,14 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
           <button
             onClick={() => setConfirming(false)}
             disabled={busy}
-            className="flex-1 py-3 border-2 border-navy bg-white text-navy font-black text-[10px] uppercase tracking-widest rounded-xl disabled:opacity-40"
+            className="flex-1 py-3 border-1 border-ink bg-surface text-ink font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
           >
             Cancel
           </button>
           <button
             onClick={handleDelete}
             disabled={busy}
-            className="flex-1 py-3 bg-danger border-2 border-danger-2 text-white font-black text-[10px] uppercase tracking-widest rounded-xl disabled:opacity-40"
+            className="flex-1 py-3 bg-danger border-1 border-danger-shadow text-surface-inverse font-black text-[10px] label-sm rounded-lg disabled:opacity-40"
           >
             {busy ? "Deleting…" : "Delete everything"}
           </button>
@@ -225,7 +225,7 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
       ) : (
         <button
           onClick={() => setConfirming(true)}
-          className="w-full py-3 bg-white border-2 border-danger text-danger font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-danger hover:text-white transition-colors"
+          className="w-full py-3 bg-surface border-1 border-danger text-danger font-black text-[10px] label-sm rounded-lg hover:bg-danger hover:text-surface-inverse transition-colors"
         >
           Delete my account
         </button>

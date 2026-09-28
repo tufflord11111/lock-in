@@ -84,23 +84,22 @@ export function WriteFailureToasts() {
             exit={{ opacity: 0, x: -20 }}
             className={
               item.kind === "info"
-                ? "pointer-events-auto flex items-start gap-3 bg-white border-2 border-navy shadow-[4px_4px_0px_var(--navy)] rounded-xl px-4 py-3"
-                : "pointer-events-auto flex items-start gap-3 bg-white border-2 border-danger shadow-[4px_4px_0px_var(--danger-2)] rounded-xl px-4 py-3"
+                ? "pointer-events-auto flex items-start gap-3 bg-surface border-1 border-ink shadow-[var(--shadow-2)] rounded-lg px-4 py-3 font-mono"
+                : "pointer-events-auto flex items-start gap-3 bg-surface border-1 border-danger shadow-[4px_4px_0px_var(--danger-shadow)] rounded-lg px-4 py-3 font-mono"
             }
-            style={{ fontFamily: "'Space Mono', monospace" }}
             role={item.kind === "info" ? "status" : "alert"}
           >
             {item.kind === "info" ? (
-              <Info size={16} className="text-navy shrink-0 mt-0.5" />
+              <Info size={16} className="text-ink shrink-0 mt-0.5" />
             ) : (
               <AlertTriangle size={16} className="text-danger shrink-0 mt-0.5" />
             )}
-            <span className="text-[10px] font-bold text-navy leading-relaxed flex-1">
+            <span className="text-[10px] font-bold text-ink leading-relaxed flex-1">
               {item.message}
             </span>
             <button
               onClick={() => dismiss(item.id)}
-              className="text-navy/30 hover:text-navy transition-colors shrink-0"
+              className="text-ink/30 hover:text-ink transition-colors shrink-0"
               aria-label="Dismiss"
             >
               <X size={14} />

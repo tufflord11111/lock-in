@@ -1,4 +1,5 @@
 import "@lock-in/ui/src/global.css";
+import "./theme/tokens.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";

@@ -87,7 +87,7 @@ function LinkingProtocol({
       exit={{ opacity: 0 }}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={!showLinked ? onClose : undefined} />
+      <div className="absolute inset-0 bg-shadow-ink/80 backdrop-blur-sm" onClick={!showLinked ? onClose : undefined} />
 
       {/* ── SYSTEM LINKED splash ──────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -106,9 +106,9 @@ function LinkingProtocol({
               animate={{ scale: [1, 1.12, 1] }}
               transition={{ repeat: 2, duration: 0.55 }}
             >
-              <div className="absolute w-32 h-32 rounded-full bg-green-400/10 animate-ping" />
-              <div className="w-24 h-24 bg-green-400 flex items-center justify-center shadow-[0_0_60px_rgb(var(--online-rgb)/0.6)]">
-                <CheckCircle size={44} className="text-navy" />
+              <div className="absolute w-32 h-32 rounded-full bg-online/10 animate-ping" />
+              <div className="w-24 h-24 bg-online flex items-center justify-center shadow-[0_0_60px_rgb(var(--online-rgb)/0.6)]">
+                <CheckCircle size={44} className="text-ink" />
               </div>
             </motion.div>
             <motion.div
@@ -116,15 +116,15 @@ function LinkingProtocol({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.25 }}
             >
-              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-green-400/70 mb-2">Handshake Confirmed</p>
-              <h2 className="text-4xl font-black text-white uppercase tracking-tight">System<br /><span className="text-green-400">Linked</span></h2>
+              <p className="text-[10px] font-black label-plain tracking-[0.4em] text-online/70 mb-2">Handshake Confirmed</p>
+              <h2 className="text-4xl font-black text-surface-inverse label-plain tracking-tight">System<br /><span className="text-online">Linked</span></h2>
             </motion.div>
             <motion.div
               initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
               transition={{ delay: 0.5, duration: 0.5 }}
-              className="h-[3px] w-20 bg-green-400 origin-center"
+              className="h-[3px] w-20 bg-online origin-center"
             />
-            <p className="text-[10px] font-black uppercase tracking-widest text-white/30">Advancing to cockpit...</p>
+            <p className="text-[10px] font-black label-sm text-surface-inverse/30">Advancing to cockpit...</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -132,80 +132,80 @@ function LinkingProtocol({
       {/* ── Main modal ───────────────────────────────────────────────────────── */}
       {!showLinked && (
         <motion.div
-          className="relative w-full max-w-[440px] bg-hero-panel border-[3px] border-gold shadow-[8px_8px_0px_var(--gold)] overflow-y-auto max-h-[90vh]"
+          className="relative w-full max-w-[440px] bg-hero-panel border-[3px] border-highlight shadow-[8px_8px_0px_var(--highlight)] overflow-y-auto max-h-[90vh]"
           initial={{ scale: 0.92, y: 20 }}
           animate={{ scale: 1, y: 0 }}
           exit={{ scale: 0.92, y: 20 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
         >
           {/* Header */}
-          <div className="flex items-center gap-3 px-6 pt-6 pb-4 border-b-[2px] border-white/10">
-            <div className="w-10 h-10 bg-gold flex items-center justify-center shrink-0">
-              <Link2 size={18} className="text-navy" />
+          <div className="flex items-center gap-3 px-6 pt-6 pb-4 border-b-[2px] border-surface-inverse/10">
+            <div className="w-10 h-10 bg-highlight flex items-center justify-center shrink-0">
+              <Link2 size={18} className="text-ink" />
             </div>
             <div>
-              <p className="text-[9px] font-black uppercase tracking-[0.35em] text-gold">Linking Protocol</p>
-              <h3 className="text-lg font-black text-white uppercase tracking-tight leading-tight">Manual Extension Sync</h3>
+              <p className="text-[9px] font-black label-plain tracking-[0.35em] text-highlight">Linking Protocol</p>
+              <h3 className="text-lg font-black text-surface-inverse label-plain tracking-tight leading-tight">Manual Extension Sync</h3>
             </div>
-            <button onClick={onClose} className="ml-auto text-white/30 hover:text-white transition-colors text-lg font-black">✕</button>
+            <button onClick={onClose} className="ml-auto text-surface-inverse/30 hover:text-surface-inverse transition-colors text-lg font-black">✕</button>
           </div>
 
           {/* ── Step 0: Export button ─────────────────────────────────────── */}
           <div className="px-6 pt-5 pb-0">
-            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-gold mb-2">Step 0 — INSTALL WEB GUARD</p>
+            <p className="text-[9px] font-black label-plain tracking-[0.3em] text-highlight mb-2">Step 0 — INSTALL WEB GUARD</p>
             <button
               id="web-store-link-btn"
               onClick={handleStore}
-              className="w-full flex items-center justify-center gap-2 bg-white/5 border-[2px] border-gold/30 hover:border-gold text-gold font-black text-[10px] uppercase tracking-widest py-3 px-4 transition-all disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 bg-surface-inverse/5 border-[2px] border-highlight/30 hover:border-highlight text-highlight font-black text-[10px] label-sm py-3 px-4 transition-all disabled:opacity-50"
             >
               <Download size={13} />
               {isTauri ? "COPY CHROME WEB STORE LINK" : "OPEN CHROME WEB STORE"}
             </button>
             {isTauri && (
-              <p className="mt-2 text-[9px] font-mono text-gold/70 break-all select-all">
+              <p className="mt-2 text-[9px] font-mono text-highlight/70 break-all select-all">
                 {STORE_URL}
               </p>
             )}
           </div>
 
           {/* ── Protocol steps ───────────────────────────────────────────── */}
-          <div className="px-6 py-4 flex flex-col gap-3 border-t border-white/5 mt-4">
+          <div className="px-6 py-4 flex flex-col gap-3 border-t border-surface-inverse/5 mt-4">
             {PROTOCOL_STEPS.map((s) => (
               <div key={s.n} className="flex gap-3 items-start">
-                <span className="text-[9px] font-black text-gold tracking-[0.2em] mt-0.5 shrink-0">{s.n}</span>
+                <span className="text-[9px] font-black text-highlight tracking-[0.2em] mt-0.5 shrink-0">{s.n}</span>
                 <div className="flex flex-col gap-1">
-                  <p className="text-white/60 font-bold text-[11px] leading-snug">{s.text}</p>
+                  <p className="text-surface-inverse/60 font-bold text-[11px] leading-snug">{s.text}</p>
                   {s.code && (
                     <button
                       onClick={() => handleCopy(s.code!)}
-                      className="flex items-center gap-1.5 self-start px-2 py-1 bg-white/5 border border-white/10 hover:border-gold/40 transition-colors group"
+                      className="flex items-center gap-1.5 self-start px-2 py-1 bg-surface-inverse/5 border border-surface-inverse/10 hover:border-highlight/40 transition-colors group"
                     >
-                      <code className="text-gold font-mono text-[10px]">{s.code}</code>
-                      <Copy size={9} className="text-white/20 group-hover:text-gold transition-colors" />
+                      <code className="text-highlight font-mono text-[10px]">{s.code}</code>
+                      <Copy size={9} className="text-surface-inverse/20 group-hover:text-highlight transition-colors" />
                     </button>
                   )}
                 </div>
               </div>
             ))}
-            {copied && <p className="text-[9px] font-black text-green-400 uppercase tracking-wider">Copied!</p>}
+            {copied && <p className="text-[9px] font-black text-online label-plain tracking-wider">Copied!</p>}
           </div>
 
           {/* ── Auto-Verification Indicator ─────────────────────────────────── */}
           <div className="px-6 pb-8 flex flex-col gap-4">
             <div className="relative group">
-              <div className="absolute -inset-[1px] bg-gradient-to-r from-gold/20 via-gold/40 to-gold/20 blur opacity-30 group-hover:opacity-100 transition duration-1000" />
+              <div className="absolute -inset-[1px] bg-gradient-to-r from-highlight/20 via-highlight/40 to-highlight/20 blur opacity-30 group-hover:opacity-100 transition duration-1000" />
               <button
                 disabled={true}
-                className="relative w-full h-14 bg-hero border border-white/10 rounded-xl flex items-center justify-center gap-3 text-white/50 font-black cursor-not-allowed uppercase tracking-[0.2em] text-[10px]"
+                className="relative w-full h-14 bg-hero border border-surface-inverse/10 rounded-lg flex items-center justify-center gap-3 text-surface-inverse/50 font-black cursor-not-allowed label-plain tracking-[0.2em] text-[10px]"
               >
-                <Cpu className="w-5 h-5 text-gold animate-pulse" />
+                <Cpu className="w-5 h-5 text-highlight animate-pulse" />
                 Checking for Web Guard...
               </button>
             </div>
 
 
 
-            <p className="text-[10px] text-white/30 font-bold uppercase tracking-[0.1em] text-center italic">
+            <p className="text-[10px] text-surface-inverse/30 font-bold label-plain tracking-[0.1em] text-center italic">
               LINKING WILL HAPPEN AUTOMATICALLY ONCE YOU LOG IN TO THE EXTENSION.
             </p>
           </div>
@@ -314,7 +314,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
   return (
     <>
       <motion.div
-        className="fixed inset-0 z-50 bg-navy flex flex-col items-center justify-center p-8 overflow-hidden"
+        className="fixed inset-0 z-50 bg-ink flex flex-col items-center justify-center p-8 overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
@@ -337,25 +337,25 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
               <motion.div
                 animate={{ rotate: [0, -3, 3, -2, 2, 0] }}
                 transition={{ delay: 0.6, duration: 0.8 }}
-                className="w-20 h-20 bg-gold border-[4px] border-white flex items-center justify-center shadow-[6px_6px_0px_rgb(var(--surface-rgb)/0.2)]"
+                className="w-20 h-20 bg-highlight border-[4px] border-surface-inverse flex items-center justify-center shadow-[6px_6px_0px_rgb(var(--surface-rgb)/0.2)]"
               >
-                <Lock size={36} className="text-navy" />
+                <Lock size={36} className="text-ink" />
               </motion.div>
               <div>
                 <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-                  className="text-[11px] font-black uppercase tracking-[0.4em] text-white/40 mb-3">
+                  className="text-[11px] font-black label-plain tracking-[0.4em] text-surface-inverse/40 mb-3">
                   Identity Verified
                 </motion.p>
                 <motion.h1 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
-                  className="text-5xl font-black text-white uppercase tracking-tight leading-none">
+                  className="text-5xl font-black text-surface-inverse label-plain tracking-tight leading-none">
                   Welcome,<br />
-                  <span className="text-gold">{userName || "Operator"}</span>
+                  <span className="text-highlight">{userName || "Operator"}</span>
                 </motion.h1>
               </div>
               <motion.div
                 initial={{ scaleX: 0 }} animate={{ scaleX: 1 }}
                 transition={{ delay: 1.0, duration: 0.6 }}
-                className="h-[3px] w-32 bg-gold origin-left"
+                className="h-[3px] w-32 bg-highlight origin-left"
               />
             </motion.div>
           )}
@@ -371,39 +371,39 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 <div className="flex gap-2 justify-center">
                   {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
                     <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${
-                      i === step ? "w-8 bg-gold" : i < step ? "w-4 bg-white/40" : "w-4 bg-white/15"
+                      i === step ? "w-8 bg-highlight" : i < step ? "w-4 bg-surface-inverse/40" : "w-4 bg-surface-inverse/15"
                     }`} />
                   ))}
                 </div>
               )}
-              <div className="bg-white/5 border-[3px] border-white/20 p-8 shadow-[8px_8px_0px_rgb(var(--surface-rgb)/0.08)]">
+              <div className="bg-surface-inverse/5 border-[3px] border-surface-inverse/20 p-8 shadow-[8px_8px_0px_rgb(var(--surface-rgb)/0.08)]">
                 <div className="flex items-start gap-6">
                   <div className="shrink-0 flex flex-col items-center gap-3">
-                    <span className="text-[10px] font-black text-gold tracking-[0.3em]">STEP {STEPS[step].number}</span>
-                    <div className="w-14 h-14 bg-gold flex items-center justify-center border-[3px] border-white/20 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)]">
-                      {(() => { const Icon = STEPS[step].icon; return <Icon size={24} className="text-navy" />; })()}
+                    <span className="text-[10px] font-black text-highlight tracking-[0.3em]">STEP {STEPS[step].number}</span>
+                    <div className="w-14 h-14 bg-highlight flex items-center justify-center border-[3px] border-surface-inverse/20 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)]">
+                      {(() => { const Icon = STEPS[step].icon; return <Icon size={24} className="text-ink" />; })()}
                     </div>
                   </div>
                   <div className="flex flex-col gap-3 pt-7">
-                    <h2 className="text-2xl font-black text-white uppercase tracking-tight leading-tight">{STEPS[step].title}</h2>
-                    <p className="text-white/60 font-bold text-sm leading-relaxed">{STEPS[step].body}</p>
+                    <h2 className="text-2xl font-black text-surface-inverse label-plain tracking-tight leading-tight">{STEPS[step].title}</h2>
+                    <p className="text-surface-inverse/60 font-bold text-sm leading-relaxed">{STEPS[step].body}</p>
                   </div>
                 </div>
               </div>
               <div className="flex gap-4">
                 {step > 0 && (
                   <button onClick={() => setStep((s) => s - 1)}
-                    className="flex-1 border-[3px] border-white/20 text-white/50 font-black text-[10px] uppercase tracking-widest py-4 hover:text-white hover:border-white/40 transition-colors">
+                    className="flex-1 border-[3px] border-surface-inverse/20 text-surface-inverse/50 font-black text-[10px] label-sm py-4 hover:text-surface-inverse hover:border-surface-inverse/40 transition-colors">
                     Back
                   </button>
                 )}
                 <button onClick={() => setStep((s) => s + 1)}
-                  className="flex-1 bg-gold border-[3px] border-white/20 text-navy font-black text-[10px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all">
+                  className="flex-1 bg-highlight border-[3px] border-surface-inverse/20 text-ink font-black text-[10px] label-sm py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all">
                   {step === STEPS.length - 1 ? "Calibrate System →" : "Next →"}
                 </button>
               </div>
               <button onClick={handleComplete}
-                className="self-center text-[9px] font-black uppercase tracking-[0.3em] text-white/20 hover:text-white/50 transition-colors">
+                className="self-center text-[9px] font-black label-plain tracking-[0.3em] text-surface-inverse/20 hover:text-surface-inverse/50 transition-colors">
                 Skip Briefing
               </button>
             </motion.div>
@@ -420,61 +420,61 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
               <div className="flex gap-2 justify-center">
                 {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
                   <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${
-                    i === step ? "w-8 bg-gold" : i < step ? "w-4 bg-white/40" : "w-4 bg-white/15"
+                    i === step ? "w-8 bg-highlight" : i < step ? "w-4 bg-surface-inverse/40" : "w-4 bg-surface-inverse/15"
                   }`} />
                 ))}
               </div>
 
               {/* Header */}
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-gold flex items-center justify-center border-[3px] border-white/20 shrink-0">
-                  <Cpu size={24} className="text-navy" />
+                <div className="w-14 h-14 bg-highlight flex items-center justify-center border-[3px] border-surface-inverse/20 shrink-0">
+                  <Cpu size={24} className="text-ink" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black text-gold tracking-[0.3em] mb-1">STEP 04</p>
-                  <h2 className="text-2xl font-black text-white uppercase tracking-tight leading-tight">System Calibration</h2>
+                  <p className="text-[10px] font-black text-highlight tracking-[0.3em] mb-1">STEP 04</p>
+                  <h2 className="text-2xl font-black text-surface-inverse label-plain tracking-tight leading-tight">System Calibration</h2>
                 </div>
               </div>
 
               {/* Sniper card */}
-              <div className="bg-white/5 border-[3px] border-white/20 p-6 shadow-[8px_8px_0px_rgb(var(--surface-rgb)/0.08)] flex flex-col gap-4">
-                <p className="text-white/60 font-bold text-sm leading-relaxed">
+              <div className="bg-surface-inverse/5 border-[3px] border-surface-inverse/20 p-6 shadow-[8px_8px_0px_rgb(var(--surface-rgb)/0.08)] flex flex-col gap-4">
+                <p className="text-surface-inverse/60 font-bold text-sm leading-relaxed">
                   Verify the Rust process-sniper is armed and ready to terminate
                   distracting applications the moment a lock session begins.
                 </p>
                 <AnimatePresence mode="wait">
                   {sniperState === "idle" && (
                     <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      className="flex items-center gap-3 text-white/30 font-black text-[10px] uppercase tracking-wider">
-                      <div className="w-2 h-2 rounded-full bg-white/20" /> Awaiting activation
+                      className="flex items-center gap-3 text-surface-inverse/30 font-black text-[10px] label-plain tracking-wider">
+                      <div className="w-2 h-2 rounded-full bg-surface-inverse/20" /> Awaiting activation
                     </motion.div>
                   )}
                   {sniperState === "checking" && (
                     <motion.div key="checking" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      className="flex items-center gap-3 text-gold font-black text-[10px] uppercase tracking-wider">
-                      <div className="w-2 h-2 rounded-full bg-gold animate-pulse" /> Calibrating sniper subsystem...
+                      className="flex items-center gap-3 text-highlight font-black text-[10px] label-plain tracking-wider">
+                      <div className="w-2 h-2 rounded-full bg-highlight animate-pulse" /> Calibrating sniper subsystem...
                     </motion.div>
                   )}
                   {sniperState === "online" && (
                     <motion.div key="online" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
-                      <div className="flex items-center gap-3 px-4 py-3 border-[2px] border-green-400/40 w-full"
+                      <div className="flex items-center gap-3 px-4 py-3 border-[2px] border-online/40 w-full"
                         style={{ boxShadow: "0 0 16px rgb(var(--online-rgb)/0.25)" }}>
-                        <CheckCircle size={18} className="text-green-400 shrink-0" />
+                        <CheckCircle size={18} className="text-online shrink-0" />
                         <div>
-                          <p className="text-green-400 font-black text-[10px] uppercase tracking-wider">System Verified</p>
-                          <p className="text-green-400/70 font-bold text-[10px] mt-0.5">{sniperMsg}</p>
+                          <p className="text-online font-black text-[10px] label-plain tracking-wider">System Verified</p>
+                          <p className="text-online/70 font-bold text-[10px] mt-0.5">{sniperMsg}</p>
                         </div>
                       </div>
                     </motion.div>
                   )}
                   {sniperState === "degraded" && (
                     <motion.div key="degraded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      className="flex items-start gap-3 px-4 py-3 border-[2px] border-red-500/40"
-                      style={{ boxShadow: "0 0 12px rgb(var(--alert-soft-rgb)/0.2)" }}>
-                      <XCircle size={18} className="text-red-400 shrink-0 mt-0.5" />
+                      className="flex items-start gap-3 px-4 py-3 border-[2px] border-danger-soft/40"
+                      style={{ boxShadow: "0 0 12px rgb(var(--danger-soft-rgb)/0.2)" }}>
+                      <XCircle size={18} className="text-danger-400 shrink-0 mt-0.5" />
                       <div>
-                        <p className="text-red-400 font-black text-[10px] uppercase tracking-wider">Sniper Degraded</p>
-                        <p className="text-red-400/70 font-bold text-[10px] mt-0.5">{sniperMsg}</p>
+                        <p className="text-danger-400 font-black text-[10px] label-plain tracking-wider">Sniper Degraded</p>
+                        <p className="text-danger-400/70 font-bold text-[10px] mt-0.5">{sniperMsg}</p>
                       </div>
                     </motion.div>
                   )}
@@ -482,7 +482,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 {sniperState !== "online" && (
                   <button id="calibrate-sniper" onClick={handleActivateSniper}
                     disabled={sniperState === "checking"}
-                    className="group bg-gold border-[3px] border-white/20 text-navy font-black text-[11px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 flex items-center justify-center gap-3">
+                    className="group bg-highlight border-[3px] border-surface-inverse/20 text-ink font-black text-[11px] label-sm py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 flex items-center justify-center gap-3">
                     <Cpu size={16} className={sniperState === "checking" ? "animate-spin" : ""} />
                     {sniperState === "checking" ? "Calibrating..." : "Activate Sniper"}
                   </button>
@@ -495,8 +495,8 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 transition={{ duration: 0.4 }}
                 className={`border-[3px] p-5 flex items-center justify-between gap-4 transition-colors duration-500 ${
                   extDetected === true
-                    ? "bg-green-400/5 border-green-400/40"
-                    : "bg-white/5 border-white/10"
+                    ? "bg-online/5 border-online/40"
+                    : "bg-surface-inverse/5 border-surface-inverse/10"
                 }`}
                 style={extDetected === true ? { boxShadow: "0 0 20px rgb(var(--online-rgb)/0.15)" } : {}}
               >
@@ -505,27 +505,27 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                     animate={extDetected === true ? { scale: [1, 1.3, 1] } : {}}
                     transition={{ duration: 0.45 }}
                   >
-                    <Puzzle size={18} className={extDetected === true ? "text-green-400" : "text-white/30"} />
+                    <Puzzle size={18} className={extDetected === true ? "text-online" : "text-surface-inverse/30"} />
                   </motion.div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-wider text-white/50">Chrome Extension</p>
+                    <p className="text-[10px] font-black label-plain tracking-wider text-surface-inverse/50">Chrome Extension</p>
                     <AnimatePresence mode="wait">
                       {extDetected === null && (
                         <motion.p key="detecting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                          className="text-[11px] font-black uppercase tracking-wide mt-0.5 text-white/30">
+                          className="text-[11px] font-black label-plain tracking-wide mt-0.5 text-surface-inverse/30">
                           Detecting...
                         </motion.p>
                       )}
                       {extDetected === true && (
                         <motion.p key="linked"
                           initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                          className="text-[11px] font-black uppercase tracking-wide mt-0.5 text-green-400">
+                          className="text-[11px] font-black label-plain tracking-wide mt-0.5 text-online">
                           System Linked ✓{linkedId ? " — ID Saved" : ""}
                         </motion.p>
                       )}
                       {extDetected === false && (
                         <motion.p key="notfound" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                          className="text-[11px] font-black uppercase tracking-wide mt-0.5 text-yellow-400">
+                          className="text-[11px] font-black label-plain tracking-wide mt-0.5 text-warn">
                           Not Detected
                         </motion.p>
                       )}
@@ -538,7 +538,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                   <button
                     id="view-linking-protocol"
                     onClick={() => setShowProtocol(true)}
-                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-gold hover:text-white transition-colors border-b border-gold/40 hover:border-white/40 pb-0.5 whitespace-nowrap"
+                    className="flex items-center gap-1.5 text-[9px] font-black label-sm text-highlight hover:text-surface-inverse transition-colors border-b border-highlight/40 hover:border-surface-inverse/40 pb-0.5 whitespace-nowrap"
                   >
                     {extDetected === null ? "Detect..." : "View Linking Protocol"}
                     <ChevronRight size={10} />
@@ -547,7 +547,7 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
                 {extDetected === true && (
                   <button
                     onClick={() => { setExtDetected(false); }}
-                    className="text-[9px] font-black uppercase tracking-widest text-green-400/50 hover:text-green-400 transition-colors pb-0.5 border-b border-green-400/20 hover:border-green-400/40 whitespace-nowrap"
+                    className="text-[9px] font-black label-sm text-online/50 hover:text-online transition-colors pb-0.5 border-b border-online/20 hover:border-online/40 whitespace-nowrap"
                   >
                     Re-scan
                   </button>
@@ -557,19 +557,19 @@ function WelcomeSequence({ userName, userId, onComplete }: WelcomeSequenceProps)
               {/* Navigation */}
               <div className="flex gap-4">
                 <button onClick={() => setStep(STEPS.length - 1)}
-                  className="flex-1 border-[3px] border-white/20 text-white/50 font-black text-[10px] uppercase tracking-widest py-4 hover:text-white hover:border-white/40 transition-colors">
+                  className="flex-1 border-[3px] border-surface-inverse/20 text-surface-inverse/50 font-black text-[10px] label-sm py-4 hover:text-surface-inverse hover:border-surface-inverse/40 transition-colors">
                   Back
                 </button>
                 <button id="enter-cockpit" 
                   onClick={handleComplete}
                   disabled={!extDetected}
-                  className="flex-1 bg-gold border-[3px] border-white/20 text-navy font-black text-[10px] uppercase tracking-widest py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
+                  className="flex-1 bg-highlight border-[3px] border-surface-inverse/20 text-ink font-black text-[10px] label-sm py-4 shadow-[4px_4px_0px_rgb(var(--surface-rgb)/0.1)] hover:shadow-none hover:translate-x-[4px] hover:translate-y-[4px] transition-all disabled:opacity-30 disabled:grayscale disabled:cursor-not-allowed">
                   Enter Cockpit →
                 </button>
               </div>
 
               <button onClick={handleComplete}
-                className="self-center text-[9px] font-black uppercase tracking-[0.3em] text-white/20 hover:text-white/50 transition-colors">
+                className="self-center text-[9px] font-black label-plain tracking-[0.3em] text-surface-inverse/20 hover:text-surface-inverse/50 transition-colors">
                 Skip Calibration
               </button>
             </motion.div>

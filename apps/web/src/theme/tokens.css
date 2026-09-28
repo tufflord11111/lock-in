@@ -1,0 +1,376 @@
+/**
+ * Theme tokens.
+ *
+ * Every colour, font, radius, border and shadow the app uses is named here by
+ * ROLE, and each theme redefines the same names. Components never name a
+ * colour — they name a role (bg-surface, text-ink, shadow-[var(--shadow-2)]).
+ *
+ * Operator is the original look and its values are exactly what shipped in
+ * 1.2.4, so selecting it is pixel-identical to the app before themes existed.
+ *
+ * Colours are stored as "R G B" triples so Tailwind's <alpha-value> can build
+ * rgb(... / a) for opacity modifiers (text-ink/40); each also has a plain
+ * --name alias for use inside arbitrary values and hand-written CSS.
+ */
+
+/* ── Shared scale ─────────────────────────────────────────────────────────
+   Colours that are not part of a theme's identity: validation states and a
+   few one-offs. A theme may override any of them, but none has to. */
+:root {
+  --danger-50-rgb: 254 242 242;
+  --danger-100-rgb: 254 226 226;
+  --danger-200-rgb: 254 202 202;
+  --danger-400-rgb: 248 113 113;
+  --danger-600-rgb: 220 38 38;
+  --danger-800-rgb: 153 27 27;
+  --success-50-rgb: 240 253 244;
+  --success-500-rgb: 34 197 94;
+  --success-700-rgb: 21 128 61;
+  --warn-rgb: 250 204 21;
+  --offline-rgb: 209 213 219;
+  --info-50-rgb: 239 246 255;
+  --slate-ink-rgb: 51 65 85;
+  --amber-deep-rgb: 217 119 6;
+  --shadow-ink-rgb: 0 0 0;
+
+  --danger-50: rgb(var(--danger-50-rgb));
+  --danger-100: rgb(var(--danger-100-rgb));
+  --danger-200: rgb(var(--danger-200-rgb));
+  --danger-400: rgb(var(--danger-400-rgb));
+  --danger-600: rgb(var(--danger-600-rgb));
+  --danger-800: rgb(var(--danger-800-rgb));
+  --success-50: rgb(var(--success-50-rgb));
+  --success-500: rgb(var(--success-500-rgb));
+  --success-700: rgb(var(--success-700-rgb));
+  --warn: rgb(var(--warn-rgb));
+  --offline: rgb(var(--offline-rgb));
+  --info-50: rgb(var(--info-50-rgb));
+  --slate-ink: rgb(var(--slate-ink-rgb));
+  --amber-deep: rgb(var(--amber-deep-rgb));
+
+  /* Geometry scale. Themes override the values, never the names. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-3xl: 40px;
+  --radius-nav: 9999px;   /* themes override; Operator's nav pill is 32px */
+  --border-1: 2px;
+  --border-2: 4px;
+
+  /* Layout + decoration switches read by the dashboard and the header. */
+  --dashboard-layout: columns;
+  --grid-image: none;
+  --grid-size: auto;
+  --nav-style: bar;
+}
+
+/* ── Operator — the original look ────────────────────────────────────────── */
+:root[data-theme="operator"] {
+  --ground-rgb: 249 248 244;        /* #F9F8F4 app shell */
+  --ground-deep-rgb: 245 245 240;   /* #F5F5F0 html/body behind it */
+  --surface-rgb: 255 255 255;       /* #FFFFFF cards */
+  --surface-alt-rgb: 242 237 228;   /* #F2EDE4 inset panels */
+  --surface-inverse-rgb: 255 255 255; /* foreground on dark panels */
+  --ink-rgb: 0 40 85;               /* #002855 */
+  --ink-2-rgb: 27 42 74;            /* #1B2A4A */
+  --line-rgb: 0 40 85;              /* borders + hard shadows = ink */
+  --accent-rgb: 0 40 85;
+  --accent-ink-rgb: 255 255 255;
+  --highlight-rgb: 255 209 102;     /* #FFD166 */
+  --highlight-2-rgb: 245 200 66;    /* #F5C842 */
+  --nav-active-bg-rgb: 255 209 102;
+  --nav-active-ink-rgb: 0 40 85;
+  --track-rgb: 226 232 240;         /* #E2E8F0 */
+  --hero-rgb: 10 15 29;             /* #0A0F1D */
+  --hero-panel-rgb: 0 26 58;        /* #001A3A */
+  --danger-rgb: 179 38 30;          /* #B3261E */
+  --danger-soft-rgb: 239 68 68;     /* #EF4444 — also Tailwind red-500 */
+  --danger-deep-rgb: 185 28 28;     /* #B91C1C — also red-700 */
+  --danger-shadow-rgb: 127 29 29;   /* #7F1D1D */
+  --alert-rgb: 255 68 68;           /* #FF4444 */
+  --alert-bright-rgb: 255 79 79;    /* #FF4F4F */
+  --success-rgb: 22 163 74;         /* #16A34A — also green-600 */
+  --success-strong-rgb: 15 123 69;  /* #0F7B45 */
+  --success-edge-rgb: 10 92 51;     /* #0A5C33 */
+  --online-rgb: 74 222 128;         /* #4ADE80 — also green-400 */
+
+  /* ink at the opacity used most often (45 of the 131 modified usages). */
+  --ink-muted-alpha: 0.4;
+
+  --font-display: 'Inter', system-ui, sans-serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-label: var(--font-ui);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --weight-display: 900;
+  --weight-ui: 700;
+  --tracking-label: 0.2em;
+  --tracking-label-sm: 0.1em;
+  --tracking-label-lg: 0.3em;
+  --tracking-label-xl: 0.4em;
+  --transform-label: uppercase;
+
+  --radius-nav: 32px;      /* the BottomNav pill, unchanged from 1.2.4 */
+
+  --shadow-1: 2px 2px 0px var(--line);
+  --shadow-2: 4px 4px 0px var(--line);
+  --shadow-3: 6px 6px 0px var(--line);
+  --shadow-4: 8px 8px 0px var(--line);
+  --shadow-5: 12px 12px 0px var(--line);
+}
+
+/* ── Notebook — paper, stickers, softer words ────────────────────────────── */
+:root[data-theme="notebook"] {
+  --ground-rgb: 251 247 234;        /* #FBF7EA */
+  --ground-deep-rgb: 251 247 234;
+  --surface-rgb: 255 255 255;
+  --surface-alt-rgb: 238 244 252;   /* #EEF4FC */
+  --surface-inverse-rgb: 255 255 255;
+  --ink-rgb: 47 74 109;             /* #2F4A6D */
+  --ink-2-rgb: 47 74 109;
+  --line-rgb: 47 74 109;
+  --accent-rgb: 106 155 216;        /* #6A9BD8 */
+  --accent-ink-rgb: 255 255 255;
+  --highlight-rgb: 245 198 74;      /* #F5C64A */
+  --highlight-2-rgb: 245 198 74;
+  --nav-active-bg-rgb: 245 198 74;
+  --nav-active-ink-rgb: 47 74 109;
+  --track-rgb: 238 244 252;
+  --hero-rgb: 47 74 109;
+  --hero-panel-rgb: 47 74 109;
+  --danger-rgb: 179 38 30;
+  --danger-soft-rgb: 239 68 68;
+  --danger-deep-rgb: 185 28 28;
+  --danger-shadow-rgb: 127 29 29;
+  --alert-rgb: 255 68 68;
+  --alert-bright-rgb: 255 79 79;
+  --success-rgb: 22 163 74;
+  --success-strong-rgb: 15 123 69;
+  --success-edge-rgb: 10 92 51;
+  --online-rgb: 74 222 128;
+
+  /* ink-muted is #6A9BD8 here, which is only ~3.3:1 on white — the .label
+     utility and decorations use it; body text stays on ink. */
+  --ink-muted-rgb: 106 155 216;
+  --ink-muted-alpha: 1;
+
+  --font-display: 'Patrick Hand', 'Comic Sans MS', cursive;
+  --font-ui: 'Patrick Hand', 'Comic Sans MS', cursive;
+  --font-label: 'Nunito', system-ui, sans-serif;
+  --font-mono: 'Patrick Hand', 'Comic Sans MS', cursive;
+  --weight-display: 400;
+  --weight-ui: 400;
+  --tracking-label: 0.12em;
+  --tracking-label-sm: 0.08em;
+  --tracking-label-lg: 0.14em;
+  --tracking-label-xl: 0.16em;
+  --transform-label: uppercase;
+
+  /* The wobble: every corner slightly different so nothing looks machined. */
+  --radius-xl: 12px 14px 11px 15px / 14px 11px 15px 12px;
+  --radius-2xl: 14px 16px 13px 17px / 16px 13px 17px 14px;
+  --radius-nav: 22px 24px 21px 25px / 24px 21px 25px 22px;
+  --border-1: 2.5px;
+  --border-2: 2.5px;
+
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: none;
+  --shadow-4: none;
+  --shadow-5: none;
+
+  --grid-image:
+    linear-gradient(rgb(var(--accent-rgb) / 0.22) 1.5px, transparent 1.5px),
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.22) 1.5px, transparent 1.5px);
+  --grid-size: 28px 28px;
+}
+
+/* ── Bento — tiles, big numbers, one accent ──────────────────────────────── */
+:root[data-theme="bento"] {
+  --ground-rgb: 236 234 241;        /* #ECEAF1 */
+  --ground-deep-rgb: 236 234 241;
+  --surface-rgb: 255 255 255;
+  --surface-alt-rgb: 244 243 247;   /* #F4F3F7 */
+  --surface-inverse-rgb: 255 255 255;
+  --ink-rgb: 23 24 28;              /* #17181C */
+  --ink-2-rgb: 23 24 28;
+  --line-rgb: 0 0 0;                /* transparent via --line below */
+  --accent-rgb: 244 86 42;          /* default: orange #F4562A */
+  --accent-ink-rgb: 255 255 255;
+  --highlight-rgb: var(--accent-rgb);
+  --highlight-2-rgb: var(--accent-rgb);
+  --nav-active-bg-rgb: 23 24 28;
+  --nav-active-ink-rgb: 255 255 255;
+  --track-rgb: 244 243 247;
+  --hero-rgb: 23 24 28;
+  --hero-panel-rgb: 38 39 45;       /* #26272D preset chips */
+  --danger-rgb: 179 38 30;
+  --danger-soft-rgb: 239 68 68;
+  --danger-deep-rgb: 185 28 28;
+  --danger-shadow-rgb: 127 29 29;
+  --alert-rgb: 255 68 68;
+  --alert-bright-rgb: 255 79 79;
+  --success-rgb: 22 163 74;
+  --success-strong-rgb: 15 123 69;
+  --success-edge-rgb: 10 92 51;
+  --online-rgb: 74 222 128;
+
+  --ink-muted-rgb: 138 139 147;     /* #8A8B93 — 3.5:1, large text only */
+  --ink-muted-alpha: 1;
+
+  --surface-dark: rgb(23 24 28);
+  --surface-tint: rgb(217 211 240);  /* #D9D3F0 */
+
+  --font-display: 'Manrope', system-ui, sans-serif;
+  --font-ui: 'Manrope', system-ui, sans-serif;
+  --font-label: 'Manrope', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --weight-display: 800;
+  --weight-ui: 600;
+  --tracking-label: 0em;
+  --tracking-label-sm: 0em;
+  --tracking-label-lg: 0em;
+  --tracking-label-xl: 0em;
+  --transform-label: none;
+
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-3xl: 24px;
+  --radius-nav: 9999px;
+  --border-1: 0px;
+  --border-2: 0px;
+
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: none;
+  --shadow-4: none;
+  --shadow-5: none;
+  --shadow-nav: 0 8px 24px rgb(23 24 28 / 0.08);
+
+  --dashboard-layout: bento;
+}
+
+/* Bento's four accents. */
+:root[data-theme="bento"][data-accent="orange"] { --accent-rgb: 244 86 42; }
+:root[data-theme="bento"][data-accent="sage"] { --accent-rgb: 123 182 97; }
+:root[data-theme="bento"][data-accent="lavender"] { --accent-rgb: 139 127 214; }
+:root[data-theme="bento"][data-accent="teal"] { --accent-rgb: 31 122 109; }
+
+/* ── Botanical — forest green, linen, serif ──────────────────────────────── */
+:root[data-theme="botanical"] {
+  --ground-rgb: 245 237 225;        /* #F5EDE1 */
+  --ground-deep-rgb: 245 237 225;
+  --surface-rgb: 249 243 233;       /* #F9F3E9 */
+  --surface-alt-rgb: 239 230 214;   /* #EFE6D6 */
+  --surface-inverse-rgb: 245 237 225;
+  --ink-rgb: 31 77 46;              /* #1F4D2E */
+  --ink-2-rgb: 31 77 46;
+  --line-rgb: 221 209 191;          /* #DDD1BF */
+  --accent-rgb: 31 77 46;
+  --accent-ink-rgb: 245 237 225;
+  --highlight-rgb: 31 77 46;
+  --highlight-2-rgb: 31 77 46;
+  --nav-active-bg-rgb: 31 77 46;
+  --nav-active-ink-rgb: 245 237 225;
+  --track-rgb: 239 230 214;
+  --hero-rgb: 31 77 46;
+  --hero-panel-rgb: 31 77 46;
+  --danger-rgb: 179 38 30;
+  --danger-soft-rgb: 239 68 68;
+  --danger-deep-rgb: 185 28 28;
+  --danger-shadow-rgb: 127 29 29;
+  --alert-rgb: 255 68 68;
+  --alert-bright-rgb: 255 79 79;
+  --success-rgb: 22 163 74;
+  --success-strong-rgb: 15 123 69;
+  --success-edge-rgb: 10 92 51;
+  --online-rgb: 74 222 128;
+
+  --ink-muted-rgb: 110 127 107;     /* #6E7F6B */
+  --ink-muted-alpha: 1;
+
+  --header-band: rgb(31 77 46);
+  --header-ink: rgb(245 237 225);
+  --header-muted: rgb(185 205 185);  /* #B9CDB9 */
+
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-ui: 'Figtree', system-ui, sans-serif;
+  --font-label: 'Figtree', system-ui, sans-serif;
+  --font-mono: 'Figtree', system-ui, sans-serif;
+  --weight-display: 400;
+  --weight-ui: 400;
+  --tracking-label: 0.04em;
+  --tracking-label-sm: 0.04em;
+  --tracking-label-lg: 0.06em;
+  --tracking-label-xl: 0.08em;
+  --transform-label: uppercase;
+
+  --radius-xl: 6px;
+  --radius-2xl: 10px;
+  --radius-3xl: 10px;
+  --radius-nav: 12px;
+  --border-1: 1px;
+  --border-2: 1px;
+
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-3: none;
+  --shadow-4: none;
+  --shadow-5: none;
+}
+
+/* ── Aliases every theme shares ──────────────────────────────────────────── */
+:root {
+  --ground: rgb(var(--ground-rgb));
+  --ground-deep: rgb(var(--ground-deep-rgb));
+  --surface: rgb(var(--surface-rgb));
+  --surface-alt: rgb(var(--surface-alt-rgb));
+  --surface-inverse: rgb(var(--surface-inverse-rgb));
+  --ink: rgb(var(--ink-rgb));
+  --ink-2: rgb(var(--ink-2-rgb));
+  --ink-muted: rgb(var(--ink-muted-rgb, var(--ink-rgb)) / var(--ink-muted-alpha, 0.4));
+  --line: rgb(var(--line-rgb));
+  --accent: rgb(var(--accent-rgb));
+  --accent-ink: rgb(var(--accent-ink-rgb));
+  --highlight: rgb(var(--highlight-rgb));
+  --highlight-2: rgb(var(--highlight-2-rgb));
+  --nav-active-bg: rgb(var(--nav-active-bg-rgb));
+  --nav-active-ink: rgb(var(--nav-active-ink-rgb));
+  --track: rgb(var(--track-rgb));
+  --hero: rgb(var(--hero-rgb));
+  --hero-panel: rgb(var(--hero-panel-rgb));
+  --danger: rgb(var(--danger-rgb));
+  --danger-soft: rgb(var(--danger-soft-rgb));
+  --danger-deep: rgb(var(--danger-deep-rgb));
+  --danger-shadow: rgb(var(--danger-shadow-rgb));
+  --alert: rgb(var(--alert-rgb));
+  --alert-bright: rgb(var(--alert-bright-rgb));
+  --success: rgb(var(--success-rgb));
+  --success-strong: rgb(var(--success-strong-rgb));
+  --success-edge: rgb(var(--success-edge-rgb));
+  --online: rgb(var(--online-rgb));
+}
+
+/* Bento's line is genuinely transparent (tiles have no border). */
+:root[data-theme="bento"] { --line: transparent; }
+
+/**
+ * The label utility. Most of the app's 191 uppercase labels were
+ * "uppercase tracking-[0.2em]" pairs; they are now one class the theme
+ * controls, so Bento can drop the caps and Notebook can switch the font.
+ */
+.label,
+.label-sm,
+.label-lg,
+.label-xl,
+.label-plain {
+  text-transform: var(--transform-label);
+  font-family: var(--font-label);
+}
+.label { letter-spacing: var(--tracking-label); }
+.label-sm { letter-spacing: var(--tracking-label-sm); }
+.label-lg { letter-spacing: var(--tracking-label-lg); }
+.label-xl { letter-spacing: var(--tracking-label-xl); }
+/* .label-plain sets no letter-spacing: it replaced a bare `uppercase`, which
+   had none, so the rendering is unchanged and only the casing is themeable. */
