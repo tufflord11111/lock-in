@@ -152,9 +152,9 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
           </h1>
         </div>
         <p className="text-ink/60 font-bold leading-tight label-plain text-xs tracking-wider">
-          {view === "login" && <>{t("login.subtitle")}<br />{t("login.protocol")}</>}
-          {view === "register" && <>{t("login.subtitle")}<br />{t("login.protocolRegister")}</>}
-          {view === "forgot" && <>{t("login.subtitleForgot")}<br />{t("login.protocolForgot")}</>}
+          {view === "login" && <>{t("login.subtitle")}{t("login.protocol") && <><br />{t("login.protocol")}</>}</>}
+          {view === "register" && <>{t("login.subtitle")}{t("login.protocolRegister") && <><br />{t("login.protocolRegister")}</>}</>}
+          {view === "forgot" && <>{t("login.subtitleForgot")}{t("login.protocolForgot") && <><br />{t("login.protocolForgot")}</>}</>}
         </p>
       </div>
 

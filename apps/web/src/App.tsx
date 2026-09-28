@@ -546,7 +546,9 @@ function AppInner() {
             className="fixed inset-0 z-[200] bg-ground flex items-center justify-center"
           >
             <div className="w-full max-w-md flex flex-col items-center gap-8 px-8">
-              <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30">{t("handle.eyebrow")}</p>
+              {t("handle.eyebrow") && (
+                <p className="text-[10px] font-black label-plain tracking-[0.4em] text-ink/30">{t("handle.eyebrow")}</p>
+              )}
               <div className="text-center">
                 <h1 className="text-5xl font-black text-ink label-plain tracking-tight mb-3">{t("handle.title")}</h1>
                 <p className="text-xs font-bold text-ink/40 label-plain tracking-wider">{t("handle.sub")}</p>

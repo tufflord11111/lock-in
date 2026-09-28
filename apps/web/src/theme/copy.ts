@@ -207,7 +207,7 @@ const notebook: Overrides = {
   "blocks.autostartSub": "so your time starts counting without you thinking about it",
   "blocks.web": "blocked sites",
   "blocks.sites": "sites",
-  "blocks.default": "the usual suspects",
+  "blocks.default": "the usual",
   "blocks.custom": "yours",
   "blocks.none": "nothing added yet",
   "blocks.remove": "remove",
@@ -251,7 +251,7 @@ const notebook: Overrides = {
   "handle.eyebrow": "one more thing",
   "handle.title": "pick a handle",
   "handle.sub": "this is what friends will see. you can't change it later.",
-  "handle.submit": "that's the one",
+  "handle.submit": "use this handle",
   "theme.title": "look",
 };
 
@@ -498,7 +498,8 @@ export function weekday(now = new Date()): string {
 
 export function copyFor(theme: ThemeName, key: CopyKey, vars?: CopyVars): string | null {
   const value = TABLE[theme][key];
-  return value == null ? null : fill(value, vars);
+  // An empty string means the same as null: this theme renders nothing here.
+  return value == null || value === "" ? null : fill(value, vars);
 }
 
 /**
