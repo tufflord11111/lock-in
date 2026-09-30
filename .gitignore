@@ -10,6 +10,11 @@ node_modules
 # Firebase config
 **/firebase-config.js
 
+# Admin SDK service account keys — never commit these
+*service-account*.json
+*serviceAccount*.json
+*-adminsdk-*.json
+
 # Build output
 dist/
 target/
