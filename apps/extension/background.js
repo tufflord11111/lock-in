@@ -58,6 +58,63 @@ let unlockExpiry = null;
 // lifetime the previous stored-boolean override had.
 let forceUnlocked = false;
 let activeDynamicBlacklist = [...STATIC_BLACKLIST];
+/**
+ * MV3 evicts this worker after ~30 s idle and every variable here resets. The
+ * blocklists only ever came from a Firebase snapshot, so after an eviction
+ * with no reachable Firebase — a blocked network, a plane, China — the
+ * extension woke up with the five hardcoded defaults and nothing else:
+ * session blocking off, permanent blocks gone. Each snapshot is therefore
+ * mirrored into chrome.storage.local, and the worker hydrates from it before
+ * the first navigation is judged.
+ */
+const PERSIST_KEY = "lockin_guard_state";
+/** Resolves once the worker has read its last known state back. */
+let hydrated = false;
+const hydrating = (async () => {
+  try {
+    const stored = await chrome.storage.local.get(PERSIST_KEY);
+    const g = stored?.[PERSIST_KEY];
+    if (g && typeof g === "object") {
+      if (Array.isArray(g.activeDynamicBlacklist)) activeDynamicBlacklist = g.activeDynamicBlacklist;
+      if (Array.isArray(g.permanentBlocklist)) permanentBlocklist = g.permanentBlocklist;
+      if (typeof g.focusActive === "boolean") focusActive = g.focusActive;
+      if (typeof g.sessionEndTime === "number" || g.sessionEndTime === null) sessionEndTime = g.sessionEndTime;
+      if (typeof g.manualLock === "boolean") manualLock = g.manualLock;
+      if (typeof g.thresholdReached === "boolean") thresholdReached = g.thresholdReached;
+      if (typeof g.unlockExpiry === "number" || g.unlockExpiry === null) unlockExpiry = g.unlockExpiry;
+      if (typeof g.uid === "string") storedUid = g.uid;
+      console.log("[Lock-In] hydrated guard state from storage", {
+        sites: activeDynamicBlacklist.length,
+        permanent: permanentBlocklist.length,
+        focusActive,
+      });
+    }
+  } catch (err) {
+    console.warn("[Lock-In] guard hydrate failed:", err);
+  } finally {
+    hydrated = true;
+  }
+})();
+
+/** The uid the stored state belongs to, so a different sign-in cannot inherit it. */
+let storedUid = null;
+
+function persistGuardState() {
+  const payload = {
+    uid: activeUid || storedUid || null,
+    activeDynamicBlacklist,
+    permanentBlocklist,
+    focusActive,
+    sessionEndTime,
+    manualLock,
+    thresholdReached,
+    unlockExpiry,
+    savedAt: Date.now(),
+  };
+  chrome.storage.local.set({ [PERSIST_KEY]: payload }).catch((err) =>
+    console.warn("[Lock-In] guard persist failed:", err)
+  );
+}
 let permanentBlocklist = [];
 let userUnsub = null;
 let heartbeatInterval = null;
@@ -158,6 +215,10 @@ function startLockInSession(uid) {
       ? Object.values(data.permanentBlocks).filter(v => typeof v === 'string')
       : [];
 
+    // Mirror to disk so an eviction does not lose it.
+    storedUid = activeUid;
+    persistGuardState();
+
     console.log(
       "[Lock-In] Session state -> locked:", isLockedNow(),
       "| session ends:", sessionEndTime ? new Date(sessionEndTime).toISOString() : "none",
@@ -221,6 +282,8 @@ function stopLockInSession() {
   forceUnlocked = false;
   activeDynamicBlacklist = [...STATIC_BLACKLIST];
   permanentBlocklist = [];
+  storedUid = null;
+  chrome.storage.local.remove(PERSIST_KEY).catch(() => {});
   updateBadge();
 }
 
@@ -291,22 +354,44 @@ function isDomainBlocked(url, blockList) {
 // ─── Navigation Interceptors ──────────────────────────────────────────────────
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId !== 0) return;
+  // A freshly woken worker must not wave a blocked site through while it is
+  // still reading its own state back; the read is local and sub-millisecond.
+  if (!hydrated) {
+    hydrating.then(() => guardNavigation(details.tabId, details.url));
+    return;
+  }
+  guardNavigation(details.tabId, details.url);
+});
+
+/** One place that decides whether a URL is allowed, used by both listeners. */
+function guardNavigation(tabId, url) {
+  if (!url) return;
   try {
     // Always block permanent sites
-    if (isDomainBlocked(details.url, permanentBlocklist)) {
-      chrome.tabs.update(details.tabId, { url: getBlockUrl() });
+    if (isDomainBlocked(url, permanentBlocklist)) {
+      chrome.tabs.update(tabId, { url: getBlockUrl() });
       return;
     }
     // Block session sites only when locked
-    if (isLockedNow() && isDomainBlocked(details.url, activeDynamicBlacklist)) {
-      chrome.tabs.update(details.tabId, { url: getBlockUrl() });
+    if (isLockedNow() && isDomainBlocked(url, activeDynamicBlacklist)) {
+      chrome.tabs.update(tabId, { url: getBlockUrl() });
     }
   } catch (_) {}
-});
+}
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const currentUrl = changeInfo.url || tab.url;
   if (!currentUrl) return;
+  if (!hydrated) {
+    hydrating.then(() => chrome.tabs.get(tabId).then((t) => {
+      const u = t?.url;
+      if (u && (isDomainBlocked(u, permanentBlocklist) ||
+                (isLockedNow() && isDomainBlocked(u, activeDynamicBlacklist)))) {
+        chrome.tabs.remove(tabId);
+      }
+    }).catch(() => {}));
+    return;
+  }
   try {
     // Always block permanent sites
     if (isDomainBlocked(currentUrl, permanentBlocklist)) {
