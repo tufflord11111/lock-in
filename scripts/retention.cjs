@@ -55,8 +55,16 @@ try {
 }
 if (!projectId) fail("The service account JSON has no project_id.");
 
+// This database lives in asia-southeast1, so it is NOT the default
+// {project}-default-rtdb.firebaseio.com that the SDK assumes. Taken from
+// packages/firebase/src/config.ts, overridable for any other instance.
+const DEFAULT_DATABASE_URL =
+  "https://synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app";
 const databaseURL =
-  process.env.FIREBASE_DATABASE_URL || `https://${projectId}-default-rtdb.firebaseio.com`;
+  process.env.FIREBASE_DATABASE_URL ||
+  (projectId === "synchrofocus-ac0f2"
+    ? DEFAULT_DATABASE_URL
+    : `https://${projectId}-default-rtdb.firebaseio.com`);
 
 admin.initializeApp({ credential: admin.credential.applicationDefault(), databaseURL });
 
@@ -158,9 +166,11 @@ function handleOf(node) {
     }
 
     const { activeDays, totalMinutes, last } = summarise(node);
+    const baselineRaw = (node?.config ?? {}).baselineHoursLost;
     rows.push({
       uid,
       handle: handle || "(no handle)",
+      baseline: typeof baselineRaw === "number" ? baselineRaw : null,
       created: auth.created,
       activeDays,
       last: last || "—",
@@ -172,19 +182,32 @@ function handleOf(node) {
 
   rows.sort((a, b) => b.activeDays - a.activeDays || b.totalMinutes - a.totalMinutes);
 
-  const head = ["handle", "created", "active days", "last session", "total mins", "ext version"];
+  const head = [
+    "handle",
+    "created",
+    "active days",
+    "last active",
+    "total mins",
+    "baseline h/day",
+    "stranger?",
+    "country",
+    "ext version",
+  ];
   const cells = rows.map((r) => [
     r.handle,
     r.created,
     String(r.activeDays),
     r.last,
     String(r.totalMinutes),
+    r.baseline === null ? "—" : String(r.baseline),
+    "", // filled in by hand: we have no way to know, and do not guess
+    "", // not collected
     r.version,
   ]);
   const width = head.map((h, i) =>
     Math.max(h.length, ...cells.map((c) => c[i].length), 0)
   );
-  const NUMERIC = new Set([2, 4]);
+  const NUMERIC = new Set([2, 4, 5]);
   const line = (c) =>
     c.map((v, i) => (NUMERIC.has(i) ? v.padStart(width[i]) : v.padEnd(width[i]))).join("  ");
 
