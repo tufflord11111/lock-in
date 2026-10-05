@@ -843,6 +843,64 @@ fn is_dev_mode(app: tauri::AppHandle) -> bool {
     }
 }
 
+// ─── IPC Commands: boot snapshot ─────────────────────────────────────────────
+// The RTDB web SDK keeps no disk cache, so a cold boot without a reachable
+// Firebase has nothing to render — no handle, no streak, no blocklist. The
+// webview therefore keeps its own snapshot of the last known good state next
+// to enforcer_state.json, and reads it before it waits for anything remote.
+//
+// Rust only stores and returns bytes. It never parses the contents, so a
+// malformed or hostile snapshot can do nothing here; the webview validates it.
+// Capped so a runaway writer cannot fill the disk.
+const SNAPSHOT_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+fn snapshot_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("snapshot.json"))
+        .map_err(|e| format!("app_data_dir unavailable: {}", e))
+}
+
+#[tauri::command]
+fn read_snapshot(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = snapshot_path(&app)?;
+    if !path.is_file() {
+        return Ok(None);
+    }
+    std::fs::read_to_string(&path)
+        .map(Some)
+        .map_err(|e| format!("read failed: {}", e))
+}
+
+#[tauri::command]
+fn write_snapshot(app: tauri::AppHandle, json: String) -> Result<(), String> {
+    if json.len() > SNAPSHOT_MAX_BYTES {
+        return Err(format!(
+            "snapshot too large: {} bytes (max {})",
+            json.len(),
+            SNAPSHOT_MAX_BYTES
+        ));
+    }
+    let path = snapshot_path(&app)?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Write to a sibling then rename, so a crash mid-write cannot leave a
+    // truncated snapshot that would boot the app into a half-empty dashboard.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json.as_bytes()).map_err(|e| format!("write failed: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("rename failed: {}", e))
+}
+
+#[tauri::command]
+fn clear_snapshot(app: tauri::AppHandle) -> Result<(), String> {
+    let path = snapshot_path(&app)?;
+    if path.is_file() {
+        std::fs::remove_file(&path).map_err(|e| format!("remove failed: {}", e))?;
+    }
+    Ok(())
+}
+
 // ─── IPC Command: append_ui_event ────────────────────────────────────────────
 // A small on-disk trail of UI events that are otherwise invisible after the
 // fact — a toast the operator never saw, a write that sat queued offline.
@@ -1122,7 +1180,7 @@ pub fn run() {
 
     tauri::Builder::default()
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, read_snapshot, write_snapshot, clear_snapshot])
         .setup(move |app| {
             let handle = app.handle().clone();
 

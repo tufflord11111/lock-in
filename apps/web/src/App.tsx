@@ -24,6 +24,9 @@ import { useHandleProfile, reserveHandle, asHandleError, HandleTakenError } from
 import { ThemeProvider, useTheme, useAccountTheme, useThemeToken, THEMES } from "./theme/ThemeProvider";
 import { useCopy, daypart, weekday } from "./theme/copy";
 import { useLockInStats } from "./hooks/useLockInStats";
+import { useSnapshotWriter } from "./hooks/useSnapshotWriter";
+import { useReachable } from "./hooks/useReachable";
+import { bootSnapshot } from "./snapshot";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
@@ -260,7 +263,9 @@ function AppInner() {
 
   // Sync blockedApps for Rust process killer.
   const stats = useLockInStats(user?.uid);
-  const [blockedApps, setBlockedApps] = useState<string[]>([]);
+  useSnapshotWriter(user?.uid);
+  const { reachable } = useReachable();
+  const [blockedApps, setBlockedApps] = useState<string[]>(() => bootSnapshot()?.blockedApps ?? []);
   // Raw {key: exe} and the parallel {key: originDeviceId} map, needed to tell
   // Rust which entries this device vouches for.
   const [blockedAppsRaw, setBlockedAppsRaw] = useState<Record<string, string>>({});
@@ -268,7 +273,9 @@ function AppInner() {
   // False until the blockedApps listener has fired at least once. An empty
   // blockedApps array is ambiguous — "no blocks configured" or "Firebase hasn't
   // answered yet" — so this distinguishes them for the start-button advisory.
-  const [blocklistHydrated, setBlocklistHydrated] = useState(false);
+  // A snapshot IS hydrated state: the enforcer already has this list on disk,
+  // so the "syncing" advisory would be telling the operator a falsehood.
+  const [blocklistHydrated, setBlocklistHydrated] = useState(() => !!bootSnapshot()?.uid);
   useEffect(() => {
     if (!user?.uid) return;
     const unsubApps = onValue(
@@ -626,6 +633,15 @@ function AppInner() {
               </div>
 
               <div className="flex items-center gap-8 shrink-0">
+                {!reachable && (
+                  <span
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[9px] font-bold"
+                    style={{ border: "1px solid var(--header-muted)", color: "var(--header-muted)" }}
+                    role="status"
+                  >
+                    {t("offline.pill")}
+                  </span>
+                )}
                 {isActive && (
                   <div className="flex flex-col items-end">
                     <p className="text-[9px] font-bold mb-1" style={{ color: "var(--header-muted)" }}>{t("session.active")}</p>
@@ -687,6 +703,15 @@ function AppInner() {
           </div>
 
           <div className="flex items-center gap-10">
+            {!reachable && (
+              <span
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-alt border-1 border-ink/20 text-[9px] font-black text-ink-muted label-action-sm"
+                role="status"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-offline" />
+                {t("offline.pill")}
+              </span>
+            )}
             <button 
               onClick={logout}
               className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-action-sm shadow-[shadow:var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all"

@@ -49,6 +49,27 @@ function useAppVersion(): string {
   return version;
 }
 
+/** Raised when sign-in has not come back inside SIGN_IN_DEADLINE_MS. */
+class SignInUnreachableError extends Error {
+  code = "sign-in-unreachable" as const;
+}
+
+/**
+ * Firebase's own timeout is 30 s, and a blocked network takes ~21 s to fail at
+ * the TCP layer. Neither is a wait anyone will sit through, so we stop first
+ * and say something the operator can act on.
+ */
+const SIGN_IN_DEADLINE_MS = 8000;
+
+function withSignInDeadline<T>(work: Promise<T>): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new SignInUnreachableError()), SIGN_IN_DEADLINE_MS)
+    ),
+  ]);
+}
+
 export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
   const [view, setView] = useState<AuthView>("login");
   const appVersion = useAppVersion();
@@ -79,6 +100,14 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
       return;
     }
 
+    // An empty form used to go to the server anyway: Firebase does not reject
+    // it locally, so with Google unreachable the button sat dead for 21 s and
+    // then showed a network error. Say the obvious thing instantly instead.
+    if (!email.trim() || !password) {
+      setError("Enter your email and password.");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -101,9 +130,9 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
           setIsLoading(false);
           return;
         }
-        await onRegister(email.trim(), password, username.trim());
+        await withSignInDeadline(onRegister(email.trim(), password, username.trim()));
       } else {
-        await onLogin(email.trim(), password);
+        await withSignInDeadline(onLogin(email.trim(), password));
       }
     } catch (err: any) {
       console.error("[Login] Auth error:", err);

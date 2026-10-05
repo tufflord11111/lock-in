@@ -3,6 +3,7 @@ import { db } from "@lock-in/firebase";
 import { ref, onValue, update, serverTimestamp } from "firebase/database";
 import { HANDLE_REGEX } from "./useFriends";
 import { logUiEvent } from "../uiEventLog";
+import { bootSnapshot } from "../snapshot";
 
 /**
  * The operator's name and handle, read from the SAME place registration
@@ -115,7 +116,9 @@ export function asHandleError(err: unknown): Error {
 
 export function useHandleProfile(uid: string | undefined, emailVerified: boolean) {
   // null = not loaded from the database yet. Never written as a default.
-  const [userName, setUserName] = useState<string | null>(null);
+  // The real handle, off disk, on frame one. Without this an offline boot
+  // showed "Operator" until the listener fired — which offline is never.
+  const [userName, setUserName] = useState<string | null>(() => bootSnapshot()?.handle ?? null);
   const [usernameSet, setUsernameSet] = useState<boolean | null>(null);
   const [status, setStatus] = useState<HandleStatus>("checking");
   const [handleError, setHandleError] = useState<string | null>(null);
@@ -124,7 +127,7 @@ export function useHandleProfile(uid: string | undefined, emailVerified: boolean
   // writes. Live (not onlyOnce) so a migration or an overlay submit closes the
   // overlay as soon as its write lands, locally or on the server.
   useEffect(() => {
-    setUserName(null);
+    setUserName(bootSnapshot()?.uid === uid ? bootSnapshot()?.handle ?? null : null);
     setUsernameSet(null);
     if (!uid) return;
     const u1 = onValue(

@@ -11,7 +11,7 @@
   },
   "app": {
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' tauri: https://synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app wss://synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app https://*.firebaseapp.com https://*.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebasedatabase.app https://*.firebaseio.com; frame-src https://calendar.google.com https://*.firebasedatabase.app https://*.firebaseio.com; img-src 'self' data: https:; connect-src 'self' https: wss:"
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' tauri: https://synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app wss://synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app https://*.firebaseapp.com https://*.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.firebasedatabase.app https://*.firebaseio.com; frame-src https://calendar.google.com https://*.firebasedatabase.app https://*.firebaseio.com; img-src 'self' data: https:; connect-src 'self' ipc: http://ipc.localhost https: wss:"
     },
     "windows": [
       {

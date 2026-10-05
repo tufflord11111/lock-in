@@ -4,6 +4,7 @@ import { db } from "@lock-in/firebase";
 import { useCopy } from "../theme/copy";
 import { useThemeToken } from "../theme/ThemeProvider";
 import { useLockInStats } from "../hooks/useLockInStats";
+import { bootSnapshot } from "../snapshot";
 import { Sticker } from "../theme/stickers";
 import { ref, onValue } from "firebase/database";
 
@@ -52,8 +53,14 @@ export function Dashboard({
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [newIntention, setNewIntention] = useState("");
   const [selectedDay, setSelectedDay] = useState<any | null>(null);
-  const [history, setHistory] = useState<Record<string, number>>({});
-  const [avgSessionMins, setAvgSessionMins] = useState<number | null>(null);
+  const [history, setHistory] = useState<Record<string, number>>(() => bootSnapshot()?.history ?? {});
+  const [avgSessionMins, setAvgSessionMins] = useState<number | null>(() => {
+    const sessions = (bootSnapshot()?.sessionHistory ?? []).filter(
+      (e) => typeof (e as { minutes?: unknown }).minutes === "number"
+    ) as { minutes: number }[];
+    if (!sessions.length) return null;
+    return Math.round(sessions.reduce((sum, e) => sum + e.minutes, 0) / sessions.length);
+  });
   const dailyTarget = 2; // Hours
 
   // Task 1: Bridge Quick Capture from chrome.storage.local

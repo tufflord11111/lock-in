@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { auth, db } from "@lock-in/firebase";
+import { bootSnapshot, clearSnapshot, forgetBootSnapshot } from "../snapshot";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -48,6 +49,8 @@ export function parseAuthError(err: any): string {
     return "Password must be at least 6 characters.";
   if (code === "auth/invalid-email")
     return "Invalid email format. Double-check your comm link.";
+  if (code === "sign-in-unreachable")
+    return "Can't reach the sign-in server. If you've signed in on this computer before, restart Lock-In and it will open offline.";
   if (code === "auth/network-request-failed")
     return "Network error. Check your connection and retry.";
   if (code === "auth/too-many-requests")
@@ -62,14 +65,40 @@ export function parseAuthError(err: any): string {
 }
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  /**
+   * Seeded from the on-disk snapshot, synchronously, before anything is
+   * awaited. A snapshot means this machine has a signed-in operator — sign-out
+   * and account deletion delete it — so the dashboard can render on frame one.
+   * Firebase confirms this uid later, or corrects it.
+   */
+  const [user, setUser] = useState<User | null>(() => {
+    const snap = bootSnapshot();
+    if (!snap?.uid) return null;
+    const cfg = (snap.config ?? {}) as { email?: unknown; emailVerified?: unknown };
+    return {
+      uid: snap.uid,
+      email: typeof cfg.email === "string" ? cfg.email : null,
+      emailVerified: cfg.emailVerified !== false,
+    } as User;
+  });
+  const [loading, setLoading] = useState(() => !bootSnapshot()?.uid);
   /** emailVerified is a snapshot separate from `user` so we can force-refresh it */
-  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(() => {
+    const cfg = (bootSnapshot()?.config ?? {}) as { emailVerified?: unknown };
+    return bootSnapshot()?.uid ? cfg.emailVerified !== false : false;
+  });
   /** Set to true immediately after a successful registration — triggers onboarding */
   const [isNewUser, setIsNewUser] = useState(false);
   /** True when the auth listener never fired within the 6 s ceiling */
   const [authDegraded, setAuthDegraded] = useState(false);
+  /**
+   * True when the dashboard was opened from the on-disk snapshot before
+   * Firebase answered. The operator is signed in — we just have not heard it
+   * from Google yet, which in a country that blocks them can take 24 s.
+   */
+  const [bootedFromSnapshot, setBootedFromSnapshot] = useState(() => !!bootSnapshot()?.uid);
+  /** The uid the snapshot booted us as, so a late null does not look like a sign-out. */
+  const snapshotUidRef = useRef<string | null>(bootSnapshot()?.uid ?? null);
   /** The verification email at registration failed to send. */
   const [verificationSendFailed, setVerificationSendFailed] = useState(false);
   /**
@@ -100,10 +129,24 @@ export function useAuth() {
     // WebView2, total network outage, etc.) force the app past the loading
     // gate so the user sees the retry screen instead of spinning forever.
     const authTimeout = setTimeout(() => {
+      // Only reachable when there was no snapshot to open from; a snapshot
+      // boot clears this timer. Degraded means "we genuinely do not know who
+      // you are", which is the only case that belongs on the Login screen.
       console.error('[LOCK-IN] auth listener never fired within 6 s — booting degraded');
       setAuthDegraded(true);
       finish(false, true);
     }, 6000);
+
+    // The snapshot has already seeded user/loading above, synchronously. All
+    // that is left is to stop the 6 s ceiling from firing behind it.
+    if (snapshotUidRef.current) {
+      clearTimeout(authTimeout);
+      console.info("[LOCK-IN] booted from snapshot", {
+        uid: snapshotUidRef.current.slice(0, 6),
+        savedAt: new Date(bootSnapshot()?.savedAt ?? 0).toISOString(),
+      });
+      finish(true, false);
+    }
 
     const unsubscribe = onAuthStateChanged(
       auth,
@@ -112,6 +155,19 @@ export function useAuth() {
         // register() publishes the final state itself when it finishes, and
         // writes the profile itself — so no backfill race either.
         if (registeringRef.current) return;
+
+        // Firebase has now spoken. If it says there is no user but we opened
+        // from a snapshot, the session really is gone (revoked, or signed out
+        // elsewhere) — drop the snapshot so the next boot does not reopen a
+        // dashboard nobody is signed in to.
+        if (!u && snapshotUidRef.current) {
+          console.warn("[LOCK-IN] snapshot boot superseded: Firebase reports no user");
+          snapshotUidRef.current = null;
+          setBootedFromSnapshot(false);
+          forgetBootSnapshot();
+          void clearSnapshot();
+        }
+
         setUser(u);
         setEmailVerified(u?.emailVerified ?? false);
 
@@ -339,6 +395,8 @@ export function useAuth() {
 
   const logout = async () => {
     try {
+      forgetBootSnapshot();
+      await clearSnapshot();
       await signOut(auth);
     } catch (err) {
       console.error("[Auth] Logout failed:", err);
@@ -360,6 +418,7 @@ export function useAuth() {
     emailVerified,
     isNewUser,
     authDegraded,
+    bootedFromSnapshot,
     verificationSendFailed,
     clearNewUserFlag,
     login,
