@@ -28,6 +28,7 @@ import { useSnapshotWriter } from "./hooks/useSnapshotWriter";
 import { useReachable } from "./hooks/useReachable";
 import { bootSnapshot } from "./snapshot";
 import { BaselineQuestion, hasBeenAsked } from "./components/BaselineQuestion";
+import { DemoOverlay } from "./components/DemoOverlay";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
@@ -616,6 +617,7 @@ function AppInner() {
 
       <KillFeed />
       <WriteFailureToasts />
+      <DemoOverlay enabled={devMode} />
 
       {/* GLOBAL HEADER */}
       {headerBand ? (
