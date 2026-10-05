@@ -54,6 +54,15 @@ export function Dashboard({
   const [newIntention, setNewIntention] = useState("");
   const [selectedDay, setSelectedDay] = useState<any | null>(null);
   const [history, setHistory] = useState<Record<string, number>>(() => bootSnapshot()?.history ?? {});
+  /** Raw session entries, for the weekly card. Seeded from the snapshot. */
+  const [sessions, setSessions] = useState<{ minutes?: number; timestamp?: number }[]>(
+    () => (bootSnapshot()?.sessionHistory ?? []) as { minutes?: number; timestamp?: number }[]
+  );
+  /** The operator's own estimate of what a normal day costs them, if they gave one. */
+  const [baselineHours, setBaselineHours] = useState<number | null>(() => {
+    const cfg = (bootSnapshot()?.config ?? {}) as { baselineHoursLost?: unknown };
+    return typeof cfg.baselineHoursLost === "number" ? cfg.baselineHoursLost : null;
+  });
   const [avgSessionMins, setAvgSessionMins] = useState<number | null>(() => {
     const sessions = (bootSnapshot()?.sessionHistory ?? []).filter(
       (e) => typeof (e as { minutes?: unknown }).minutes === "number"
@@ -88,14 +97,26 @@ export function Dashboard({
     return () => unsubscribe();
   }, [userId]);
 
+  // The baseline answer, live — so the comparison appears the moment it is given.
+  useEffect(() => {
+    if (!userId) return;
+    const unsub = onValue(
+      ref(db, `users/${userId}/config/baselineHoursLost`),
+      (snap) => setBaselineHours(typeof snap.val() === "number" ? snap.val() : null),
+      () => { /* offline: whatever the snapshot had stands */ }
+    );
+    return () => unsub();
+  }, [userId]);
+
   // Fetch Session History for AVG SESSION stat
   useEffect(() => {
     if (!userId) return;
     const sessRef = ref(db, `users/${userId}/sessionHistory`);
     const unsub = onValue(sessRef, (snapshot) => {
       const d = snapshot.val();
-      if (!d) { setAvgSessionMins(null); return; }
+      if (!d) { setAvgSessionMins(null); setSessions([]); return; }
       const entries = Object.values(d) as any[];
+      setSessions(entries);
       const withMins = entries.filter((e: any) => typeof e.minutes === 'number');
       if (withMins.length === 0) { setAvgSessionMins(null); return; }
       const avg = Math.round(
@@ -171,6 +192,29 @@ export function Dashboard({
       };
     });
   }, [history, dailyTarget]);
+
+  /**
+   * This week's evidence, from history/ and sessionHistory/ only — nothing new
+   * is written to produce it. "Per day" divides by the days actually used, not
+   * by seven, so a three-day week is not reported as if the other four were
+   * failures.
+   */
+  const week = useMemo(() => {
+    const days: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toLocaleDateString("en-CA"));
+    }
+    const minutes = days.reduce((sum, d) => sum + (history[d] || 0), 0);
+    const activeDays = days.filter((d) => (history[d] || 0) > 0).length;
+    const since = Date.now() - 7 * 86_400_000;
+    const count = sessions.filter(
+      (e) => typeof e?.minutes === "number" && (typeof e?.timestamp !== "number" || e.timestamp >= since)
+    ).length;
+    const perDay = activeDays > 0 ? minutes / 60 / activeDays : 0;
+    return { minutes, activeDays, sessions: count, perDay: perDay.toFixed(1) };
+  }, [history, sessions]);
 
   /** The last seven days, oldest first, for the Bento streak tile's chart. */
   const weekBars = useMemo(() => {
@@ -472,6 +516,23 @@ export function Dashboard({
     <>
       {/* OPERATOR HEATMAP (BOTTOM FULL WIDTH) */}
         <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] shrink-0 w-full mb-8">
+          {/* ── This week ───────────────────────────────────────────────
+              The one place the app says what the operator actually got back. */}
+          <div className="mb-8 pb-6 border-b border-ink/10 flex flex-col gap-2">
+            <p className="text-sm font-bold text-ink leading-snug">
+              {t("week.summary", {
+                minutes: String(week.minutes),
+                sessions: String(week.sessions),
+                days: String(week.activeDays),
+              })}
+            </p>
+            {baselineHours !== null && (
+              <p className="text-[11px] font-bold text-ink-muted leading-snug">
+                {t("week.vsBaseline", { baseline: String(baselineHours), perDay: week.perDay })}
+              </p>
+            )}
+          </div>
+
           <div className="flex justify-between items-center mb-8">
             <h2 className="text-xl font-bold text-ink tracking-tight">{t("history.title")}</h2>
             
