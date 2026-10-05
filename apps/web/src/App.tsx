@@ -27,6 +27,7 @@ import { useLockInStats } from "./hooks/useLockInStats";
 import { useSnapshotWriter } from "./hooks/useSnapshotWriter";
 import { useReachable } from "./hooks/useReachable";
 import { bootSnapshot } from "./snapshot";
+import { BaselineQuestion, hasBeenAsked } from "./components/BaselineQuestion";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite } from "./writeFailures";
@@ -197,6 +198,11 @@ function AppInner() {
   const [usernameInput, setUsernameInput] = useState("");
   const [usernameError, setUsernameError] = useState("");
   const [usernameSubmitting, setUsernameSubmitting] = useState(false);
+  /**
+   * The baseline question, asked once per machine — at the end of onboarding
+   * for new operators, on the next launch for everyone already here.
+   */
+  const [baselineDone, setBaselineDone] = useState(() => hasBeenAsked());
   /**
    * Read from DB once after email verification.
    * If true, the operator has already completed onboarding — skip WelcomeSequence.
@@ -550,6 +556,13 @@ function AppInner() {
 
       {/* USERNAME SETUP GATE */}
       <AnimatePresence>
+        {onboardingComplete === true &&
+          profile.usernameSet !== false &&
+          !baselineDone &&
+          !isActive && (
+            <BaselineQuestion userId={user.uid} onDone={() => setBaselineDone(true)} />
+          )}
+
         {onboardingComplete === true && profile.status === "ready" && profile.usernameSet === false && (
           <motion.div
             initial={{ opacity: 0 }}

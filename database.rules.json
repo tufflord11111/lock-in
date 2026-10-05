@@ -10,7 +10,8 @@
 
         "config": {
           "theme": { ".validate": "newData.isString() && newData.val().matches(/^(operator|notebook|bento|botanical)$/)" },
-          "themeAccent": { ".validate": "newData.isString() && newData.val().matches(/^(orange|sage|lavender|teal)$/)" }
+          "themeAccent": { ".validate": "newData.isString() && newData.val().matches(/^(orange|sage|lavender|teal)$/)" },
+          "baselineHoursLost": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" }
         },
 
         "public": {

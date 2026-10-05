@@ -191,6 +191,18 @@ async function check(name, expect, fn) {
   await check('public/userName "N1NJLA" is accepted', "pass",
     () => set(ref(alice, "users/alice/public/userName"), "N1NJLA"));
 
+  // ── 1.2.6 baseline question ───────────────────────────────────────────────
+  for (const hours of [0, 3, 12, 24]) {
+    await check(`config/baselineHoursLost ${hours} is accepted`, "pass",
+      () => set(ref(alice, "users/alice/config/baselineHoursLost"), hours));
+  }
+  await check("config/baselineHoursLost 25 is rejected", "fail",
+    () => set(ref(alice, "users/alice/config/baselineHoursLost"), 25));
+  await check("config/baselineHoursLost -1 is rejected", "fail",
+    () => set(ref(alice, "users/alice/config/baselineHoursLost"), -1));
+  await check('config/baselineHoursLost "3" (string) is rejected', "fail",
+    () => set(ref(alice, "users/alice/config/baselineHoursLost"), "3"));
+
   // State assertions (admin read)
   let state = {};
   await env.withSecurityRulesDisabled(async (ctx) => {
