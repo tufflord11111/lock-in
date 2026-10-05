@@ -1,4 +1,4 @@
-# Chrome Web Store submission — Lock-In Web Police 1.2.1
+# Chrome Web Store submission — Lock-In Web Police 1.2.3
 
 Everything the developer dashboard asks for on this update, in one place.
 Paste each block into the matching field.
@@ -8,20 +8,42 @@ Paste each block into the matching field.
 | | |
 |---|---|
 | Item | Lock-In Web Police (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
-| Version | 1.2.1 (previous published version: 1.0.7) |
-| Zip | `apps/extension/lock-in-extension-v1.2.1.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
-| SHA256 | `4CF24583221982F7CF4C29D609C69817E533BC7BEB56D2E1681742FDC0E597A0` (108,434 bytes, 2026-09-15) |
+| Version | 1.2.3 (previous published version: 1.0.7) |
+| Zip | `apps/extension/lock-in-extension-v1.2.3.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
+| SHA256 | `B16BB82B78A681EB56C7B299EC2624B3DADA459569846CEAEBA82A364C4EE88A` (108,805 bytes, 2026-10-05) |
 | Permissions | `storage`, `webNavigation`, `alarms` |
 | Host permissions | `<all_urls>` |
 
 If you rebuild the zip, update the SHA256 above. Entry names must use `/`
 separators (the old v1.2.0 zip used `\`, which Chrome can unpack wrongly).
+PowerShell's `Compress-Archive` writes `\` on Windows, so this zip is built by
+`scripts`-free Node instead; verify with any unzip tool that the entries read
+`assets/index.js`, not `assets\index.js`, and that `manifest.json` sits at the
+root rather than inside a `dist/` folder.
+
+## What changed since the published version (1.0.7)
+
+For the reviewer's "what's new", and for your own record:
+
+- **1.2.1** — open-tab upload removed. The extension no longer reads or
+  transmits the user's open tabs; the database rules reject the field.
+- **1.2.2** — session blocklist read from the user's own record rather than a
+  shared node, so one user's session can no longer set another's blocklist.
+- **1.2.3** — the guard state (blocklist, session flag, session end time) is
+  mirrored into `chrome.storage.local` so a suspended service worker restores
+  it on wake instead of falling back to defaults.
+
+> **Known issue in 1.2.3, fixed in 1.2.7:** the restore in the bullet above
+> does not reliably take effect before the first navigation after the worker
+> wakes, so blocking can lapse until the next server snapshot arrives. It is a
+> regression in a resilience path only — blocking with a live connection is
+> unaffected — but do not describe 1.2.3 as fixing offline enforcement.
 
 ## Store listing → Privacy practices
 
 ### Single purpose
 
-> Lock-In Web Police blocks websites on the user's own blocklist during a Lock-In focus session. The session is started from the Lock-In desktop app or the Lock-In web app, and the extension enforces it in Chrome by redirecting blocked sites to a local block page.
+> Lock-In Web Police blocks websites on the user's own blocklist during a Lock-In focus session. The session is started from the Lock-In desktop app or the Lock-In web app, and the extension enforces it in Chrome by redirecting blocked sites to a local block page. The session's end time is read from the user's own record and compared against the device clock, so blocking stops by itself the moment the session expires even if the browser never hears from the server again — nothing keeps a user locked out after their session is over.
 
 ### Permission justifications
 
@@ -49,8 +71,11 @@ separators (the old v1.2.0 zip used `\`, which Chrome can unpack wrongly).
 
 Tick:
 
-- [x] **Authentication information** — the password entered in the popup is sent to Firebase Authentication to sign in.
-- [x] **Personally identifiable information** — the email address entered in the popup is sent to Firebase Authentication. Google lists "email address" under this category, so declare it rather than under-declare.
+- [x] **Authentication information** — the email and password entered in the popup are sent to Firebase Authentication to sign in. This is the only category that applies.
+
+Nothing else is collected. The extension has no content scripts, does not
+request `scripting` or `tabs`, and never reads page content, the DOM, cookies
+or form data.
 
 Leave unticked:
 
@@ -58,7 +83,7 @@ Leave unticked:
 - [ ] Financial and payment information
 - [ ] Personal communications
 - [ ] Location
-- [ ] Web history — page addresses are compared in memory and never transmitted; open-tab upload was removed in 1.2.1 and is rejected by the database rules
+- [ ] Web history — page addresses are compared in memory and never transmitted. **Open-tab upload was removed in 1.2.1**: the extension no longer writes `openTabs` (domain, title, favicon) to the database, the field is rejected outright by the database rules, and no build since contains the code. Verified absent from this package.
 - [ ] User activity
 - [ ] Website content
 
@@ -68,7 +93,7 @@ Tick all three certifications:
 - [x] I do not use or transfer user data for purposes that are unrelated to my item's single purpose
 - [x] I do not use or transfer user data to determine creditworthiness or for lending purposes
 
-> The listing for 1.0.7 was declared when that version uploaded open-tab domains. If **Web history** or **User activity** are ticked on the current listing, untick them for this submission.
+> The listing for 1.0.7 was declared when that version uploaded open-tab domains. That upload was removed in 1.2.1. If **Web history**, **User activity** or **Personally identifiable information** are ticked on the current listing, untick them for this submission: the only remaining category is **Authentication information**.
 
 ### Privacy policy URL
 
@@ -85,10 +110,10 @@ Before submitting:
 
 1. Create the test account through the popup's **Create account** link or at
    https://lock-in-mobile.vercel.app/#register, so it gets a normal profile.
-   Extension 1.2.1 sends no heartbeat for an account without one.
+   Extension 1.2.3 sends no heartbeat for an account without one.
 2. Do not remove `youtube.com` from its default blocklist, or step 6 below
    will not trigger.
-3. Run the seven steps yourself once with the zipped build.
+3. Run the seven steps yourself once with the zipped build (1.2.3).
 4. Replace the two placeholder credential lines.
 
 Paste into the **Test instructions** field:
