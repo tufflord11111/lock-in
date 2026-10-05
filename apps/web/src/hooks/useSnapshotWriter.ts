@@ -61,9 +61,11 @@ export function useSnapshotWriter(userId: string | undefined): void {
         if (typeof v === "string") s.handle = v;
       }),
       listen("blockedApps", (v, s) => {
-        s.blockedApps = Object.values((v ?? {}) as Record<string, string>).filter(
-          (x): x is string => typeof x === "string"
-        );
+        s.blockedAppsRaw = (v ?? {}) as Record<string, string>;
+        s.blockedApps = Object.values(s.blockedAppsRaw).filter((x): x is string => typeof x === "string");
+      }),
+      listen("blockedApps_meta", (v, s) => {
+        s.blockedAppsMeta = (v ?? {}) as Record<string, string>;
       }),
       listen("permanentExe", (v, s) => {
         s.permanentExe = Object.values((v ?? {}) as Record<string, string>).filter(

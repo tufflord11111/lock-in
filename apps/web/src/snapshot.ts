@@ -17,7 +17,7 @@ const isTauri =
   typeof window !== "undefined" && !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 
 /** Bumped when the shape changes; an older snapshot is ignored rather than guessed at. */
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2;
 
 export type Snapshot = {
   version: number;
@@ -25,7 +25,15 @@ export type Snapshot = {
   savedAt: number;
   handle: string | null;
   config: Record<string, unknown>;
+  /** Display list. */
   blockedApps: string[];
+  /**
+   * The raw key -> exe and key -> deviceId maps. The enforcer push is computed
+   * from these, not from the display list: seeding only the list made the push
+   * send an empty blocklist and clear the enforcer on an offline boot.
+   */
+  blockedAppsRaw: Record<string, string>;
+  blockedAppsMeta: Record<string, string>;
   permanentExe: string[];
   customBlocks: Record<string, string>;
   permanentBlocks: Record<string, string>;
@@ -45,6 +53,8 @@ export function emptySnapshot(uid: string): Snapshot {
     handle: null,
     config: {},
     blockedApps: [],
+    blockedAppsRaw: {},
+    blockedAppsMeta: {},
     permanentExe: [],
     customBlocks: {},
     permanentBlocks: {},

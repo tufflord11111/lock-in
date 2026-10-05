@@ -275,14 +275,19 @@ function AppInner() {
   const [blockedApps, setBlockedApps] = useState<string[]>(() => bootSnapshot()?.blockedApps ?? []);
   // Raw {key: exe} and the parallel {key: originDeviceId} map, needed to tell
   // Rust which entries this device vouches for.
-  const [blockedAppsRaw, setBlockedAppsRaw] = useState<Record<string, string>>({});
-  const [blockedAppsMeta, setBlockedAppsMeta] = useState<Record<string, string>>({});
+  const [blockedAppsRaw, setBlockedAppsRaw] = useState<Record<string, string>>(() => bootSnapshot()?.blockedAppsRaw ?? {});
+  const [blockedAppsMeta, setBlockedAppsMeta] = useState<Record<string, string>>(() => bootSnapshot()?.blockedAppsMeta ?? {});
   // False until the blockedApps listener has fired at least once. An empty
   // blockedApps array is ambiguous — "no blocks configured" or "Firebase hasn't
   // answered yet" — so this distinguishes them for the start-button advisory.
   // A snapshot IS hydrated state: the enforcer already has this list on disk,
   // so the "syncing" advisory would be telling the operator a falsehood.
-  const [blocklistHydrated, setBlocklistHydrated] = useState(() => !!bootSnapshot()?.uid);
+  // Hydrated means "we know the real list" — which is true only when the
+  // snapshot actually carried one. Seeding this true with an empty raw map
+  // pushed an empty blocklist to Rust and cleared the enforcer.
+  const [blocklistHydrated, setBlocklistHydrated] = useState(
+    () => Object.keys(bootSnapshot()?.blockedAppsRaw ?? {}).length > 0
+  );
   useEffect(() => {
     if (!user?.uid) return;
     const unsubApps = onValue(
@@ -478,8 +483,13 @@ function AppInner() {
   // Safety-net: 8 s hard ceiling — dep array [] so the timer is set once and never
   // cancelled early by a loading->false transition (the old [loading] dep bug).
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
   useEffect(() => {
     const t = setTimeout(() => {
+      // Only meaningful while the loading gate is still up; a snapshot boot is
+      // long past it, and the warning in that log was pure noise.
+      if (!loadingRef.current) return;
       console.warn('[LOCK-IN] Loading screen 8 s hard ceiling — showing offline UI');
       setLoadingTimedOut(true);
     }, 8000);
