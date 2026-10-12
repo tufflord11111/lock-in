@@ -7,6 +7,7 @@ import { useThemeToken } from "../theme/ThemeProvider";
 import { useLockInStats } from "../hooks/useLockInStats";
 import { bootSnapshot } from "../snapshot";
 import { BailOut } from "../components/BailOut";
+import { HoldButton } from "../components/HoldButton";
 import { Sticker } from "../theme/stickers";
 import { ref, onValue } from "firebase/database";
 
@@ -154,6 +155,9 @@ export function Dashboard({
     const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, []);
+
+  /** 45, 60 and 90 are held to start; 25 and Micro are not. */
+  const requiresHold = selectedMinutes >= 45;
 
   const endsAt = useMemo(() => {
     const end = new Date(nowTick + selectedMinutes * 60_000);
@@ -458,12 +462,33 @@ export function Dashboard({
                     ))}
                   </div>
   
-                  <button
-                    onClick={() => startWithObjective(selectedMinutes)}
-                    className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
-                  >
-                    {t("session.start")}
-                  </button>
+                  {/* Anything from 45 minutes up has to be held, because it
+                      is long enough that starting it by accident matters and
+                      there is no cheap way out once it runs. 25 and the
+                      2-minute Micro stay a single click. */}
+                  {requiresHold ? (
+                    <HoldButton
+                      onComplete={() => startWithObjective(selectedMinutes)}
+                      ariaLabel={t("hold.instruction") ?? "Hold to start"}
+                      className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] transition-all"
+                      fillClassName="bg-surface-inverse/25"
+                    >
+                      {t("hold.instruction")}
+                    </HoldButton>
+                  ) : (
+                    <button
+                      onClick={() => startWithObjective(selectedMinutes)}
+                      className="w-full bg-ink text-surface-inverse py-6 rounded-full font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
+                    >
+                      {t("session.start")}
+                    </button>
+                  )}
+
+                  {requiresHold && (
+                    <p className="mt-3 text-[10px] font-bold text-ink-muted text-center leading-snug max-w-[280px]">
+                      {t("hold.warning")}
+                    </p>
+                  )}
   
                   {/* Present in every theme; Bento just draws it much larger. */}
                   <p className={`mt-4 font-bold text-ink-muted tabular-nums ${bento ? "text-[40px] leading-none" : "text-[11px]"}`}>
