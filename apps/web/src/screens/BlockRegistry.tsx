@@ -432,9 +432,9 @@ export function BlockRegistry({
 
   return (
     <div className="h-full overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <div className="flex flex-row gap-8 w-full" style={{ paddingBottom: '200px', alignItems: 'flex-start' }}>
+      <div className="flex flex-col min-[1100px]:flex-row gap-8 w-full" style={{ paddingBottom: '200px', alignItems: 'flex-start' }}>
         {/* LEFT COLUMN: GLOBAL CONTROLS */}
-        <div className="w-[450px] shrink-0 flex flex-col gap-8 self-start" style={{ minWidth: '280px' }}>
+        <div className="w-full min-[1100px]:w-[450px] shrink-0 flex flex-col gap-8 self-start">
         {/* APPEARANCE — first, because it changes everything below it */}
         <AppearancePicker />
 

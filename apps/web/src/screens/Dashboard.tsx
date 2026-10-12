@@ -321,7 +321,8 @@ export function Dashboard({
                 onChange={(e) => setObjective(e.target.value)}
                 disabled={isActive}
                 placeholder={t("mission.placeholder") ?? ""}
-                className="w-full bg-transparent border-b border-ink/10 py-3 text-4xl font-bold text-ink outline-none focus:border-ink transition-all disabled:opacity-50"
+                className="w-full bg-transparent border-b border-ink/10 py-3 font-bold text-ink outline-none focus:border-ink transition-all disabled:opacity-50"
+              style={{ fontSize: "var(--mission-size)" }}
               />
             </section>
     </>

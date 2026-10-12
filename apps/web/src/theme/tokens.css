@@ -133,6 +133,10 @@
   --transform-eyebrow: none;
   --transform-text: none;
 
+  /* The mission field is one line and cannot wrap, so its type size has to
+     suit the length of that theme's own placeholder. */
+  --mission-size: 2.25rem;
+
   --radius-auth-card: 0px;
   --radius-auth-field: 0px;
   --border-auth: var(--border-1);
@@ -523,6 +527,10 @@
   --shadow-ok: none;
   --shadow-hero: none;
   --shadow-glow: 0 0 60px rgb(var(--online-rgb) / 0.6);
+
+
+  /* "What would make this week feel well spent?" does not fit at 2.25rem. */
+  --mission-size: 1.75rem;
 
 }
 
