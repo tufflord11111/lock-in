@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { Sticker } from "../theme/stickers";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, get, child } from "firebase/database";
 import { useFriends, FriendAddError } from "../hooks/useFriends";
@@ -218,7 +219,8 @@ export function ThePack({ userId }: ThePackProps) {
       
       {/* TOP RECRUITMENT BAR */}
       <div className="flex flex-row justify-between items-center gap-6 p-4 border-b-1 border-ink mb-8">
-        <div className="flex items-center gap-4">
+        <div className="relative isolate flex items-center gap-4">
+            <Sticker slot="pack.add" />
           <h2 className="text-lg font-bold text-ink">{t("pack.add")}</h2>
           <div className="flex gap-2">
             <input
@@ -262,7 +264,8 @@ export function ThePack({ userId }: ThePackProps) {
         {/* LEFT COLUMN: LIVE STATUS */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Active Operators */}
-          <div className="mb-4">
+          <div className="relative isolate mb-4">
+            <Sticker slot="pack.online" />
             <h2 className="text-xl font-bold text-ink">{t("pack.online")}</h2>
           </div>
           <div className="flex flex-col gap-3 mb-8">
@@ -304,7 +307,8 @@ export function ThePack({ userId }: ThePackProps) {
           </div>
 
           {/* Offline Operators */}
-          <div className="mb-4">
+          <div className="relative isolate mb-4">
+            <Sticker slot="pack.offline" />
             <h2 className="text-xl font-bold text-ink">{t("pack.offline")}</h2>
           </div>
           <div className="flex flex-col gap-3">
@@ -339,7 +343,8 @@ export function ThePack({ userId }: ThePackProps) {
 
         {/* RIGHT COLUMN: THE ARENA */}
         <div className="flex-1 flex flex-col min-w-0 border-l-1 border-ink/10 pl-12">
-          <div className="mb-6 flex items-center justify-between">
+          <div className="relative isolate mb-6 flex items-center justify-between">
+            <Sticker slot="pack.leaderboard" />
             <h2 className="text-xl font-bold text-ink">{t("pack.leaderboard")}</h2>
             <button 
               onClick={fetchLeaderboard}

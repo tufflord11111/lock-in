@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Sticker } from "../theme/stickers";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Trash2, ShieldAlert, AlertTriangle, Lock, Clock, User, Search, MousePointer2, FolderOpen, RefreshCcw, X, Power } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
@@ -439,7 +440,8 @@ export function BlockRegistry({
 
         {/* IDENTITY */}
         <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[shadow:var(--shadow-2)]">
-          <div className="flex items-center gap-3 mb-6">
+          <div className="relative isolate flex items-center gap-3 mb-6">
+            <Sticker slot="blocks.identity" />
             <User size={18} className="text-ink" />
             <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.identity")}</h2>
           </div>
@@ -458,7 +460,8 @@ export function BlockRegistry({
         {/* UPTIME TRACKER */}
         <section className="bg-surface border-1 border-ink p-8 rounded-2xl shadow-[shadow:var(--shadow-2)] flex flex-col justify-between">
           <div>
-            <div className="flex items-center gap-3 mb-8">
+            <div className="relative isolate flex items-center gap-3 mb-8">
+            <Sticker slot="blocks.telemetry" />
               <Clock size={18} className="text-ink" />
               <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.telemetry")}</h2>
             </div>
@@ -479,7 +482,8 @@ export function BlockRegistry({
 
         {/* BOOT INITIALIZATION */}
         <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[shadow:var(--shadow-2)]">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="relative isolate flex items-center gap-3 mb-4">
+            <Sticker slot="blocks.boot" />
             <Power size={18} className="text-ink" />
             <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.boot")}</h2>
           </div>
@@ -527,7 +531,8 @@ export function BlockRegistry({
 
         {/* WEB BLOCKER REGISTRY */}
         <section className="w-full bg-surface-alt border-1 border-ink-2 p-6 rounded-2xl shadow-[4px_4px_0px_var(--ink-2)] flex flex-col gap-4" style={{ height: 'auto', alignSelf: 'flex-start' }}>
-          <div className="flex items-center gap-3">
+          <div className="relative isolate flex items-center gap-3">
+            <Sticker slot="blocks.web" />
             <Lock size={18} className="text-ink-2" />
             <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink-2/60">{t("blocks.web")}</h2>
           </div>
@@ -588,7 +593,8 @@ export function BlockRegistry({
       {/* RIGHT COLUMN: BLACKLIST REGISTRY */}
       <div className="flex-1 flex flex-col gap-8 self-start">
         <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] flex flex-col" style={{ paddingBottom: '40px' }}>
-          <div className="flex items-center gap-3 mb-8">
+          <div className="relative isolate flex items-center gap-3 mb-8">
+            <Sticker slot="blocks.apps" />
             <ShieldAlert size={18} className="text-ink" />
             <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("blocks.apps")}</h2>
           </div>

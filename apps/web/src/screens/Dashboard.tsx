@@ -309,7 +309,7 @@ export function Dashboard({
   const missionCard = (
     <>
       {/* STRATEGIC OBJECTIVE */}
-            <section className={`${bento ? "bg-surface-tint" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative`}>
+            <section className={`${bento ? "bg-surface-tint" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative isolate`}>
               <Sticker slot="mission" />
               <div className="flex items-center gap-3 mb-6">
                 <Target size={18} className="text-ink" />
@@ -330,7 +330,7 @@ export function Dashboard({
   const tasksCard = (
     <>
       {/* INTENTIONS / TO-DO LIST */}
-            <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative flex flex-col">
+            <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative isolate flex flex-col">
               <Sticker slot="todo" />
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
@@ -407,7 +407,7 @@ export function Dashboard({
   const sessionCard = (
     <>
       {/* TIMER UNIT */}
-            <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[shadow:var(--shadow-3)] flex flex-col items-center justify-center text-center relative`}>
+            <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[shadow:var(--shadow-3)] flex flex-col items-center justify-center text-center relative isolate`}>
               <Sticker slot="session" />
               {isActive ? (
                 <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
@@ -511,7 +511,7 @@ export function Dashboard({
   const streakCard = (
     <>
       {/* FIX 2: STREAK CARD — no emoji, three stat pills */}
-            <section className={`${bento ? "bg-accent card-accent" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative`}>
+            <section className={`${bento ? "bg-accent card-accent" : "bg-surface"} border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] relative isolate`}>
               <Sticker slot="streak" />
               <div className="flex items-center gap-3 mb-6">
                 <h2 className="text-[10px] font-black label-plain tracking-[0.2em] text-ink/30">{t("streak.label")}</h2>
@@ -572,7 +572,8 @@ export function Dashboard({
   const historyCard = (
     <>
       {/* OPERATOR HEATMAP (BOTTOM FULL WIDTH) */}
-        <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] shrink-0 w-full mb-8">
+        <section className="bg-surface border-1 border-ink rounded-2xl p-8 shadow-[shadow:var(--shadow-2)] shrink-0 w-full mb-8 relative isolate">
+          <Sticker slot="history" />
           {/* ── This week ───────────────────────────────────────────────
               The one place the app says what the operator actually got back. */}
           <div className="mb-8 pb-6 border-b border-ink/10 flex flex-col gap-2">

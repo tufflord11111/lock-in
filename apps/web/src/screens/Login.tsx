@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Sticker } from "../theme/stickers";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Shield, Zap, User, Mail, Key, RotateCcw, ArrowLeft, CheckCircle } from "lucide-react";
 import { parseAuthError } from "../hooks/useAuth";
@@ -176,7 +177,8 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
         style={{ transform: "rotate(var(--rotate-logo))" }}
       >
         <div className="flex items-center gap-4 mb-4">
-          <div className="w-12 h-12 bg-ink rounded-auth-field flex items-center justify-center">
+          <div className="relative isolate w-12 h-12 bg-ink rounded-auth-field flex items-center justify-center">
+            <Sticker slot="login" />
             <Lock className="text-surface-inverse" size={24} />
           </div>
           <h1 className="text-4xl font-black text-ink tracking-tighter label-plain italic leading-none">

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Sticker } from "../theme/stickers";
 import { useCopy } from "../theme/copy";
 import { CheckCircle, Circle, Plus, Trash2, X, Calendar } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -125,9 +126,11 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
     <div className="flex flex-col h-full overflow-y-auto pb-40 animate-in fade-in slide-in-from-bottom-4 duration-700 w-full gap-6">
 
       {/* GOOGLE CALENDAR SECTION */}
-      <div className="bg-surface-alt border-1 border-ink-2 rounded-xl p-6 shadow-[4px_4px_0px_var(--ink-2)]">
+      <div className="relative isolate bg-surface-alt border-1 border-ink-2 rounded-xl p-6 shadow-[4px_4px_0px_var(--ink-2)]">
+            <Sticker slot="plan.header" />
         <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/40 mb-1">{t("plan.calendar")}</p>
-        <div className="flex items-center justify-between mb-4">
+        <div className="relative isolate flex items-center justify-between mb-4">
+            <Sticker slot="plan.schedule" />
           <h2 className="text-xl font-black text-ink-2 label-plain tracking-tight">{t("plan.schedule")}</h2>
           {calendarUrl && (
             <button onClick={disconnectCalendar} className="text-[9px] font-black label-action-sm text-ink-2/40 hover:text-danger-soft transition-colors">{t("plan.disconnect")}</button>
@@ -173,7 +176,8 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative w-full max-w-[480px] bg-surface-alt border-1 border-ink-2 shadow-[8px_8px_0px_var(--ink-2)] p-8 rounded-xl"
             >
-              <div className="flex items-center justify-between mb-6">
+              <div className="relative isolate flex items-center justify-between mb-6">
+            <Sticker slot="plan.connect" />
                 <h2 className="text-lg font-black text-ink-2 label-plain tracking-tight">{t("plan.connect")}</h2>
                 <button onClick={() => setShowCalendarModal(false)} className="text-ink-2/30 hover:text-ink-2 transition-colors">
                   <X size={20} />
