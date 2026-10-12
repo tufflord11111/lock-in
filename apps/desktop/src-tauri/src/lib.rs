@@ -76,6 +76,22 @@ struct LockProfile {
     /// session itself against this value.
     #[serde(default)]
     session_end_time: Option<u64>,
+    /// Wall-clock deadline (epoch ms) of a bail-out fuse, or None.
+    ///
+    /// Bailing out does not stop the session — it starts a fuse. Enforcement
+    /// continues untouched until this moment, and only then does the session
+    /// end, voided. The value lives here, next to session_end_time, because it
+    /// must survive both a restart and a sign-out: a fuse the operator could
+    /// escape by quitting the app would not be a fuse.
+    #[serde(default)]
+    bailout_deadline: Option<u64>,
+    /// Local calendar date ("YYYY-MM-DD") on which a bail-out was last armed.
+    ///
+    /// One per day. The webview supplies the date because "local calendar day"
+    /// is a property of the operator's locale, not of this process; Rust still
+    /// owns every comparison that decides whether the fuse has burned down.
+    #[serde(default)]
+    bailout_used_date: Option<String>,
 }
 
 // "soft" everywhere by default — "hard" seizes the screen (fullscreen,
@@ -83,6 +99,12 @@ struct LockProfile {
 fn default_lock_mode() -> String {
     "soft".to_string()
 }
+
+/// How long the bail-out fuse burns. Long enough that bailing out is a
+/// decision rather than a reflex, short enough to be a real escape hatch.
+const BAILOUT_FUSE_MS: u64 = 5 * 60 * 1000;
+/// DEV_MODE shortens it so the whole path can be exercised in a test run.
+const BAILOUT_FUSE_DEV_MS: u64 = 30 * 1000;
 
 /// Minimum length of a user-supplied block term.
 ///
@@ -395,11 +417,26 @@ fn restore_profile(profile: &Arc<Mutex<LockProfile>>, path: &PathBuf, app: &taur
         p.permanent_exe.clear();
         p.permanent_pending.clear();
         p.session_end_time = None;
+        p.bailout_deadline = None;
         println!("[Persist] restored with disarm latch SET — forced disarmed, all blocks cleared");
     }
 
     // Expire a session whose deadline passed while the app was closed, so it
     // never arms even for the first 2 s tick.
+    if p.focus_active {
+        // A fuse that burned down while the app was closed still fires: the
+        // whole point is that quitting cannot outrun it.
+        if let Some(fuse) = p.bailout_deadline {
+            if now_millis() >= fuse {
+                p.focus_active = false;
+                p.session_end_time = None;
+                p.bailout_deadline = None;
+                println!("[Persist] bail-out fuse burned down while closed — stood down, void");
+                emit_stood_down(app, "bailout-expired", p.exe_blacklist.len());
+            }
+        }
+    }
+
     if p.focus_active {
         match p.session_end_time {
             Some(end) if now_millis() >= end => {
@@ -901,6 +938,85 @@ fn clear_snapshot(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ─── IPC Command: arm_bailout ────────────────────────────────────────────────
+/// Arm the bail-out fuse for the running session.
+///
+/// Returns the deadline on success. Refuses — without changing anything — when
+/// there is no live session, when a fuse is already burning, or when one has
+/// already been used on this local date. The refusal carries the milliseconds
+/// remaining so the UI can say how long is left rather than only that it said
+/// no. Nothing here can shorten or cancel an existing fuse; there is
+/// deliberately no disarm counterpart.
+#[derive(Serialize)]
+struct BailoutResult {
+    armed: bool,
+    /// Epoch ms when the fuse burns down. Present whenever one is burning.
+    deadline: Option<u64>,
+    /// Why it refused: "no-session" | "already-burning" | "used-today".
+    refused: Option<String>,
+    /// Milliseconds left on the burning fuse, when one is burning.
+    remaining_ms: Option<u64>,
+}
+
+#[tauri::command]
+fn arm_bailout(
+    app: tauri::AppHandle,
+    app_state: State<AppState>,
+    local_date: String,
+) -> Result<BailoutResult, String> {
+    let mut profile = app_state
+        .profile
+        .lock()
+        .map_err(|e| format!("profile lock poisoned: {}", e))?;
+
+    let now = now_millis();
+
+    // A fuse already burning is reported, never restarted: restarting it would
+    // be a way to extend the session, which is the opposite of the point.
+    if let Some(deadline) = profile.bailout_deadline {
+        if deadline > now {
+            return Ok(BailoutResult {
+                armed: false,
+                deadline: Some(deadline),
+                refused: Some("already-burning".to_string()),
+                remaining_ms: Some(deadline - now),
+            });
+        }
+    }
+
+    if !profile.focus_active {
+        return Ok(BailoutResult {
+            armed: false,
+            deadline: None,
+            refused: Some("no-session".to_string()),
+            remaining_ms: None,
+        });
+    }
+
+    if profile.bailout_used_date.as_deref() == Some(local_date.as_str()) {
+        return Ok(BailoutResult {
+            armed: false,
+            deadline: None,
+            refused: Some("used-today".to_string()),
+            remaining_ms: None,
+        });
+    }
+
+    let fuse = if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS };
+    let deadline = now + fuse;
+    profile.bailout_deadline = Some(deadline);
+    profile.bailout_used_date = Some(local_date);
+    persist_profile(&profile, &app_state.state_path);
+    println!("[Enforcer] bail-out armed — fuse {} ms, deadline {}", fuse, deadline);
+
+    Ok(BailoutResult {
+        armed: true,
+        deadline: Some(deadline),
+        refused: None,
+        remaining_ms: Some(fuse),
+    })
+}
+
 // ─── IPC Command: append_ui_event ────────────────────────────────────────────
 // A small on-disk trail of UI events that are otherwise invisible after the
 // fact — a toast the operator never saw, a write that sat queued offline.
@@ -919,6 +1035,8 @@ const UI_EVENTS: &[&str] = &[
     "session-end-timeout-connected",
     "session-end-acked",
     "session-end-refused",
+    "bailout-armed",
+    "bailout-fired",
     "reconcile-write",
     "name-repair",
 ];
@@ -997,10 +1115,16 @@ struct EnforcerState {
     disarm_latch: bool,
     /// Epoch ms deadline of the running session, or null when none is armed.
     session_end_time: Option<u64>,
+    bailout_deadline: Option<u64>,
+    bailout_used_date: Option<String>,
+    /// How long a fuse armed right now would burn. The UI states this before
+    /// the operator commits, and DEV_MODE shortens it, so it cannot be a
+    /// constant on the webview side.
+    bailout_fuse_ms: u64,
 }
 
 #[tauri::command]
-fn get_enforcer_state(app_state: State<AppState>) -> Result<EnforcerState, String> {
+fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Result<EnforcerState, String> {
     match app_state.profile.lock() {
         Ok(profile) => Ok(EnforcerState {
             is_locked: profile.is_locked,
@@ -1011,6 +1135,9 @@ fn get_enforcer_state(app_state: State<AppState>) -> Result<EnforcerState, Strin
             permanent_pending: profile.permanent_pending.iter().cloned().collect(),
             disarm_latch: profile.disarm_latch,
             session_end_time: profile.session_end_time,
+            bailout_deadline: profile.bailout_deadline,
+            bailout_used_date: profile.bailout_used_date.clone(),
+            bailout_fuse_ms: if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS },
         }),
         Err(e) => Err(format!("Mutex lock failed: {}", e)),
     }
@@ -1173,6 +1300,8 @@ pub fn run() {
         focus_active: false,
         disarm_latch: false,
         session_end_time: None,
+        bailout_deadline: None,
+        bailout_used_date: None,
     }));
 
     let profile_for_sniper = Arc::clone(&profile);
@@ -1180,7 +1309,7 @@ pub fn run() {
 
     tauri::Builder::default()
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, read_snapshot, write_snapshot, clear_snapshot])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, read_snapshot, write_snapshot, clear_snapshot])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -1224,16 +1353,33 @@ pub fn run() {
                     // JS timer left to end it, so the enforcer ends it itself.
                     if let Ok(mut profile) = profile_for_sniper.lock() {
                         if profile.focus_active {
-                            if let Some(end) = profile.session_end_time {
+                            // Two deadlines can end a session: its own, and a
+                            // bail-out fuse. Whichever lands first ends it —
+                            // but once a fuse is armed the session is void
+                            // whatever ends it, so a bail-out at 55/60 cannot
+                            // be salvaged by waiting out the last five minutes.
+                            let bailing = profile.bailout_deadline.is_some();
+                            let deadline = match (profile.session_end_time, profile.bailout_deadline) {
+                                (Some(a), Some(b)) => Some(a.min(b)),
+                                (Some(a), None) => Some(a),
+                                (None, Some(b)) => Some(b),
+                                (None, None) => None,
+                            };
+                            if let Some(end) = deadline {
                                 if now_millis() >= end {
                                     // Stand down without touching exe_blacklist —
                                     // standing config, gated by enforcer_active.
                                     profile.focus_active = false;
                                     profile.session_end_time = None;
+                                    // bailout_used_date is deliberately kept:
+                                    // it is what makes it one bail-out per day.
+                                    profile.bailout_deadline = None;
                                     persist_profile(&profile, &sniper_state_path);
-                                    emit_stood_down(&handle, "deadline-expired", profile.exe_blacklist.len());
+                                    let reason = if bailing { "bailout-expired" } else { "deadline-expired" };
+                                    emit_stood_down(&handle, reason, profile.exe_blacklist.len());
                                     println!(
-                                        "⏱ [Enforcer] session deadline reached — auto stand-down, {} target(s) retained",
+                                        "⏱ [Enforcer] {} — auto stand-down, {} target(s) retained",
+                                        reason,
                                         profile.exe_blacklist.len()
                                     );
                                 }

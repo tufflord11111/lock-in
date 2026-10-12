@@ -10,6 +10,7 @@ type EnforcerState = {
   exe_blacklist_len: number;
   permanent_exe_len: number;
   disarm_latch: boolean;
+  bailout_deadline?: number | null;
 };
 
 /**
@@ -52,6 +53,15 @@ export function useDisarmRecovery(userId: string | undefined) {
 
         if (!state.disarm_latch) {
           console.info("[LOCK-IN] disarm recovery: latch not set — nothing to do");
+          return;
+        }
+
+        // A bail-out fuse still burning is not stale state to clean up. Rust
+        // ends that session itself when the fuse reaches zero, and it writes
+        // the voided record; logging an EMERGENCY DISARM entry here would
+        // double-record the same session under the wrong name.
+        if (typeof state.bailout_deadline === "number" && state.bailout_deadline > Date.now()) {
+          console.info("[LOCK-IN] disarm recovery: bail-out fuse pending — leaving the session to Rust");
           return;
         }
 

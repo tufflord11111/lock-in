@@ -160,7 +160,7 @@ const operator = {
   "theme.sub": "Changes the look and the wording. Blocking works the same in every theme.",
 } as const;
 
-export type CopyKey = keyof typeof operator;
+export type CopyKey = keyof typeof operator | keyof typeof SAFETY;
 type Overrides = Partial<Record<CopyKey, string | null>>;
 
 /** Lowercase, short, friendly. No jargon. */
@@ -524,11 +524,34 @@ const botanical: Overrides = {
   "theme.title": "Appearance",
 };
 
+/**
+ * Safety copy. Identical in every theme, by construction rather than by
+ * convention: it is spread LAST, so a theme override of one of these keys
+ * cannot take effect even if someone adds one.
+ *
+ * These lines tell the operator what a control will do to a running session.
+ * A theme may change how the app sounds; it may not change how clearly this
+ * particular warning lands.
+ */
+const SAFETY = {
+  "bailout.action": "Bail out",
+  "bailout.hold": "Hold to bail out",
+  "bailout.confirm": "Hold for 2 seconds to bail out",
+  "bailout.explain":
+    "Bailing out ends this session in {fuse} — and voids it. No minutes, no streak, however far in you are. Blocking continues until then, and it can't be cancelled.",
+  "bailout.counting": "Bailing out in {remaining}",
+  "bailout.countingSub": "Blocking continues until then. This can't be cancelled.",
+  "bailout.usedToday": "You've already bailed out today.",
+  "bailout.voidNotice": "Session voided — bailed out. No minutes recorded.",
+  "hold.warning": "You can't stop this early. Bail-out voids the whole session.",
+  "hold.instruction": "Hold to start",
+} as const;
+
 const TABLE: Record<ThemeName, Record<string, string | null>> = {
-  operator,
-  notebook: { ...operator, ...notebook },
-  bento: { ...operator, ...bento },
-  botanical: { ...operator, ...botanical },
+  operator: { ...operator, ...SAFETY },
+  notebook: { ...operator, ...notebook, ...SAFETY },
+  bento: { ...operator, ...bento, ...SAFETY },
+  botanical: { ...operator, ...botanical, ...SAFETY },
 };
 
 export type CopyVars = Record<string, string | number>;

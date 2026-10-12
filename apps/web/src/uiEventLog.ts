@@ -10,6 +10,8 @@ export type UiEvent =
   | "session-end-timeout-connected"
   | "session-end-acked"
   | "session-end-refused"
+  | "bailout-armed"
+  | "bailout-fired"
   | "reconcile-write"
   | "name-repair";
 

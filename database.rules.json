@@ -14,6 +14,15 @@
           "baselineHoursLost": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" }
         },
 
+        "sessionHistory": {
+          "$entry": {
+            "minutes": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "bailedOut": { ".validate": "newData.isBoolean()" },
+            "status": { ".validate": "newData.isString()" },
+            ".validate": "!newData.hasChild('bailedOut') || (newData.child('bailedOut').val() === true && newData.child('minutes').val() === 0)"
+          }
+        },
+
         "public": {
           ".read": "auth != null",
           "userName": { ".validate": "newData.isString() && !newData.val().contains('@')" },

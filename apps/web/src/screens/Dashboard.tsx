@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Trash2, CheckCircle, Circle, Target } from "lucide-react";
 import { db } from "@lock-in/firebase";
 import { useCopy } from "../theme/copy";
 import { useThemeToken } from "../theme/ThemeProvider";
 import { useLockInStats } from "../hooks/useLockInStats";
 import { bootSnapshot } from "../snapshot";
+import { BailOut } from "../components/BailOut";
 import { Sticker } from "../theme/stickers";
 import { ref, onValue } from "firebase/database";
 
@@ -55,6 +57,27 @@ export function Dashboard({
   const [selectedDay, setSelectedDay] = useState<any | null>(null);
   const [history, setHistory] = useState<Record<string, number>>(() => bootSnapshot()?.history ?? {});
   /** Raw session entries, for the weekly card. Seeded from the snapshot. */
+  /**
+   * True only when the enforcer cannot be read at all. The instant abort is
+   * reachable in exactly that case: if we cannot see what is armed, the
+   * operator must still be able to get out.
+   */
+  const [enforcerUnknown, setEnforcerUnknown] = useState(false);
+  useEffect(() => {
+    if (!isActive) return;
+    let alive = true;
+    const probe = () =>
+      invoke("get_enforcer_state")
+        .then(() => alive && setEnforcerUnknown(false))
+        .catch(() => alive && setEnforcerUnknown(true));
+    void probe();
+    const id = window.setInterval(probe, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [isActive]);
+
   const [sessions, setSessions] = useState<{ minutes?: number; timestamp?: number }[]>(
     () => (bootSnapshot()?.sessionHistory ?? []) as { minutes?: number; timestamp?: number }[]
   );
@@ -394,12 +417,21 @@ export function Dashboard({
                     {t("session.target", { task: taskLabel || (t("session.untitledTarget") ?? "") })}
                   </p>
   
-                  <button
-                    onClick={onEndSession}
-                    className="w-full bg-highlight text-ink py-5 rounded-full font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
-                  >
-                    Emergency Abort
-                  </button>
+                  {/* The way out of a running session is the fuse, not a
+                      button that undoes the commitment the operator made. The
+                      instant abort survives only for the case where we cannot
+                      see the enforcer at all — see EnforcerDisarmPanel, which
+                      applies the same fail-open rule. */}
+                  <BailOut userId={userId} className="w-full" />
+
+                  {enforcerUnknown && (
+                    <button
+                      onClick={onEndSession}
+                      className="mt-4 w-full bg-highlight text-ink py-5 rounded-full font-black label-action-sm text-sm border-1 border-ink shadow-[shadow:var(--shadow-2)] hover:translate-y-[2px] hover:shadow-[shadow:var(--shadow-1)] transition-all active:translate-y-[4px] active:shadow-none"
+                    >
+                      Emergency Abort
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="w-full flex flex-col items-center">

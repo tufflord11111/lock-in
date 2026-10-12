@@ -102,7 +102,7 @@ export function useFocusSession(
   // first may run endSession.
   const sessionLiveRef = useRef(false);
   // Latest endSession, for listeners and timers that subscribe once.
-  const endSessionRef = useRef<(success: boolean) => void>(() => {});
+  const endSessionRef = useRef<(success: boolean, voided?: boolean) => void>(() => {});
 
   /** Whole seconds left before the deadline, or null with no session. */
   const secondsRemaining = useCallback((): number | null => {
@@ -171,6 +171,17 @@ export function useFocusSession(
       (event) => {
         lastStoodDownRef.current = Date.now();
         const reason = event.payload?.reason ?? "unknown";
+        if (reason === "bailout-expired") {
+          console.info("[LOCK-IN] bail-out fuse burned down — ending the session, voided");
+          logUiEvent("bailout-fired", userId);
+          if (sessionLiveRef.current) {
+            endSessionRef.current(false, true);
+            return;
+          }
+          // The fuse can also burn down while the app was closed, in which
+          // case there is no live session here to end; Rust has already stood
+          // the enforcer down and the reset below is all that is left.
+        }
         if (reason === "deadline-expired" && sessionLiveRef.current) {
           console.info("[LOCK-IN] Rust deadline reached before the UI countdown — ending the session");
           endSessionRef.current(true);
@@ -280,7 +291,7 @@ export function useFocusSession(
   }, [userId, deviceId]);
 
   const endSession = useCallback(
-    async (success: boolean) => {
+    async (success: boolean, voided = false) => {
       if (!userId) return;
       // The countdown and the Rust deadline can both get here; end once.
       if (!sessionLiveRef.current) return;
@@ -294,7 +305,9 @@ export function useFocusSession(
       const remaining = secondsRemaining() ?? timeLeft;
       endTimeRef.current = null;
       const secondsSpent = Math.max(0, initialSecondsRef.current - remaining);
-      const minutesToLog = Math.ceil(secondsSpent / 60);
+      // A bailed-out session is void in full — at one minute in or at 55 of
+      // 60. Nothing is credited, so there is nothing to round up.
+      const minutesToLog = voided ? 0 : Math.ceil(secondsSpent / 60);
 
       // STEP 3: Reset ALL UI state immediately
       // This happens synchronously — UI unfreezes NOW
@@ -340,8 +353,23 @@ export function useFocusSession(
         [`users/${userId}/config/focusActive`]: false,
       };
 
-      // STEP 7: History, only if time was spent.
-      if (minutesToLog > 0) {
+      // STEP 7: History.
+      //
+      // A bailed-out session is always recorded — the record is the point, it
+      // is how the operator sees that bailing out costs the whole session —
+      // but it carries minutes: 0 and never touches history/{date}, so no
+      // daily total and no streak day is credited for it. An ordinary session
+      // is recorded only when time was actually spent.
+      if (voided) {
+        const historyKey = push(ref(db, `users/${userId}/sessionHistory`)).key;
+        updates[`users/${userId}/sessionHistory/${historyKey}`] = {
+          objective: taskLabel,
+          minutes: 0,
+          timestamp: serverTimestamp(),
+          status: "bailed-out",
+          bailedOut: true,
+        };
+      } else if (minutesToLog > 0) {
         setTotalMinutesFocused((prev) => prev + minutesToLog);
         const historyKey = push(ref(db, `users/${userId}/sessionHistory`)).key;
         const today = new Date().toLocaleDateString('en-CA');

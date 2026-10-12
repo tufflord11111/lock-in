@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { BailOut } from "./BailOut";
 
 /** Mirrors the Rust EnforcerState struct (serde emits these names as declared). */
 export type EnforcerState = {
@@ -108,6 +109,12 @@ export function EnforcerDisarmPanel({
 
   if (!armed) return null;
 
+  // A live session the enforcer can confirm is not an emergency — it is the
+  // commitment the operator made, and it leaves the same way as anywhere else:
+  // on the fuse. Instant clearing stays for the case this panel exists for,
+  // where we cannot see the enforcer and the operator could be trapped.
+  const liveSession = !stateUnknown && enforcer !== null && enforcer.focus_active;
+
   const handleDisarm = async () => {
     setDisarming(true);
     setDisarmError(null);
@@ -190,6 +197,12 @@ export function EnforcerDisarmPanel({
     </div>
   );
 
+  // A live session the enforcer can confirm is not an emergency — it is the
+  // commitment the operator made, and it leaves the same way as everywhere
+  // else: on the fuse. Instant clearing stays for the case this panel exists
+  // for, where the enforcer cannot be read and the operator could be trapped.
+  const body = liveSession ? <BailOut className="w-full" /> : control;
+
   if (variant === "card") {
     return (
       <div
@@ -198,14 +211,14 @@ export function EnforcerDisarmPanel({
         <p className="text-[10px] font-black label-plain tracking-[0.2em] text-danger mb-3">
           Enforcer is running on this machine
         </p>
-        {control}
+        {body}
       </div>
     );
   }
 
   return (
     <div className={`flex flex-col gap-2 mt-2 pt-4 border-t-1 border-ink/10 ${className}`}>
-      {control}
+      {body}
     </div>
   );
 }

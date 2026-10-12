@@ -203,6 +203,31 @@ async function check(name, expect, fn) {
   await check('config/baselineHoursLost "3" (string) is rejected', "fail",
     () => set(ref(alice, "users/alice/config/baselineHoursLost"), "3"));
 
+  // ── 1.2.7 bail-out: a voided session must be recordable, and only voided ──
+  await check("sessionHistory: bailed-out entry with minutes 0 is accepted", "pass",
+    () => push(ref(alice, "users/alice/sessionHistory"), {
+      objective: "bail", minutes: 0, timestamp: serverTimestamp(),
+      status: "bailed-out", bailedOut: true,
+    }));
+  await check("sessionHistory: bailedOut true with minutes > 0 is rejected", "fail",
+    () => push(ref(alice, "users/alice/sessionHistory"), {
+      objective: "bail", minutes: 25, timestamp: serverTimestamp(),
+      status: "bailed-out", bailedOut: true,
+    }));
+  await check("sessionHistory: bailedOut false is rejected (absent, not false)", "fail",
+    () => push(ref(alice, "users/alice/sessionHistory"), {
+      objective: "bail", minutes: 0, timestamp: serverTimestamp(),
+      status: "bailed-out", bailedOut: false,
+    }));
+  await check("sessionHistory: an ordinary completed entry still writes", "pass",
+    () => push(ref(alice, "users/alice/sessionHistory"), {
+      objective: "normal", minutes: 25, timestamp: serverTimestamp(), status: "completed",
+    }));
+  await check("sessionHistory: negative minutes are rejected", "fail",
+    () => push(ref(alice, "users/alice/sessionHistory"), {
+      objective: "bad", minutes: -5, timestamp: serverTimestamp(), status: "completed",
+    }));
+
   // State assertions (admin read)
   let state = {};
   await env.withSecurityRulesDisabled(async (ctx) => {
