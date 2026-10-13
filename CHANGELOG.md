@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.7] — 2026-10-13
+
+- Bail out replaces Emergency Abort. During a session you hold the control for two seconds and the session ends five minutes later, voided — no minutes, no streak, however far in you were. Blocking continues until the fuse burns down, it cannot be cancelled or shortened, and quitting the app or signing out will not outrun it. One bail-out per day; a second press tells you how long is left. The instant clear survives only when the app cannot read the enforcer at all, so you can never be trapped by a state we cannot see.
+- Sessions of 45 minutes or more now start with a two-second hold rather than a click, under a line saying plainly that they cannot be stopped early. 25-minute and Micro sessions are unchanged.
+- Notebook and Botanical gain a full sticker and line-art layer across all five screens — stickers straddle a card's border or sit faintly behind its content, and never cover text. Operator and Bento are unchanged.
+- Fixed: the Block Registry ran off the right of the screen on smaller windows; its two columns now stack below 1100px.
+- Fixed: the mission field cut off its own prompt in Botanical, whose wording is a full sentence.
+
 ## [1.2.1] — 2026-09-14
 
 - Handles containing a dot no longer fail silently on sign-up — the app now accepts only letters, numbers and underscores, and says so when you type something else.
