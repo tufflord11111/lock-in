@@ -1278,34 +1278,115 @@ fn get_autostart_state(app: tauri::AppHandle) -> Result<bool, String> {
     manager.is_enabled().map_err(|e| e.to_string())
 }
 
+/// What toggle_autostart actually achieved. The UI sets the switch from
+/// `enabled`, never from what it asked for: in the Store build Windows may
+/// refuse (the user turned it off in Settings, or policy forbids it).
+#[derive(Serialize)]
+struct AutostartResult {
+    enabled: bool,
+    /// "Enabled" | "Disabled" | "DisabledByUser" | "DisabledByPolicy" | "EnabledByPolicy"
+    state: String,
+}
+
 #[cfg(feature = "autostart")]
 #[tauri::command]
 fn toggle_autostart(
     enable: bool,
     app: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<AutostartResult, String> {
     let manager = app.autolaunch();
     if enable {
         manager.enable().map_err(|e| e.to_string())?;
         println!("[AutoStart] Enabled via toggle");
-        Ok("Autostart enabled".to_string())
     } else {
         manager.disable().map_err(|e| e.to_string())?;
         println!("[AutoStart] Disabled via toggle");
-        Ok("Autostart disabled".to_string())
+    }
+    let enabled = manager.is_enabled().map_err(|e| e.to_string())?;
+    Ok(AutostartResult {
+        enabled,
+        state: if enabled { "Enabled" } else { "Disabled" }.to_string(),
+    })
+}
+
+// Store build: the package's StartupTask (Package.appxmanifest, TaskId
+// LockInAutostart, Enabled="false"). Only works with package identity, so an
+// unpackaged store-feature binary reports an error rather than a state.
+#[cfg(feature = "store")]
+mod store_autostart {
+    use windows::core::HSTRING;
+    use windows::ApplicationModel::{StartupTask, StartupTaskState};
+
+    const TASK_ID: &str = "LockInAutostart";
+
+    fn task() -> windows::core::Result<StartupTask> {
+        StartupTask::GetAsync(&HSTRING::from(TASK_ID))?.get()
+    }
+
+    pub fn is_on(state: StartupTaskState) -> bool {
+        state == StartupTaskState::Enabled || state == StartupTaskState::EnabledByPolicy
+    }
+
+    pub fn name(state: StartupTaskState) -> &'static str {
+        match state {
+            StartupTaskState::Enabled => "Enabled",
+            StartupTaskState::DisabledByUser => "DisabledByUser",
+            StartupTaskState::DisabledByPolicy => "DisabledByPolicy",
+            StartupTaskState::EnabledByPolicy => "EnabledByPolicy",
+            _ => "Disabled",
+        }
+    }
+
+    pub fn read() -> Result<StartupTaskState, String> {
+        task().and_then(|t| t.State()).map_err(|e| format!("StartupTask unavailable: {}", e))
+    }
+
+    /// RequestEnableAsync cannot override DisabledByUser or a policy; it
+    /// returns the state Windows settled on, which is what we report.
+    pub fn set(enable: bool) -> Result<StartupTaskState, String> {
+        let t = task().map_err(|e| format!("StartupTask unavailable: {}", e))?;
+        let result = if enable {
+            t.RequestEnableAsync().and_then(|op| op.get())
+        } else {
+            t.Disable().and_then(|_| t.State())
+        };
+        result.map_err(|e| e.to_string())
     }
 }
 
-// Store build, until its StartupTask implementation lands: no autostart.
-#[cfg(not(feature = "autostart"))]
+// Async + spawn_blocking: .get() blocks on a WinRT operation, which must not
+// run on the main (UI) thread that sync commands use.
+#[cfg(feature = "store")]
+#[tauri::command]
+async fn get_autostart_state() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| store_autostart::read().map(store_autostart::is_on))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[cfg(feature = "store")]
+#[tauri::command]
+async fn toggle_autostart(enable: bool) -> Result<AutostartResult, String> {
+    let state = tauri::async_runtime::spawn_blocking(move || store_autostart::set(enable))
+        .await
+        .map_err(|e| e.to_string())??;
+    println!("[AutoStart] StartupTask {} → {}", if enable { "enable" } else { "disable" }, store_autostart::name(state));
+    Ok(AutostartResult {
+        enabled: store_autostart::is_on(state),
+        state: store_autostart::name(state).to_string(),
+    })
+}
+
+// Neither plugin nor store: no autostart at all.
+#[cfg(not(any(feature = "autostart", feature = "store")))]
 #[tauri::command]
 fn get_autostart_state() -> Result<bool, String> {
     Ok(false)
 }
 
-#[cfg(not(feature = "autostart"))]
+#[cfg(not(any(feature = "autostart", feature = "store")))]
 #[tauri::command]
-fn toggle_autostart(_enable: bool) -> Result<String, String> {
+fn toggle_autostart(_enable: bool) -> Result<AutostartResult, String> {
     Err("Autostart is not available in this build".to_string())
 }
 

@@ -56,6 +56,8 @@ export function BlockRegistry({
   // Opt-in: renders OFF until the OS says otherwise. Was `true`, which showed
   // the toggle lit before get_autostart_state had answered.
   const [autostartOn, setAutostartOn] = useState(false);
+  // Store build only: Windows refused because the user turned it off in Settings.
+  const [autostartNote, setAutostartNote] = useState<string | null>(null);
 
   // Vault Status Panel state
   const [extensionLastSeen, setExtensionLastSeen] = useState<number | null>(null);
@@ -290,12 +292,11 @@ export function BlockRegistry({
   const handleToggleAutostart = async () => {
     const previous = autostartOn;
     const newState = !previous;
-    // Show the change at once; the OS registration is the truth, so undo the
-    // switch if it fails. (The old handler said "Revert if Tauri call failed"
-    // and then did nothing — and told the operator nothing either.)
-    setAutostartOn(newState);
+    // The switch follows what Windows reports back, never what was asked for:
+    // in the Store build a StartupTask the user disabled in Settings stays off.
+    let result: { enabled: boolean; state: string };
     try {
-      await invoke('toggle_autostart', { enable: newState });
+      result = await invoke<{ enabled: boolean; state: string }>('toggle_autostart', { enable: newState });
     } catch (err) {
       setAutostartOn(previous);
       reportWriteFailure(
@@ -304,9 +305,12 @@ export function BlockRegistry({
       );
       return;
     }
+    setAutostartOn(result.enabled);
+    setAutostartNote(result.state === 'DisabledByUser' ? 'Turn it on in Settings > Apps > Startup' : null);
+    if (result.enabled === previous) return;
     // Firebase only mirrors the setting for other surfaces; don't block on it.
     guardWrite(
-      _updateAutostart(newState),
+      _updateAutostart(result.enabled),
       "Launch-on-startup changed on this PC, but the setting didn't sync to your account."
     );
   };
@@ -491,6 +495,9 @@ export function BlockRegistry({
             <div>
               <p className="text-sm font-black text-ink label-plain tracking-tight">{t("blocks.autostart")}</p>
               <p className="text-[9px] font-bold text-ink/40 mt-1">Lock-In opens when your PC starts so uptime tracking begins automatically</p>
+              {autostartNote && (
+                <p className="text-[9px] font-bold text-ink mt-1">{autostartNote}</p>
+              )}
             </div>
             <button
               onClick={handleToggleAutostart}
