@@ -26,10 +26,18 @@ export function UpdateBanner() {
 
   // Check exactly once per launch. check() only fetches latest.json — it
   // downloads nothing — so it is safe to run with a session armed.
+  //
+  // The Store build has no updater: the Store updates the package. Ask first
+  // and stop before the plugin is even imported, so `update` is never set
+  // and neither the banner nor its lockinme.com fallback can appear.
   useEffect(() => {
     let alive = true;
-    import("@tauri-apps/plugin-updater")
-      .then(({ check }) => check())
+    invoke<boolean>("is_store_build")
+      .catch(() => false)
+      .then((store) => {
+        if (store || !alive) return null;
+        return import("@tauri-apps/plugin-updater").then(({ check }) => check());
+      })
       .then((found) => {
         if (alive && found) setUpdate(found);
       })
