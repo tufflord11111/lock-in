@@ -37,6 +37,8 @@ import { awaitWriteOrQueue } from "./offlineWrite";
 import { reportEngineFailure } from "./engineHealth";
 import { Login } from "./screens/Login";
 
+const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea";
+
 type ConnectionGateProps = {
   userId?: string;
   engineOffline: boolean;
@@ -84,6 +86,10 @@ function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
   } else if (engineOffline) {
     message = "⚠ System engine offline — restart Lock-In to restore full blocking";
   }
+  // The extension no longer ships inside the installer; point at the store
+  // listing instead. Plain selectable text, not a link: the webview has no
+  // opener permission, and copying it into Chrome is the actual step.
+  const showStoreUrl = extensionStale && !persistError;
 
   return (
     <AnimatePresence>
@@ -91,9 +97,16 @@ function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
-        className="w-full h-12 bg-highlight-2 text-ink-2 flex items-center justify-between px-6 z-30 shrink-0 font-mono text-xs font-bold shadow-[0_4px_0px_rgb(var(--ink-2-rgb)/0.1)]"
+        className="w-full min-h-12 py-2 bg-highlight-2 text-ink-2 flex items-center justify-between px-6 z-30 shrink-0 font-mono text-xs font-bold shadow-[0_4px_0px_rgb(var(--ink-2-rgb)/0.1)]"
       >
-        <span className="flex-1 text-center truncate pr-4">{message}</span>
+        <span className="flex-1 min-w-0 flex flex-col items-center pr-4">
+          <span className="w-full text-center truncate">{message}</span>
+          {showStoreUrl && (
+            <span className="select-all cursor-text font-normal" style={{ userSelect: "all", WebkitUserSelect: "all" }}>
+              {CHROME_WEB_STORE_URL}
+            </span>
+          )}
+        </span>
         <button
           onClick={() => setDismissed(true)}
           className="hover:bg-ink-2/10 p-1 rounded transition-colors"
