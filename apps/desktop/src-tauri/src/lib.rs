@@ -1,7 +1,14 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State, Emitter};
+#[cfg(feature = "autostart")]
 use tauri_plugin_autostart::ManagerExt;
+
+// The store build takes neither plugin: the Store updates the package, and
+// autostart is the package's StartupTask. Mixing them would register two
+// autostart mechanisms and ship an updater the Store forbids.
+#[cfg(all(feature = "store", any(feature = "updater", feature = "autostart")))]
+compile_error!("feature \"store\" requires --no-default-features (no updater, no autostart plugin)");
 use serde::{Serialize, Deserialize};
 use sysinfo::{ProcessRefreshKind, System};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1257,12 +1264,21 @@ fn reject_pending_exe(app_state: State<AppState>) -> Result<String, String> {
     }
 }
 
+/// True in the Microsoft Store (MSIX) build. The webview asks before touching
+/// anything the Store owns — the updater above all.
+#[tauri::command]
+fn is_store_build() -> bool {
+    cfg!(feature = "store")
+}
+
+#[cfg(feature = "autostart")]
 #[tauri::command]
 fn get_autostart_state(app: tauri::AppHandle) -> Result<bool, String> {
     let manager = app.autolaunch();
     manager.is_enabled().map_err(|e| e.to_string())
 }
 
+#[cfg(feature = "autostart")]
 #[tauri::command]
 fn toggle_autostart(
     enable: bool,
@@ -1278,6 +1294,19 @@ fn toggle_autostart(
         println!("[AutoStart] Disabled via toggle");
         Ok("Autostart disabled".to_string())
     }
+}
+
+// Store build, until its StartupTask implementation lands: no autostart.
+#[cfg(not(feature = "autostart"))]
+#[tauri::command]
+fn get_autostart_state() -> Result<bool, String> {
+    Ok(false)
+}
+
+#[cfg(not(feature = "autostart"))]
+#[tauri::command]
+fn toggle_autostart(_enable: bool) -> Result<String, String> {
+    Err("Autostart is not available in this build".to_string())
 }
 
 // ─── SHIPPING INVARIANT ──────────────────────────────────────────────────────
@@ -1309,7 +1338,7 @@ pub fn run() {
 
     tauri::Builder::default()
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, read_snapshot, write_snapshot, clear_snapshot])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -1504,6 +1533,7 @@ pub fn run() {
                 )?;
             }
 
+            #[cfg(feature = "autostart")]
             app.handle().plugin(tauri_plugin_autostart::init(
                 tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                 Some(vec!["--silently"]),
@@ -1536,6 +1566,7 @@ pub fn run() {
             // session is armed — an install restarts the app, and a restart
             // mid-session is exactly the escape hatch the enforcer exists to
             // deny.
+            #[cfg(feature = "updater")]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
 
             Ok(())
