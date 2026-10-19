@@ -45,6 +45,15 @@ type ConnectionGateProps = {
 function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
   const [extensionStale, setExtensionStale] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // Rust could not find its app data folder: blocking works, but nothing it
+  // holds survives a restart. Fixed for the life of the process, so ask once.
+  const [persistError, setPersistError] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<{ persistence_error?: string | null }>("get_enforcer_state")
+      .then((s) => setPersistError(s.persistence_error ?? null))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -63,10 +72,12 @@ function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
   }, [userId]);
 
   if (dismissed) return null;
-  if (!extensionStale && !engineOffline) return null;
+  if (!extensionStale && !engineOffline && !persistError) return null;
 
   let message = "";
-  if (extensionStale && engineOffline) {
+  if (persistError) {
+    message = "⚠ Lock-In can't save its state on this PC — blocking works, but a restart ends any running session";
+  } else if (extensionStale && engineOffline) {
     message = "⚠ System engine offline & Web Guard not detected — restart Lock-In and ensure Chrome extension is active";
   } else if (extensionStale) {
     message = "⚠ Web Guard not detected — open Chrome and ensure Lock-In extension is active";

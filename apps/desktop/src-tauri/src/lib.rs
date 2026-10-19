@@ -297,7 +297,13 @@ fn kill_processes_matching(sys: &System, term: &str, protected: &[String]) -> Ve
 
 struct AppState {
     profile: Arc<Mutex<LockProfile>>,
-    state_path: PathBuf,
+    /// None when app_data_dir() failed: enforcement runs from memory only and
+    /// nothing is written. There is deliberately no relative-path fallback —
+    /// the working directory of a packaged (MSIX) app is not writable, and of
+    /// an NSIS one is wherever it was launched from.
+    state_path: Option<PathBuf>,
+    /// Why state_path is None, for get_enforcer_state to surface.
+    persist_error: Option<String>,
 }
 
 /// Epoch milliseconds, monotonic enough for a wall-clock session deadline.
@@ -361,7 +367,9 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
 ///
 /// Writes to a sibling .tmp then renames — a process killed mid-write leaves the
 /// previous good file intact rather than a truncated one.
-fn persist_profile(profile: &LockProfile, path: &PathBuf) {
+fn persist_profile(profile: &LockProfile, path: &Option<PathBuf>) {
+    // No state path: in-memory only (see AppState::state_path).
+    let Some(path) = path else { return };
     let json = match serde_json::to_string_pretty(profile) {
         Ok(j) => j,
         Err(e) => {
@@ -1128,6 +1136,9 @@ struct EnforcerState {
     /// the operator commits, and DEV_MODE shortens it, so it cannot be a
     /// constant on the webview side.
     bailout_fuse_ms: u64,
+    /// Set when the state file cannot be written at all (no app data folder):
+    /// enforcement works, but nothing survives a restart.
+    persistence_error: Option<String>,
 }
 
 #[tauri::command]
@@ -1145,6 +1156,7 @@ fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Resu
             bailout_deadline: profile.bailout_deadline,
             bailout_used_date: profile.bailout_used_date.clone(),
             bailout_fuse_ms: if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS },
+            persistence_error: app_state.persist_error.clone(),
         }),
         Err(e) => Err(format!("Mutex lock failed: {}", e)),
     }
@@ -1426,19 +1438,24 @@ pub fn run() {
             // ── Restore persisted enforcer state ───────────────────────────
             // MUST complete before the sniper thread starts, otherwise the
             // first ticks would run against a blank profile.
-            let state_path = match app.path().app_data_dir() {
-                Ok(dir) => dir.join("enforcer_state.json"),
+            let (state_path, persist_error) = match app.path().app_data_dir() {
+                Ok(dir) => (Some(dir.join("enforcer_state.json")), None),
                 Err(e) => {
-                    println!("[Persist] app_data_dir unavailable ({}) — using cwd", e);
-                    PathBuf::from("enforcer_state.json")
+                    // Keep enforcing from memory; a session started now will
+                    // not survive a restart. The UI warns via get_enforcer_state.
+                    eprintln!("[Persist] app_data_dir unavailable ({}) — state NOT persisted, running in memory", e);
+                    (None, Some(format!("app data folder unavailable: {}", e)))
                 }
             };
             println!("[Persist] state file: {:?}", state_path);
-            restore_profile(&profile_for_setup, &state_path, &handle);
+            if let Some(path) = &state_path {
+                restore_profile(&profile_for_setup, path, &handle);
+            }
 
             app.manage(AppState {
                 profile: Arc::clone(&profile_for_setup),
                 state_path: state_path.clone(),
+                persist_error,
             });
 
             let sniper_state_path = state_path.clone();
