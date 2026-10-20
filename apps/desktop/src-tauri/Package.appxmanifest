@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  Microsoft Store (MSIX) packaging manifest.
+
+  Identity/Name, Identity/Publisher and PublisherDisplayName are assigned by
+  Partner Center and must match the reservation byte-for-byte. Do not "tidy"
+  them: the Publisher GUID is not a placeholder.
+
+  Executable is Lock-In.exe, not app.exe. The cargo binary is named app.exe
+  ([package] name = "app") and scripts/stage-msix.mjs renames it while
+  staging, because protected_process_names() and get_running_apps() in lib.rs
+  both key off the running process name.
+-->
+
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap2="http://schemas.microsoft.com/appx/manifest/uap/windows10/2"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap2 uap3 uap10 desktop desktop6 rescap">
+
+  <Identity
+    Name="Lock-In.Lock-In"
+    Publisher="CN=EC943FE9-9A95-4BE3-A697-7161B4850732"
+    Version="1.2.8.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Lock-In</DisplayName>
+    <PublisherDisplayName>Lock-In</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:PackageIntegrity>
+      <uap10:Content Enforcement="on"/>
+    </uap10:PackageIntegrity>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.18362.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us"/>
+  </Resources>
+
+  <Applications>
+    <Application Id="LockIn"
+      Executable="Lock-In.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Lock-In"
+        Description="Force-closes the apps and sites on your list for the whole of a focus session. No pause button."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <!-- No Square310x310Logo: MakeAppx rejects it unless a
+             Wide310x150Logo is supplied too, and `tauri icon` does not
+             generate a wide tile. -->
+        <uap:DefaultTile Square71x71Logo="Assets\Square71x71Logo.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!--
+          Replaces tauri-plugin-autostart's HKCU\...\CurrentVersion\Run entry,
+          which a packaged app must not write. Enabled="false" keeps autostart
+          opt-in: nothing starts at boot until the operator turns the Block
+          Registry toggle on, which calls RequestEnableAsync for this TaskId.
+        -->
+        <desktop:Extension
+          Category="windows.startupTask"
+          Executable="Lock-In.exe"
+          EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask
+            TaskId="LockInAutostart"
+            Enabled="false"
+            DisplayName="Lock-In" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Required: the enforcer terminates other processes and shells out to
+         taskkill and powershell. Nothing here needs more than full trust. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

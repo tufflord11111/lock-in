@@ -30,3 +30,11 @@ enforcer_state.json.tmp
 
 # Vercel metadata, anywhere (not just repo root)
 .vercel
+
+# MSIX packaging. dist/ is already covered above; these are the signing key
+# and the package output, neither of which belongs in the repo.
+devcert.pfx
+*.pfx
+*.cer
+*.msix
+*.msixbundle

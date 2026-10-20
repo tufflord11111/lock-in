@@ -5,7 +5,8 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build"
+    "build": "tauri build",
+    "pack:msix": "tauri build --no-bundle --config src-tauri/tauri.store.conf.json -- --no-default-features --features store && node ../../scripts/stage-msix.mjs && winapp pack ./src-tauri/dist --manifest ./src-tauri/Package.appxmanifest --cert ./src-tauri/devcert.pfx"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1"
