@@ -1430,6 +1430,19 @@ pub fn run() {
     let profile_for_setup = Arc::clone(&profile);
 
     tauri::Builder::default()
+        // MUST be the first plugin (its docs: plugins run in registration
+        // order). A second launch exits at once and focuses this window —
+        // two enforcers would each kill the other's targets and race on
+        // enforcer_state.json. Every other plugin is registered in setup().
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            println!("[SingleInstance] second launch — focusing the existing window");
+            if let Some(window) = app.get_webview_window("main") {
+                // Shown even inside the 3 s boot delay, when it is still hidden.
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         // Expose ALL commands so any JS call succeeds
         .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {

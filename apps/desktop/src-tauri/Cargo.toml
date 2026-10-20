@@ -26,6 +26,7 @@ tauri-plugin-log = "2"
 sysinfo = "0.30"
 tauri-plugin-autostart = { version = "2", optional = true }
 tauri-plugin-dialog = "2.2.0"
+tauri-plugin-single-instance = "2"
 tauri-plugin-updater = { version = "2", optional = true }
 # Store autostart: Windows.ApplicationModel.StartupTask (needs package identity).
 windows = { version = "0.61", features = ["ApplicationModel", "Foundation"], optional = true }
