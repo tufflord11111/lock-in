@@ -56,6 +56,34 @@
     "global_session": {
       ".read": false,
       ".write": false
+    },
+
+    "research": {
+      "quiz": {
+        "$id": {
+          ".read": false,
+          ".write": "!data.exists()",
+          ".validate": "newData.hasChildren(['worstApp', 'hoursLost', 'examsSoon', 'ts', 'v'])",
+          "worstApp": { ".validate": "newData.isString() && newData.val().matches(/^(discord|youtube|tiktok|games|instagram|other)$/)" },
+          "hoursLost": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 12" },
+          "examsSoon": { ".validate": "newData.isBoolean()" },
+          "ts": { ".validate": "newData.val() === now" },
+          "v": { ".validate": "newData.val() === 1" },
+          "$other": { ".validate": false }
+        }
+      },
+
+      "payIntent": {
+        "$id": {
+          ".read": false,
+          ".write": "!data.exists()",
+          ".validate": "newData.hasChildren(['plan', 'ts', 'v'])",
+          "plan": { ".validate": "newData.val() === 'pack-pro-3sgd'" },
+          "ts": { ".validate": "newData.val() === now" },
+          "v": { ".validate": "newData.val() === 1" },
+          "$other": { ".validate": false }
+        }
+      }
     }
   }
 }

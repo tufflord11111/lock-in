@@ -9,7 +9,8 @@
     "typecheck": "turbo run typecheck && pnpm check:tokens",
     "check:tokens": "node scripts/check-tokens.mjs",
     "test:rules": "pnpm --filter @lock-in/firebase-rules-tests test",
-    "report:retention": "node scripts/retention.cjs"
+    "report:retention": "node scripts/retention.cjs",
+    "report:research": "node scripts/research-report.cjs"
   },
   "devDependencies": {
     "firebase-admin": "^14.5.0",

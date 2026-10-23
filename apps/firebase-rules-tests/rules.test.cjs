@@ -228,6 +228,99 @@ async function check(name, expect, fn) {
       objective: "bad", minutes: -5, timestamp: serverTimestamp(), status: "completed",
     }));
 
+  // ── v2.2 anonymous research paths ─────────────────────────────────────────
+  // lockinme.com has no SDK and no login, so these accept UNAUTHENTICATED
+  // writes. They are create-only and write-only: no edits, no deletes, no
+  // reads, and nothing beyond the declared children.
+  const anon = env.unauthenticatedContext().database();
+  const quiz = (over = {}) => ({
+    worstApp: "discord", hoursLost: 3.5, examsSoon: true,
+    ts: serverTimestamp(), v: 1, ...over,
+  });
+  const pay = (over = {}) => ({ plan: "pack-pro-3sgd", ts: serverTimestamp(), v: 1, ...over });
+
+  await check("research/quiz: anonymous create is accepted", "pass",
+    () => push(ref(anon, "research/quiz"), quiz()));
+  await check("research/quiz: hoursLost at the 0 bound", "pass",
+    () => push(ref(anon, "research/quiz"), quiz({ hoursLost: 0 })));
+  await check("research/quiz: hoursLost at the 12 bound", "pass",
+    () => push(ref(anon, "research/quiz"), quiz({ hoursLost: 12 })));
+  await check("research/quiz: every worstApp enum value is accepted", "pass",
+    () => Promise.all(["discord", "youtube", "tiktok", "games", "instagram", "other"].map(
+      (w) => push(ref(anon, "research/quiz"), quiz({ worstApp: w })))));
+
+  // Create-only: the same id must never be writable twice, which is what
+  // stops an edit or a delete of someone else's answer.
+  await check("research/quiz: a SECOND write to the same id is rejected", "fail",
+    async () => {
+      const r = push(ref(anon, "research/quiz"));
+      await set(r, quiz());
+      await set(r, quiz({ worstApp: "youtube" }));
+    });
+  await check("research/quiz: deleting an existing record is rejected", "fail",
+    async () => {
+      const r = push(ref(anon, "research/quiz"));
+      await set(r, quiz());
+      await remove(r);
+    });
+
+  await check("research/quiz: read is rejected", "fail",
+    () => get(ref(anon, "research/quiz")));
+  await check("research/quiz: point read of one record is rejected", "fail",
+    () => get(ref(anon, "research/quiz/anything")));
+
+  await check("research/quiz: hoursLost above 12 is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ hoursLost: 12.5 })));
+  await check("research/quiz: negative hoursLost is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ hoursLost: -1 })));
+  await check("research/quiz: hoursLost as a string is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ hoursLost: "3" })));
+  await check("research/quiz: an unknown worstApp is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ worstApp: "reddit" })));
+  await check("research/quiz: an extra field is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ ua: "Mozilla/5.0" })));
+  await check("research/quiz: free text in an extra field is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ note: "hello" })));
+  await check("research/quiz: a client-chosen ts is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ ts: 1_700_000_000_000 })));
+  await check("research/quiz: v other than 1 is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ v: 2 })));
+  await check("research/quiz: examsSoon as a string is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), quiz({ examsSoon: "yes" })));
+  await check("research/quiz: a missing child is rejected", "fail",
+    () => push(ref(anon, "research/quiz"), { worstApp: "discord", hoursLost: 1, v: 1, ts: serverTimestamp() }));
+
+  await check("research/payIntent: anonymous create is accepted", "pass",
+    () => push(ref(anon, "research/payIntent"), pay()));
+  await check("research/payIntent: a SECOND write to the same id is rejected", "fail",
+    async () => {
+      const r = push(ref(anon, "research/payIntent"));
+      await set(r, pay());
+      await set(r, pay());
+    });
+  await check("research/payIntent: read is rejected", "fail",
+    () => get(ref(anon, "research/payIntent")));
+  await check("research/payIntent: a different plan is rejected", "fail",
+    () => push(ref(anon, "research/payIntent"), pay({ plan: "pack-pro-5sgd" })));
+  await check("research/payIntent: an extra field is rejected", "fail",
+    () => push(ref(anon, "research/payIntent"), pay({ email: "a@b.c" })));
+  await check("research/payIntent: a client-chosen ts is rejected", "fail",
+    () => push(ref(anon, "research/payIntent"), pay({ ts: 1_700_000_000_000 })));
+
+  // Opening research/* must not have opened anything else.
+  await check("anonymous write to users/* is still rejected", "fail",
+    () => set(ref(anon, "users/alice/config/theme"), "operator"));
+  await check("anonymous write to usernames/* is still rejected", "fail",
+    () => set(ref(anon, "usernames/mallory"), "mallory"));
+  await check("anonymous write to research/* outside the two paths is rejected", "fail",
+    () => push(ref(anon, "research/somethingElse"), { v: 1 }));
+  await check("anonymous write to the research root is rejected", "fail",
+    () => set(ref(anon, "research"), { quiz: {} }));
+  await check("anonymous read of users/* is still rejected", "fail",
+    () => get(ref(anon, "users/alice")));
+  await check("anonymous write to leaderboard is still rejected", "fail",
+    () => set(ref(anon, "leaderboard/mallory"), 999));
+
   // State assertions (admin read)
   let state = {};
   await env.withSecurityRulesDisabled(async (ctx) => {
