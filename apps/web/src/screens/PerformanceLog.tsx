@@ -123,7 +123,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
   });
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto pb-40 animate-in fade-in slide-in-from-bottom-4 duration-700 w-full gap-6">
+    <div className="flex flex-col h-full overflow-y-auto pt-8 -mt-8 pb-40 animate-in fade-in slide-in-from-bottom-4 duration-700 w-full gap-6">
 
       {/* GOOGLE CALENDAR SECTION */}
       <div className="relative isolate bg-surface-alt border-1 border-ink-2 rounded-xl p-6 shadow-[4px_4px_0px_var(--ink-2)]">

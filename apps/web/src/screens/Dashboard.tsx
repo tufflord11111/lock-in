@@ -623,7 +623,7 @@ export function Dashboard({
   );
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto pb-40 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pr-2">
+    <div className="flex flex-col h-full overflow-y-auto pt-8 -mt-8 pb-40 gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pr-2">
       {/* FIX 1: webkit scrollbar styles for intentions list */}
       <style>{`
         .intentions-scroll::-webkit-scrollbar { width: 4px; }

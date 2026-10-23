@@ -215,7 +215,7 @@ export function ThePack({ userId }: ThePackProps) {
   const sortedFriends = useMemo(() => [...activeFriends, ...onlineFriends, ...offlineFriends], [activeFriends, onlineFriends, offlineFriends]);
 
   return (
-    <div className="h-full overflow-y-auto pb-40 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <div className="h-full overflow-y-auto pt-8 -mt-8 pb-40 animate-in fade-in slide-in-from-bottom-4 duration-700">
       
       {/* TOP RECRUITMENT BAR */}
       <div className="flex flex-row justify-between items-center gap-6 p-4 border-b-1 border-ink mb-8">
