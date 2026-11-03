@@ -1659,7 +1659,8 @@ pub fn run() {
                 }
             }
         })
-        // Expose ALL commands so any JS call succeeds
+        // Every one is also listed in app_commands.in, and only a window whose
+        // capability grants it can call it: "main" alone (see build.rs).
         .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, set_close_to_tray, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1950,6 +1951,37 @@ mod tests {
         p.bailout_deadline = Some(1_000);
         p.bailout_used_date = Some("2026-11-03".to_string());
         p
+    }
+
+    const APP_COMMANDS: &[&str] = include!("app_commands.in");
+
+    #[test]
+    fn the_command_list_matches_the_handler() {
+        let src = include_str!("lib.rs");
+        let open = "generate_handler![";
+        let start = src.find(open).unwrap() + open.len();
+        let end = start + src[start..].find(']').unwrap();
+        let mut handler: Vec<&str> = src[start..end].split(',').map(str::trim).collect();
+        let mut listed = APP_COMMANDS.to_vec();
+        handler.sort();
+        listed.sort();
+        assert_eq!(handler, listed);
+    }
+
+    #[test]
+    fn only_main_is_granted_commands_in_both_builds() {
+        for raw in [
+            include_str!("../capabilities/nsis/default.json"),
+            include_str!("../capabilities/store/store.json"),
+        ] {
+            let cap: serde_json::Value = serde_json::from_str(raw).unwrap();
+            assert_eq!(cap["windows"], serde_json::json!(["main"]));
+            let granted = cap["permissions"].as_array().unwrap();
+            for command in APP_COMMANDS {
+                let permission = format!("allow-{}", command.replace('_', "-"));
+                assert!(granted.iter().any(|p| p == &permission.as_str()), "{} missing", permission);
+            }
+        }
     }
 
     #[test]

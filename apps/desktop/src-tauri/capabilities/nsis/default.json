@@ -1,0 +1,43 @@
+{
+  "$schema": "../../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "dialog:default",
+    "dialog:allow-open",
+    "updater:default",
+    "allow-sync-lock-state",
+    "allow-update-enforcement",
+    "allow-check-sniper",
+    "allow-resolve-shortcut",
+    "allow-get-running-apps",
+    "allow-sync-blocklist",
+    "allow-sync-permanent-exe",
+    "allow-toggle-autostart",
+    "allow-get-autostart-state",
+    "allow-get-enforcer-state",
+    "allow-clear-disarm-latch",
+    "allow-classify-block-entry",
+    "allow-clear-all-blocks",
+    "allow-confirm-pending-permanent",
+    "allow-reject-pending-permanent",
+    "allow-confirm-pending-exe",
+    "allow-reject-pending-exe",
+    "allow-append-ui-event",
+    "allow-is-dev-mode",
+    "allow-arm-bailout",
+    "allow-ack-bailout-recorded",
+    "allow-set-close-to-tray",
+    "allow-read-snapshot",
+    "allow-write-snapshot",
+    "allow-clear-snapshot",
+    "allow-is-store-build"
+  ]
+}
