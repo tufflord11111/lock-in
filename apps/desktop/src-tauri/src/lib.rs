@@ -410,6 +410,33 @@ struct AppState {
     state_path: Option<PathBuf>,
     /// Why state_path is None, for get_enforcer_state to surface.
     persist_error: Option<String>,
+    /// The other kind of install is also on this PC. See other_install_present.
+    other_install: bool,
+}
+
+/// True when the Store package and a direct-download install are both here.
+/// They look identical in the Start menu but keep separate state, and whichever
+/// starts second hands off to the first, so it's easy to be running the wrong one
+/// without knowing: that cost a whole laptop test of 1.2.9 on the Store's 1.2.8.
+fn other_install_present(store_build: bool, package_exists: bool, direct_exists: bool) -> bool {
+    if store_build { direct_exists } else { package_exists }
+}
+
+fn detect_other_install() -> bool {
+    let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
+    let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_default();
+    other_install_present(
+        cfg!(feature = "store"),
+        local.join("Packages").join("Lock-In.Lock-In_gfjpe7j35ca8g").is_dir(),
+        local.join("Lock-In").join("app.exe").is_file()
+            || program_files.join("Lock-In").join("app.exe").is_file(),
+    )
+}
+
+/// What this copy is, in words a person can match to Settings > Apps.
+fn build_label() -> String {
+    let kind = if cfg!(feature = "store") { "Microsoft Store" } else { "direct download" };
+    format!("{} ({})", env!("CARGO_PKG_VERSION"), kind)
 }
 
 /// Epoch milliseconds, monotonic enough for a wall-clock session deadline.
@@ -1379,6 +1406,8 @@ struct EnforcerState {
     /// Entries for the webview to write, then ack_session_record.
     pending_records: Vec<SessionRecord>,
     close_to_tray: bool,
+    other_install: bool,
+    build_label: String,
     /// Set when the state file cannot be written at all (no app data folder):
     /// enforcement works, but nothing survives a restart.
     persistence_error: Option<String>,
@@ -1401,6 +1430,8 @@ fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Resu
             bailout_fuse_ms: if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS },
             pending_records: profile.pending_records.clone(),
             close_to_tray: profile.close_to_tray,
+            other_install: app_state.other_install,
+            build_label: build_label(),
             persistence_error: app_state.persist_error.clone(),
         }),
         Err(e) => Err(format!("Mutex lock failed: {}", e)),
@@ -1798,6 +1829,7 @@ pub fn run() {
                 profile: Arc::clone(&profile_for_setup),
                 state_path: state_path.clone(),
                 persist_error,
+                other_install: detect_other_install(),
             });
 
             // ── Tray ───────────────────────────────────────────────────────
@@ -2037,7 +2069,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, awake_in_gap, close_hides, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{arm_refusal, awake_in_gap, close_hides, other_install_present, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2077,6 +2109,16 @@ mod tests {
                 assert!(granted.iter().any(|p| p == &permission.as_str()), "{} missing", permission);
             }
         }
+    }
+
+    #[test]
+    fn each_build_looks_for_the_other_kind_of_install() {
+        // Direct-download build: only the Store package counts, not itself.
+        assert!(other_install_present(false, true, true));
+        assert!(!other_install_present(false, false, true));
+        // Store build: only a direct install counts, not its own package.
+        assert!(other_install_present(true, true, true));
+        assert!(!other_install_present(true, true, false));
     }
 
     const MIN: u64 = 60_000;

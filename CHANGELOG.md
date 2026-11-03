@@ -16,6 +16,7 @@
 - To-dos wrap between words instead of mid-word.
 - Demo accounts no longer appear on The Pack's leaderboard.
 - Only the main window can drive the enforcer.
+- If both the Microsoft Store and direct-download copies are installed, Lock-In now says so and names the one you're in. They don't share sessions or settings.
 - The Windows download is now a single installer. If you installed an older MSI and see two Lock-In entries in Apps & Features, uninstall the one dated before 1.2.9. Your blocks and streak are safe either way.
 - Chrome extension 1.2.4 blocks a site before it loads, covers blocked iframes, keeps blocking when Firebase or sign-in can't be reached, and stops at the session's end even offline. No pause button. The session ends when the timer does.
 

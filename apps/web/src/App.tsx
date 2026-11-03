@@ -53,19 +53,27 @@ function ConnectionGate({ extensionStale, engineOffline }: ConnectionGateProps) 
   // Rust could not find its app data folder: blocking works, but nothing it
   // holds survives a restart. Fixed for the life of the process, so ask once.
   const [persistError, setPersistError] = useState<string | null>(null);
+  // Fixed for the life of the process too. Holds this copy's name when the
+  // other kind of install is also on this PC.
+  const [otherInstall, setOtherInstall] = useState<string | null>(null);
 
   useEffect(() => {
-    invoke<{ persistence_error?: string | null }>("get_enforcer_state")
-      .then((s) => setPersistError(s.persistence_error ?? null))
+    invoke<{ persistence_error?: string | null; other_install?: boolean; build_label?: string }>("get_enforcer_state")
+      .then((s) => {
+        setPersistError(s.persistence_error ?? null);
+        setOtherInstall(s.other_install ? s.build_label ?? "this copy" : null);
+      })
       .catch(() => {});
   }, []);
 
   if (dismissed) return null;
-  if (!extensionStale && !engineOffline && !persistError) return null;
+  if (!extensionStale && !engineOffline && !persistError && !otherInstall) return null;
 
   let message = "";
   if (persistError) {
     message = "⚠ Lock-In can't save its state on this PC — blocking works, but a restart ends any running session";
+  } else if (otherInstall) {
+    message = `⚠ Two copies of Lock-In are installed and don't share sessions or settings. This is ${otherInstall}. Uninstall the other in Settings > Apps.`;
   } else if (extensionStale && engineOffline) {
     message = "⚠ System engine offline & Web Guard not detected — restart Lock-In and ensure Chrome extension is active";
   } else if (extensionStale) {
@@ -76,7 +84,7 @@ function ConnectionGate({ extensionStale, engineOffline }: ConnectionGateProps) 
   // The extension no longer ships inside the installer; point at the store
   // listing instead. Plain selectable text, not a link: the webview has no
   // opener permission, and copying it into Chrome is the actual step.
-  const showStoreUrl = extensionStale && !persistError;
+  const showStoreUrl = extensionStale && !persistError && !otherInstall;
 
   return (
     <AnimatePresence>
@@ -87,7 +95,7 @@ function ConnectionGate({ extensionStale, engineOffline }: ConnectionGateProps) 
         className="w-full min-h-12 py-2 bg-highlight-2 text-ink-2 flex items-center justify-between px-6 z-30 shrink-0 font-mono text-xs font-bold shadow-[0_4px_0px_rgb(var(--ink-2-rgb)/0.1)]"
       >
         <span className="flex-1 min-w-0 flex flex-col items-center pr-4">
-          <span className="w-full text-center truncate">{message}</span>
+          <span className="w-full text-center">{message}</span>
           {showStoreUrl && (
             <span className="select-all cursor-text font-normal" style={{ userSelect: "all", WebkitUserSelect: "all" }}>
               {CHROME_WEB_STORE_URL}
