@@ -25,11 +25,14 @@ export function Pack() {
         return;
       }
       const data = snap.val() as Record<string, unknown>;
-      const raw = Object.entries(data).map(([key, value]) =>
-        typeof value === "number"
-          ? { username: key, uptimeToday: value * 60 }
-          : (value as { username?: string; uptimeToday?: unknown })
-      );
+      // ghost_operator_* are seeded demo rows, not people.
+      const raw = Object.entries(data)
+        .filter(([key]) => !key.startsWith("ghost_operator_"))
+        .map(([key, value]) =>
+          typeof value === "number"
+            ? { username: key, uptimeToday: value * 60 }
+            : (value as { username?: string; uptimeToday?: unknown })
+        );
       const sorted = raw
         .map((u) => ({ name: u.username || "Unknown Operator", minutes: Number(u.uptimeToday) || 0 }))
         .sort((a, b) => b.minutes - a.minutes)

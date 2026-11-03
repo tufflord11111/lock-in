@@ -115,10 +115,13 @@ export function ThePack({ userId }: ThePackProps) {
         const data = snapshot.val();
         
         // Convert to array of raw data objects
-        const rawData = Object.entries(data).map(([key, value]) => {
-          if (typeof value === 'number') return { username: key, uptimeToday: value * 60 };
-          return value as any;
-        });
+        // ghost_operator_* are seeded demo rows, not people.
+        const rawData = Object.entries(data)
+          .filter(([key]) => !key.startsWith('ghost_operator_'))
+          .map(([key, value]) => {
+            if (typeof value === 'number') return { username: key, uptimeToday: value * 60 };
+            return value as any;
+          });
 
         const formattedData = rawData.map(user => {
           // 1. Safely extract and cast to Numbers, defaulting to 0 if missing/corrupted
