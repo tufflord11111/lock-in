@@ -13,7 +13,8 @@ export type UiEvent =
   | "bailout-armed"
   | "bailout-fired"
   | "reconcile-write"
-  | "name-repair";
+  | "name-repair"
+  | "bailout-recorded-late";
 
 const isTauri =
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;

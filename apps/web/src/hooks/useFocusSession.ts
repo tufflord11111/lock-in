@@ -103,6 +103,8 @@ export function useFocusSession(
   const sessionLiveRef = useRef(false);
   // Latest endSession, for listeners and timers that subscribe once.
   const endSessionRef = useRef<(success: boolean, voided?: boolean) => void>(() => {});
+  // Same, for writing the entry a fuse burned down without (see below).
+  const recordLateBailoutRef = useRef<(at: number) => void>(() => {});
 
   /** Whole seconds left before the deadline, or null with no session. */
   const secondsRemaining = useCallback((): number | null => {
@@ -178,9 +180,14 @@ export function useFocusSession(
             endSessionRef.current(false, true);
             return;
           }
-          // The fuse can also burn down while the app was closed, in which
-          // case there is no live session here to end; Rust has already stood
-          // the enforcer down and the reset below is all that is left.
+          // The fuse can also burn down before this webview adopted the
+          // session (slow auth, or signed out). Rust has stood down; what is
+          // left is the reset below and the entry it still owes.
+          invoke<EnforcerState>("get_enforcer_state")
+            .then((s) => {
+              if (s.unrecorded_bailout != null) recordLateBailoutRef.current(s.unrecorded_bailout);
+            })
+            .catch((err) => console.warn("[LOCK-IN] late bail-out probe failed:", err));
         }
         if (reason === "deadline-expired" && sessionLiveRef.current) {
           console.info("[LOCK-IN] Rust deadline reached before the UI countdown — ending the session");
@@ -289,6 +296,61 @@ export function useFocusSession(
     );
     return () => unsub();
   }, [userId, deviceId]);
+
+  // A fuse that burned down while the app was closed ended the session with
+  // nothing written. Rust keeps what is owed until this is acknowledged.
+  //
+  // Waits on onValue rather than get(), so an offline boot writes it once the
+  // connection comes up. The session node must be this device's unfinished
+  // session: another account signing in on this PC must not inherit the entry
+  // (a normal end rewrites the node without endTime). The history key comes
+  // from the fuse's own time, so a retry after a crash lands on the same entry.
+  const recordLateBailout = useCallback(
+    (at: number) => {
+      if (!userId) return;
+      onValue(
+        ref(db, `users/${userId}/sessionState`),
+        (snap) => {
+          const s = snap.val();
+          if (s?.originDeviceId !== deviceId || typeof s?.endTime !== "number") {
+            console.info("[LOCK-IN] late bail-out: not this account's session — leaving it owed");
+            return;
+          }
+          const updates: Record<string, unknown> = {
+            [`users/${userId}/sessionHistory/bailout-${at}`]: {
+              objective: typeof s.objective === "string" ? s.objective : "",
+              minutes: 0,
+              timestamp: at,
+              status: "bailed-out",
+              bailedOut: true,
+            },
+          };
+          // A session started here since boot owns these two flags.
+          if (!isActiveRef.current) {
+            updates[`users/${userId}/sessionState`] = { isActive: false, originDeviceId: deviceId };
+            updates[`users/${userId}/config/focusActive`] = false;
+          }
+          const write = update(ref(db), updates);
+          guardWrite(
+            write,
+            "Couldn't save the bail-out from your last session. Lock-In will try again next time it starts."
+          );
+          write
+            .then(() => {
+              logUiEvent("bailout-recorded-late", userId);
+              return invoke("ack_bailout_recorded");
+            })
+            .catch((err) => console.warn("[LOCK-IN] late bail-out not recorded:", err));
+        },
+        (err) => console.warn("[LOCK-IN] late bail-out: sessionState read failed:", err),
+        { onlyOnce: true }
+      );
+    },
+    [userId, deviceId]
+  );
+  useEffect(() => {
+    recordLateBailoutRef.current = recordLateBailout;
+  }, [recordLateBailout]);
 
   const endSession = useCallback(
     async (success: boolean, voided = false) => {
@@ -406,6 +468,14 @@ export function useFocusSession(
       // alone says nothing. Race the ack against a timer instead. A connected
       // write acks well under a second. The write stays queued either way.
       warnIfSessionEndUnsaved(write, userId);
+
+      // Rust keeps a fired fuse's entry owed until the write has landed; queued
+      // and then lost to a quit, it is written again on the next launch.
+      if (voided) {
+        write
+          .then(() => invoke("ack_bailout_recorded"))
+          .catch((err) => console.warn("[LOCK-IN] bail-out entry not acknowledged:", err));
+      }
 
       console.log('[SESSION] endSession complete — UI reset, Firebase writes firing');
     },
@@ -540,6 +610,8 @@ export function useFocusSession(
       .then((s) => {
         if (cancelled) return;
 
+        if (s.unrecorded_bailout != null) recordLateBailout(s.unrecorded_bailout);
+
         if (isActiveRef.current && !s.focus_active) {
           resetLocalSession("auth-transition probe: Rust focus_active=false");
           return;
@@ -590,7 +662,7 @@ export function useFocusSession(
     return () => {
       cancelled = true;
     };
-  }, [userId, resetLocalSession, startCountdown, updatePresence]);
+  }, [userId, resetLocalSession, startCountdown, updatePresence, recordLateBailout]);
 
   // (3) RECONCILE — clear a session this device ended but never told Firebase
   // about. Session-end writes made offline only queue in memory; closing the

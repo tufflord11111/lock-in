@@ -99,6 +99,12 @@ struct LockProfile {
     /// owns every comparison that decides whether the fuse has burned down.
     #[serde(default)]
     bailout_used_date: Option<String>,
+    /// When a fuse ended a session and no bailed-out history entry has been
+    /// written for it yet (epoch ms), or None. Only the webview can write the
+    /// entry, and a fuse can burn down while the app is closed or signed out,
+    /// so what is owed has to outlive the process.
+    #[serde(default)]
+    unrecorded_bailout: Option<u64>,
 }
 
 // "soft" everywhere by default — "hard" seizes the screen (fullscreen,
@@ -365,6 +371,14 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     (cleared_session, cleared_permanent)
 }
 
+/// End a session that a bail-out voided, and note that its entry is owed.
+fn stand_down_voided(profile: &mut LockProfile, at: u64) {
+    profile.focus_active = false;
+    profile.session_end_time = None;
+    profile.bailout_deadline = None;
+    profile.unrecorded_bailout = Some(at);
+}
+
 /// Write the profile to disk. MUST be called while holding the profile lock so
 /// the file can never disagree with memory.
 ///
@@ -446,9 +460,7 @@ fn restore_profile(profile: &Arc<Mutex<LockProfile>>, path: &PathBuf, app: &taur
         // whole point is that quitting cannot outrun it.
         if let Some(fuse) = p.bailout_deadline {
             if now_millis() >= fuse {
-                p.focus_active = false;
-                p.session_end_time = None;
-                p.bailout_deadline = None;
+                stand_down_voided(&mut p, fuse);
                 println!("[Persist] bail-out fuse burned down while closed — stood down, void");
                 emit_stood_down(app, "bailout-expired", p.exe_blacklist.len());
             }
@@ -458,6 +470,11 @@ fn restore_profile(profile: &Arc<Mutex<LockProfile>>, path: &PathBuf, app: &taur
     if p.focus_active {
         match p.session_end_time {
             Some(end) if now_millis() >= end => {
+                // A session is void once its fuse is armed, whichever deadline
+                // ended it (see the sniper), so this one is still owed an entry.
+                if p.bailout_deadline.is_some() {
+                    p.unrecorded_bailout = Some(end);
+                }
                 // focus_active=false is what prevents arming; the list stays.
                 p.focus_active = false;
                 p.session_end_time = None;
@@ -1124,6 +1141,7 @@ const UI_EVENTS: &[&str] = &[
     "name-repair",
     "remote-stop-ignored",
     "remote-arm-refused",
+    "bailout-recorded-late",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
@@ -1214,6 +1232,9 @@ struct EnforcerState {
     /// the operator commits, and DEV_MODE shortens it, so it cannot be a
     /// constant on the webview side.
     bailout_fuse_ms: u64,
+    /// See LockProfile::unrecorded_bailout. The webview writes the entry, then
+    /// calls ack_bailout_recorded.
+    unrecorded_bailout: Option<u64>,
     /// Set when the state file cannot be written at all (no app data folder):
     /// enforcement works, but nothing survives a restart.
     persistence_error: Option<String>,
@@ -1234,10 +1255,25 @@ fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Resu
             bailout_deadline: profile.bailout_deadline,
             bailout_used_date: profile.bailout_used_date.clone(),
             bailout_fuse_ms: if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS },
+            unrecorded_bailout: profile.unrecorded_bailout,
             persistence_error: app_state.persist_error.clone(),
         }),
         Err(e) => Err(format!("Mutex lock failed: {}", e)),
     }
+}
+
+// ─── IPC Command: ack_bailout_recorded ───────────────────────────────────────
+// Firebase acknowledged the bailed-out history entry, so nothing is owed.
+#[tauri::command]
+fn ack_bailout_recorded(app_state: State<AppState>) -> Result<(), String> {
+    let mut profile = app_state
+        .profile
+        .lock()
+        .map_err(|e| format!("Mutex lock failed: {}", e))?;
+    if profile.unrecorded_bailout.take().is_some() {
+        persist_profile(&profile, &app_state.state_path);
+    }
+    Ok(())
 }
 
 // ─── IPC Command: clear_disarm_latch ─────────────────────────────────────────
@@ -1502,6 +1538,7 @@ pub fn run() {
         session_end_time: None,
         bailout_deadline: None,
         bailout_used_date: None,
+        unrecorded_bailout: None,
     }));
 
     let profile_for_sniper = Arc::clone(&profile);
@@ -1522,7 +1559,7 @@ pub fn run() {
             }
         }))
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -1587,11 +1624,15 @@ pub fn run() {
                                 if now_millis() >= end {
                                     // Stand down without touching exe_blacklist —
                                     // standing config, gated by enforcer_active.
-                                    profile.focus_active = false;
-                                    profile.session_end_time = None;
                                     // bailout_used_date is deliberately kept:
                                     // it is what makes it one bail-out per day.
-                                    profile.bailout_deadline = None;
+                                    if bailing {
+                                        stand_down_voided(&mut profile, end);
+                                    } else {
+                                        profile.focus_active = false;
+                                        profile.session_end_time = None;
+                                        profile.bailout_deadline = None;
+                                    }
                                     persist_profile(&profile, &sniper_state_path);
                                     let reason = if bailing { "bailout-expired" } else { "deadline-expired" };
                                     emit_stood_down(&handle, reason, profile.exe_blacklist.len());
@@ -1766,7 +1807,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, enforcement_decision, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{arm_refusal, enforcement_decision, iso8601_utc, stand_down_voided, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -1775,6 +1816,17 @@ mod tests {
         p.bailout_deadline = Some(1_000);
         p.bailout_used_date = Some("2026-11-03".to_string());
         p
+    }
+
+    #[test]
+    fn a_voided_stand_down_leaves_the_entry_owed() {
+        let mut p = profile_with_fuse();
+        stand_down_voided(&mut p, 1_000);
+        assert!(!p.focus_active);
+        assert_eq!(p.session_end_time, None);
+        assert_eq!(p.bailout_deadline, None);
+        assert_eq!(p.unrecorded_bailout, Some(1_000));
+        assert_eq!(p.bailout_used_date.as_deref(), Some("2026-11-03"));
     }
 
     #[test]

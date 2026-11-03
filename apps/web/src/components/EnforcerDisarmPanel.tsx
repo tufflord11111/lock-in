@@ -15,6 +15,8 @@ export type EnforcerState = {
   disarm_latch: boolean;
   /** Epoch ms deadline of the running session, or null when none is armed. */
   session_end_time: number | null;
+  /** When a fuse ended a session with no history entry written for it yet. */
+  unrecorded_bailout?: number | null;
   /** Set when Rust has no app data folder: enforcing from memory, nothing persisted. */
   persistence_error?: string | null;
 };
