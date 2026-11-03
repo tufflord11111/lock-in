@@ -39,6 +39,7 @@ import { WriteFailureToasts } from "./components/WriteFailureToasts";
 import { awaitWriteOrQueue } from "./offlineWrite";
 import { reportEngineFailure } from "./engineHealth";
 import { Login } from "./screens/Login";
+import { WebGuardGate } from "./components/WebGuardGate";
 
 const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea";
 
@@ -486,21 +487,28 @@ function AppInner() {
 
   const { stale: extensionQuiet, isStaleNow: extensionQuietNow } = useExtensionPresence(user?.uid);
   const sessionSites = useSessionSites(user?.uid, WEB_BLOCKLIST);
-  // Unreachable, the heartbeat can't be read, so a quiet extension proves
-  // nothing. The extension blocks offline from its own saved state, and an
-  // offline session must still start.
-  const startRefusal = useCallback(() => {
-    if (!reachable || sessionSites.length === 0 || !extensionQuietNow()) return null;
-    return `This session blocks websites, but the Lock-In extension isn't answering. Open Chrome and check it's on, or install it: ${CHROME_WEB_STORE_URL}`;
-  }, [reachable, sessionSites, extensionQuietNow]);
-
   const { isActive, timeLeft, taskLabel, startSession, endSession } = useFocusSession(
     user?.uid,
     setTotalMinutesFocused,
     blockedApps,
     WEB_BLOCKLIST,
-    updatePresence,
-    startRefusal
+    updatePresence
+  );
+
+  // A session that blocks websites, started while Web Guard is quiet: ask first.
+  // Unreachable, the heartbeat can't be read, so a quiet extension proves
+  // nothing. The extension blocks offline from its own saved state, and an
+  // offline session starts as usual.
+  const [pendingStart, setPendingStart] = useState<{ minutes: number; label: string } | null>(null);
+  const gatedStartSession = useCallback(
+    (minutes: number, label: string) => {
+      if (reachable && sessionSites.length > 0 && extensionQuietNow()) {
+        setPendingStart({ minutes, label });
+        return;
+      }
+      startSession(minutes, label);
+    },
+    [reachable, sessionSites, extensionQuietNow, startSession]
   );
 
   // Global Timer Formatter
@@ -810,6 +818,16 @@ function AppInner() {
       )}
 
       <ConnectionGate extensionStale={extensionQuiet && reachable} engineOffline={engineOffline} />
+      {pendingStart && (
+        <WebGuardGate
+          storeUrl={CHROME_WEB_STORE_URL}
+          onStartAppsOnly={() => {
+            startSession(pendingStart.minutes, pendingStart.label, { appsOnly: true });
+            setPendingStart(null);
+          }}
+          onClose={() => setPendingStart(null)}
+        />
+      )}
 
       <PendingPermanentBanner userId={user.uid} />
 
@@ -820,7 +838,7 @@ function AppInner() {
           {currentTab === "home" ? (
             <Dashboard 
               userId={user.uid}
-              onStartSession={startSession}
+              onStartSession={gatedStartSession}
               isActive={isActive}
               timeLeft={timeLeft}
               taskLabel={taskLabel}

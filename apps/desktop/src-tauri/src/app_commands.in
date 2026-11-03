@@ -23,6 +23,7 @@
     "arm_bailout",
     "ack_bailout_recorded",
     "set_close_to_tray",
+    "open_web_guard_store",
     "read_snapshot",
     "write_snapshot",
     "clear_snapshot",

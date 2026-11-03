@@ -408,6 +408,8 @@ fn is_silent_launch<S: AsRef<str>>(args: &[S]) -> bool {
     args.iter().any(|a| a.as_ref() == "--silently")
 }
 
+const WEB_GUARD_STORE_URL: &str = "https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea";
+
 const QUIT_REFUSED_MESSAGE: &str = "A session is running. Use Bail out.";
 
 #[derive(Clone, Serialize)]
@@ -1211,7 +1213,7 @@ const UI_EVENTS: &[&str] = &[
     "quit-refused",
     "autostart-set",
     "autostart-error",
-    "start-refused-extension",
+    "start-apps-only",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
@@ -1477,6 +1479,18 @@ fn reject_pending_exe(app_state: State<AppState>) -> Result<String, String> {
     }
 }
 
+/// Open the extension's store page in the default browser. The URL is fixed
+/// here, so this can't be used to open anything else.
+#[tauri::command]
+fn open_web_guard_store() -> Result<(), String> {
+    std::process::Command::new("rundll32.exe")
+        .args(["url.dll,FileProtocolHandler", WEB_GUARD_STORE_URL])
+        .creation_flags(0x08000000)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// True in the Microsoft Store (MSIX) build. The webview asks before touching
 /// anything the Store owns — the updater above all.
 #[tauri::command]
@@ -1684,7 +1698,7 @@ pub fn run() {
         })
         // Every one is also listed in app_commands.in, and only a window whose
         // capability grants it can call it: "main" alone (see build.rs).
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, set_close_to_tray, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
 

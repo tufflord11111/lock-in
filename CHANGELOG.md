@@ -7,7 +7,7 @@
 - Another device can no longer stop or start a session on this PC. A session here runs until its own end or its fuse. This also ends desktop-to-desktop session mirroring.
 - Fixed: a bail-out followed by Clear all blocks, or by a stop from another device, could void your next session on its first tick.
 - Fixed: a bail-out fuse that burned down while the app was closed left no record. The bailed-out entry is now written the next time you open the app.
-- A session that blocks websites won't start if the Chrome extension is missing or has been quiet for a minute, and tells you where to get it. App-only and offline sessions are unaffected. The "Web Guard not detected" banner now appears when the extension goes quiet, not only after a restart.
+- Starting a session that blocks websites while Web Guard, the Chrome extension, is missing or has been quiet for a minute now asks first: install it, or start apps-only, where Lock-In closes your blocked apps but doesn't block sites. Offline sessions start as usual. The "Web Guard not detected" banner now appears when the extension goes quiet, not only after a restart.
 - The launch-on-startup switch now shows what Windows says, and tells you when it can't find out.
 - The offline pill rechecks as soon as you reconnect, and has a Retry button.
 - The Clear All Blocks button now says plainly what it does.

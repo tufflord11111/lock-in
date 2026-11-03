@@ -35,6 +35,7 @@
     "allow-arm-bailout",
     "allow-ack-bailout-recorded",
     "allow-set-close-to-tray",
+    "allow-open-web-guard-store",
     "allow-read-snapshot",
     "allow-write-snapshot",
     "allow-clear-snapshot",

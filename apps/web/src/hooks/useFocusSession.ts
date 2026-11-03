@@ -82,9 +82,7 @@ export function useFocusSession(
   setTotalMinutesFocused: Dispatch<SetStateAction<number>>,
   blockedApps: string[] = [],
   blockedWebsites: string[] = [],
-  updatePresence?: (state: "online" | "offline" | "locked-in") => Promise<void>,
-  /** Why a session can't start right now, or null. Asked at the moment of Start. */
-  startRefusal?: () => string | null
+  updatePresence?: (state: "online" | "offline" | "locked-in") => Promise<void>
 ) {
   const [isActive, setIsActive] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -518,15 +516,9 @@ export function useFocusSession(
   }, [clearTimer, secondsRemaining]);
 
   const startSession = useCallback(
-    (minutes: number, label: string) => {
+    (minutes: number, label: string, options: { appsOnly?: boolean } = {}) => {
       if (!userId) return;
-      const refusal = startRefusal?.();
-      if (refusal) {
-        logUiEvent("start-refused-extension", userId);
-        // Sticky: it carries a URL to copy.
-        reportWriteFailure(refusal, undefined, "info", { sticky: true });
-        return;
-      }
+      if (options.appsOnly) logUiEvent("start-apps-only", userId);
       clearTimer();
       const seconds = Math.max(0, Math.floor(minutes * 60));
       if (seconds === 0) return;
@@ -544,8 +536,9 @@ export function useFocusSession(
       console.log('[Session] blockedApps received:', blockedApps);
       console.log('[Session] exeList after filter:', exeList);
       
+      // Apps-only: no site list goes out for this session.
       const masterBlockList = [
-        ...blockedWebsites,
+        ...(options.appsOnly ? [] : blockedWebsites),
         ...blockedApps,
       ];
 
@@ -600,7 +593,7 @@ export function useFocusSession(
         updatePresence("locked-in");
       }
     },
-    [clearTimer, endSession, startCountdown, blockedApps, blockedWebsites, updatePresence, userId, deviceId, startRefusal],
+    [clearTimer, endSession, startCountdown, blockedApps, blockedWebsites, updatePresence, userId, deviceId],
   );
 
   // (2) PULL — on every userId transition, ask Rust and reconcile BOTH ways.
