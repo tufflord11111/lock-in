@@ -19,12 +19,6 @@ use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-#[derive(Clone, Serialize)]
-struct KillPayload {
-    name: String,
-    timestamp: u64,
-}
-
 /// Emitted as "enforcer-stood-down" on EVERY Rust focus_active true→false
 /// transition — emergency disarm, local or remote session end, deadline
 /// expiry, and the restore-time stand-downs — so the session UI follows Rust
@@ -1814,8 +1808,7 @@ pub fn run() {
             // processes in-process via sysinfo (kill_processes_matching). Every
             // process whose name matches is killed individually, so
             // multi-process Electron apps like Discord go down one process at
-            // a time rather than as a taskkill /T tree. The only remaining
-            // taskkill call is the dormant Task Manager kill gated on is_locked.
+            // a time rather than as a taskkill /T tree.
             thread::spawn(move || {
                 println!("[Enforcer] Background thread STARTED");
                 // One long-lived process table, refreshed in place only on ticks
@@ -1899,27 +1892,8 @@ pub fn run() {
                     // sync_lock_state is its only writer, and its only caller
                     // (syncWithRustEngine in useOmniSync.ts) passes the hardcoded
                     // literal `isLocked: false`. Nothing in the app sets it true.
-                    // This branch, the lock_mode soft/hard split below, and the
-                    // Task Manager kill are all dormant. Do not assume they run.
-                    if is_locked {
-                        let output = std::process::Command::new("taskkill")
-                            .args(["/F", "/T", "/IM", "taskmgr.exe"])
-                            .creation_flags(0x08000000)
-                            .output();
-                        if let Ok(out) = output {
-                            if out.status.success() {
-                                println!("[Sniper] 💀 Terminated: Task Manager");
-                                let now = SystemTime::now()
-                                    .duration_since(UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs();
-                                let _ = handle.emit("process-killed", KillPayload {
-                                    name: "Task Manager".to_string(),
-                                    timestamp: now,
-                                });
-                            }
-                        }
-                    }
+                    // The lock_mode soft/hard split below is dormant too. Do not
+                    // assume it runs.
 
                     // ── Kill pass ──────────────────────────────────────────
                     // Permanent blocks always apply; session targets only while
