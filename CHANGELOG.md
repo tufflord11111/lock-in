@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.9] — 2026-11-03
+
+- Lock-In now lives in the tray, with Open and Quit. Closing the window keeps it running by default; you can turn that off in the Block Registry. During a session, closing always hides it, and Quit says "A session is running. Use Bail out." End task still stops the app.
+- Starting Lock-In again shows the hidden window, and starting with Windows no longer opens a window.
+- Another device can no longer stop or start a session on this PC. A session here runs until its own end or its fuse. This also ends desktop-to-desktop session mirroring.
+- Fixed: a bail-out followed by Clear all blocks, or by a stop from another device, could void your next session on its first tick.
+- Fixed: a bail-out fuse that burned down while the app was closed left no record. The bailed-out entry is now written the next time you open the app.
+- A session that blocks websites won't start if the Chrome extension is missing or has been quiet for a minute, and tells you where to get it. App-only and offline sessions are unaffected. The "Web Guard not detected" banner now appears when the extension goes quiet, not only after a restart.
+- The launch-on-startup switch now shows what Windows says, and tells you when it can't find out.
+- The offline pill rechecks as soon as you reconnect, and has a Retry button.
+- The Clear All Blocks button now says plainly what it does.
+- Calendar links are checked properly: only Google's Public URL is accepted, and a saved link that isn't one shows the connect screen instead of a broken frame.
+- To-dos wrap between words instead of mid-word.
+- Demo accounts no longer appear on The Pack's leaderboard.
+- Only the main window can drive the enforcer.
+- The Windows download is now a single installer. If you installed an older MSI and see two Lock-In entries in Apps & Features, uninstall the one dated before 1.2.9. Your blocks and streak are safe either way.
+- Chrome extension 1.2.4 blocks a site before it loads, covers blocked iframes, keeps blocking when Firebase or sign-in can't be reached, and stops at the session's end even offline. No pause button. The session ends when the timer does.
+
 ## [1.2.7] — 2026-10-13
 
 - Bail out replaces Emergency Abort. During a session you hold the control for two seconds and the session ends five minutes later, voided — no minutes, no streak, however far in you were. Blocking continues until the fuse burns down, it cannot be cancelled or shortened, and quitting the app or signing out will not outrun it. One bail-out per day; a second press tells you how long is left. The instant clear survives only when the app cannot read the enforcer at all, so you can never be trapped by a state we cannot see.
