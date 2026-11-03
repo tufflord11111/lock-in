@@ -1,12 +1,11 @@
 import { db } from "@lock-in/firebase";
-import { ref, update, push, serverTimestamp, increment, onValue, get } from "firebase/database";
+import { ref, update, increment, onValue, get } from "firebase/database";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getDeviceId } from "../deviceId";
 import { dismissWriteFailure, guardWrite, reportWriteFailure } from "../writeFailures";
 import { logUiEvent } from "../uiEventLog";
 import { reportEngineFailure } from "../engineHealth";
-import { creditedMinutes } from "../sessionCredit";
 import type { EnforcerState } from "../components/EnforcerDisarmPanel";
 import {
   useCallback,
@@ -91,9 +90,6 @@ export function useFocusSession(
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const totalMinutesRef = useRef(0);
   const initialSecondsRef = useRef(0);
-  // Sleep Rust had already counted when this webview took the session over.
-  // Credit runs from adoption, so sleep before it was never going to be credited.
-  const asleepBaselineRef = useRef(0);
   // Wall-clock deadline (epoch ms) of the running session, or null. The
   // countdown is derived from it rather than decremented once per tick:
   // WebView2 throttles — and after ~5 minutes suspends — timers in a hidden or
@@ -106,9 +102,9 @@ export function useFocusSession(
   // first may run endSession.
   const sessionLiveRef = useRef(false);
   // Latest endSession, for listeners and timers that subscribe once.
-  const endSessionRef = useRef<(success: boolean, voided?: boolean) => void>(() => {});
-  // Same, for writing the entry a fuse burned down without (see below).
-  const recordLateBailoutRef = useRef<(at: number) => void>(() => {});
+  const endSessionRef = useRef<() => void>(() => {});
+  // Same, for writing the history entries Rust has decided on.
+  const flushRecordsRef = useRef<() => void>(() => {});
 
   /** Whole seconds left before the deadline, or null with no session. */
   const secondsRemaining = useCallback((): number | null => {
@@ -132,7 +128,7 @@ export function useFocusSession(
   // Two mechanisms, both reducing to one idempotent LOCAL reset — with one
   // exception. A disarm or a remote stop must not call endSession: its
   // Firebase writes belong to useDisarmRecovery / the other device, and
-  // calling it here would double-log them. But "deadline-expired" IS this
+  // calling it here would double-write them. But "deadline-expired" IS this
   // session ending on time; Rust simply got there before the webview's
   // throttled countdown. That one runs endSession, or the session-end writes
   // (and the offline notice) would never happen at all.
@@ -177,25 +173,18 @@ export function useFocusSession(
       (event) => {
         lastStoodDownRef.current = Date.now();
         const reason = event.payload?.reason ?? "unknown";
+        flushRecordsRef.current();
         if (reason === "bailout-expired") {
           console.info("[LOCK-IN] bail-out fuse burned down — ending the session, voided");
           logUiEvent("bailout-fired", userId);
           if (sessionLiveRef.current) {
-            endSessionRef.current(false, true);
+            endSessionRef.current();
             return;
           }
-          // The fuse can also burn down before this webview adopted the
-          // session (slow auth, or signed out). Rust has stood down; what is
-          // left is the reset below and the entry it still owes.
-          invoke<EnforcerState>("get_enforcer_state")
-            .then((s) => {
-              if (s.unrecorded_bailout != null) recordLateBailoutRef.current(s.unrecorded_bailout);
-            })
-            .catch((err) => console.warn("[LOCK-IN] late bail-out probe failed:", err));
         }
         if (reason === "deadline-expired" && sessionLiveRef.current) {
           console.info("[LOCK-IN] Rust deadline reached before the UI countdown — ending the session");
-          endSessionRef.current(true);
+          endSessionRef.current();
           return;
         }
         if (isActiveRef.current) {
@@ -301,200 +290,157 @@ export function useFocusSession(
     return () => unsub();
   }, [userId, deviceId]);
 
-  // A fuse that burned down while the app was closed ended the session with
-  // nothing written. Rust keeps what is owed until this is acknowledged.
-  //
-  // Waits on onValue rather than get(), so an offline boot writes it once the
-  // connection comes up. The session node must be this device's unfinished
-  // session: another account signing in on this PC must not inherit the entry
-  // (a normal end rewrites the node without endTime). The history key comes
-  // from the fuse's own time, so a retry after a crash lands on the same entry.
-  const recordLateBailout = useCallback(
-    (at: number) => {
-      if (!userId) return;
-      onValue(
-        ref(db, `users/${userId}/sessionState`),
-        (snap) => {
-          const s = snap.val();
-          if (s?.originDeviceId !== deviceId || typeof s?.endTime !== "number") {
-            console.info("[LOCK-IN] late bail-out: not this account's session — leaving it owed");
-            return;
-          }
+  // Rust ends each session and decides what it earned, with or without this
+  // window, and keeps the entry until Firebase has it. This only delivers them.
+  // The key comes from the session's end time and is checked first, so a retry
+  // after a crash can't credit a session twice. Offline, get() rejects and the
+  // next attempt picks it up.
+  const flushingRef = useRef(false);
+  const flushSessionRecords = useCallback(async () => {
+    if (!userId || flushingRef.current) return;
+    flushingRef.current = true;
+    try {
+      const state = await invoke<EnforcerState>("get_enforcer_state");
+      for (const record of state.pending_records ?? []) {
+        // Another account signed in on this PC: leave it for its owner.
+        if (record.uid && record.uid !== userId) continue;
+        const key = `session-${record.ended_at}`;
+        const [existing, sessionNode] = await Promise.all([
+          get(ref(db, `users/${userId}/sessionHistory/${key}`)),
+          get(ref(db, `users/${userId}/sessionState`)),
+        ]);
+        if (!existing.exists()) {
+          const bailedOut = record.status === "bailed-out";
           const updates: Record<string, unknown> = {
-            [`users/${userId}/sessionHistory/bailout-${at}`]: {
-              objective: typeof s.objective === "string" ? s.objective : "",
-              minutes: 0,
-              timestamp: at,
-              status: "bailed-out",
-              bailedOut: true,
+            [`users/${userId}/sessionHistory/${key}`]: {
+              objective: record.objective,
+              minutes: record.minutes,
+              timestamp: record.ended_at,
+              status: record.status,
+              ...(bailedOut ? { bailedOut: true } : {}),
             },
           };
-          // A session started here since boot owns these two flags.
-          if (!isActiveRef.current) {
+          if (record.minutes > 0) {
+            const day = new Date(record.ended_at).toLocaleDateString("en-CA");
+            updates[`users/${userId}/history/${day}`] = increment(record.minutes);
+          }
+          // If nothing else cleared this device's session, this does. No session
+          // is running here, and it's our own, so nothing live can be touched.
+          const node = sessionNode.val();
+          if (!state.focus_active && node?.isActive === true && node.originDeviceId === deviceId) {
             updates[`users/${userId}/sessionState`] = { isActive: false, originDeviceId: deviceId };
             updates[`users/${userId}/config/focusActive`] = false;
           }
           const write = update(ref(db), updates);
           guardWrite(
             write,
-            "Couldn't save the bail-out from your last session. Lock-In will try again next time it starts."
+            "Couldn't save your last session's minutes. Lock-In will keep trying, so nothing is lost."
           );
-          write
-            .then(() => {
-              logUiEvent("bailout-recorded-late", userId);
-              return invoke("ack_bailout_recorded");
-            })
-            .catch((err) => console.warn("[LOCK-IN] late bail-out not recorded:", err));
-        },
-        (err) => console.warn("[LOCK-IN] late bail-out: sessionState read failed:", err),
-        { onlyOnce: true }
-      );
-    },
-    [userId, deviceId]
-  );
+          await write;
+          logUiEvent("session-recorded", userId);
+          if (record.minutes > 0) setTotalMinutesFocused((prev) => prev + record.minutes);
+        }
+        await invoke("ack_session_record", { endedAt: record.ended_at });
+      }
+    } catch (err) {
+      console.warn("[LOCK-IN] session entries not delivered yet:", err);
+    } finally {
+      flushingRef.current = false;
+    }
+  }, [userId, deviceId, setTotalMinutesFocused]);
   useEffect(() => {
-    recordLateBailoutRef.current = recordLateBailout;
-  }, [recordLateBailout]);
+    flushRecordsRef.current = flushSessionRecords;
+    if (!userId) return;
+    // Sign-in, then on a timer and on focus: a hidden window's timers are
+    // throttled, not stopped, so whatever's owed still lands.
+    flushSessionRecords();
+    const timer = setInterval(flushSessionRecords, 60_000);
+    window.addEventListener("focus", flushSessionRecords);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", flushSessionRecords);
+    };
+  }, [userId, flushSessionRecords]);
 
-  const endSession = useCallback(
-    async (success: boolean, voided = false) => {
-      if (!userId) return;
-      // The countdown and the Rust deadline can both get here; end once.
-      if (!sessionLiveRef.current) return;
-      sessionLiveRef.current = false;
+  const endSession = useCallback(async () => {
+    if (!userId) return;
+    // The countdown and the Rust deadline can both get here; end once.
+    if (!sessionLiveRef.current) return;
+    sessionLiveRef.current = false;
 
-      // STEP 1: Clear timer immediately
-      clearTimer();
+    // STEP 1: Clear timer immediately
+    clearTimer();
+    endTimeRef.current = null;
 
-      // STEP 2: Calculate time spent before resetting — from the wall clock,
-      // not the rendered timeLeft, which lags when the window is throttled.
-      const remaining = secondsRemaining() ?? timeLeft;
-      endTimeRef.current = null;
-      const secondsSpent = Math.max(0, initialSecondsRef.current - remaining);
-      // Before the stand-down below, and read from Rust: on waking, this timer
-      // can fire before the enforcer's next tick has seen the gap. No answer
-      // means no enforcer to ask (a plain browser), so nothing is taken off.
-      const baseline = asleepBaselineRef.current;
-      const asleepMs = voided
-        ? 0
-        : await invoke<number>("session_asleep_ms")
-            .then((ms) => Math.max(0, ms - baseline))
-            .catch(() => 0);
-      if (asleepMs > 0) console.info(`[SESSION] not crediting ${asleepMs} ms asleep`);
-      // A bailed-out session is void in full — at one minute in or at 55 of
-      // 60. Nothing is credited, so there is nothing to round up.
-      const minutesToLog = voided ? 0 : creditedMinutes(secondsSpent, asleepMs);
+    // STEP 2: Reset ALL UI state immediately
+    // This happens synchronously — UI unfreezes NOW
+    totalMinutesRef.current = 0;
+    initialSecondsRef.current = 0;
+    setIsActive(false);
+    setTimeLeft(0);
+    setTaskLabel("");
+    if (updatePresence) {
+      updatePresence("online");
+    }
 
-      // STEP 3: Reset ALL UI state immediately
-      // This happens synchronously — UI unfreezes NOW
-      totalMinutesRef.current = 0;
-      initialSecondsRef.current = 0;
-      setIsActive(false);
-      setTimeLeft(0);
-      setTaskLabel("");
-      if (updatePresence) {
-        updatePresence("online");
-      }
-
-      // STEP 4: Signal Rust to stand down (already fire-and-forget)
-      invoke("update_enforcement", { isActive: false, blockedList: [], endTime: null })
-        .then((res) => console.log("[Enforcer] Stand-down confirmed:", res))
-        .catch((err) =>
-          reportEngineFailure(
-            "update_enforcement(stop)",
-            "The enforcer didn't confirm the end of your session, so blocked apps may keep closing until its original end time. Restart Lock-In if they do.",
-            err
-          )
-        );
-
-      // STEP 5: Clear chrome storage if available
-      if (typeof (window as any).chrome !== 'undefined' 
-          && (window as any).chrome.storage) {
-        (window as any).chrome.storage.local.set({ timeLeft: null });
-      }
-
-      // STEP 6: ONE atomic write for everything the end of a session records —
-      // the session flag, the extension's flag, the history entry and the
-      // daily minutes. Fired WITHOUT await; the UI is already unfrozen.
-      //
-      // Atomic so they can never partly land: previously four separate writes,
-      // and offline they queued (and could be lost) independently. The history
-      // key is generated client-side (push() with no value writes nothing) so
-      // it can ride in the same update.
-      const updates: Record<string, unknown> = {
-        // Whole-node, as the previous set() was: clears endTime, blockedUrls
-        // and objective. originDeviceId lets the cross-device mirror skip
-        // this write's echo.
-        [`users/${userId}/sessionState`]: { isActive: false, originDeviceId: deviceId },
-        [`users/${userId}/config/focusActive`]: false,
-      };
-
-      // STEP 7: History.
-      //
-      // A bailed-out session is always recorded — the record is the point, it
-      // is how the operator sees that bailing out costs the whole session —
-      // but it carries minutes: 0 and never touches history/{date}, so no
-      // daily total and no streak day is credited for it. An ordinary session
-      // is recorded only when time was actually spent.
-      if (voided) {
-        const historyKey = push(ref(db, `users/${userId}/sessionHistory`)).key;
-        updates[`users/${userId}/sessionHistory/${historyKey}`] = {
-          objective: taskLabel,
-          minutes: 0,
-          timestamp: serverTimestamp(),
-          status: "bailed-out",
-          bailedOut: true,
-        };
-      } else if (minutesToLog > 0) {
-        setTotalMinutesFocused((prev) => prev + minutesToLog);
-        const historyKey = push(ref(db, `users/${userId}/sessionHistory`)).key;
-        const today = new Date().toLocaleDateString('en-CA');
-        updates[`users/${userId}/sessionHistory/${historyKey}`] = {
-          objective: taskLabel,
-          minutes: minutesToLog,
-          timestamp: serverTimestamp(),
-          status: success ? "completed" : "aborted",
-        };
-        updates[`users/${userId}/history/${today}`] = increment(minutesToLog);
-      }
-
-      let write: Promise<void>;
-      try {
-        write = update(ref(db), updates);
-      } catch (err) {
-        // update() validates synchronously and throws before returning a
-        // promise, which guardWrite would never see.
-        reportWriteFailure(
-          "Couldn't save the end of your session. Your browser extension may keep blocking sites, and this session's minutes weren't recorded.",
+    // STEP 3: Signal Rust to stand down (already fire-and-forget). Rust decides
+    // what the session earned; the entry goes out with flushSessionRecords.
+    invoke("update_enforcement", { isActive: false, blockedList: [], endTime: null })
+      .then((res) => {
+        console.log("[Enforcer] Stand-down confirmed:", res);
+        flushRecordsRef.current();
+      })
+      .catch((err) =>
+        reportEngineFailure(
+          "update_enforcement(stop)",
+          "The enforcer didn't confirm the end of your session, so blocked apps may keep closing until its original end time. Restart Lock-In if they do.",
           err
-        );
-        write = Promise.resolve();
-      }
-
-      // A server refusal (PERMISSION_DENIED) still surfaces as an error.
-      guardWrite(
-        write,
-        "Couldn't save the end of your session. Other devices may still show it running, your browser extension may keep blocking sites, and this session's minutes weren't recorded."
+        )
       );
 
-      // Offline, the write neither resolves nor rejects — it queues until the
-      // connection returns (and is lost if the app closes first), so guardWrite
-      // alone says nothing. Race the ack against a timer instead. A connected
-      // write acks well under a second. The write stays queued either way.
-      warnIfSessionEndUnsaved(write, userId);
+    // STEP 4: Clear chrome storage if available
+    if (typeof (window as any).chrome !== 'undefined'
+        && (window as any).chrome.storage) {
+      (window as any).chrome.storage.local.set({ timeLeft: null });
+    }
 
-      // Rust keeps a fired fuse's entry owed until the write has landed; queued
-      // and then lost to a quit, it is written again on the next launch.
-      if (voided) {
-        write
-          .then(() => invoke("ack_bailout_recorded"))
-          .catch((err) => console.warn("[LOCK-IN] bail-out entry not acknowledged:", err));
-      }
+    // STEP 5: ONE atomic write for the session flag and the extension's flag.
+    // Fired WITHOUT await; the UI is already unfrozen.
+    const updates: Record<string, unknown> = {
+      // Whole-node, as the previous set() was: clears endTime, blockedUrls
+      // and objective. originDeviceId lets the cross-device mirror skip
+      // this write's echo.
+      [`users/${userId}/sessionState`]: { isActive: false, originDeviceId: deviceId },
+      [`users/${userId}/config/focusActive`]: false,
+    };
 
-      console.log('[SESSION] endSession complete — UI reset, Firebase writes firing');
-    },
-    [clearTimer, secondsRemaining, setTotalMinutesFocused, taskLabel, timeLeft, updatePresence, userId, deviceId],
-  );
+    let write: Promise<void>;
+    try {
+      write = update(ref(db), updates);
+    } catch (err) {
+      // update() validates synchronously and throws before returning a
+      // promise, which guardWrite would never see.
+      reportWriteFailure(
+        "Couldn't save the end of your session. Your browser extension may keep blocking sites.",
+        err
+      );
+      write = Promise.resolve();
+    }
+
+    // A server refusal (PERMISSION_DENIED) still surfaces as an error.
+    guardWrite(
+      write,
+      "Couldn't save the end of your session. Other devices may still show it running, and your browser extension may keep blocking sites."
+    );
+
+    // Offline, the write neither resolves nor rejects — it queues until the
+    // connection returns (and is lost if the app closes first), so guardWrite
+    // alone says nothing. Race the ack against a timer instead. A connected
+    // write acks well under a second. The write stays queued either way.
+    warnIfSessionEndUnsaved(write, userId);
+
+    console.log('[SESSION] endSession complete — UI reset, Firebase writes firing');
+  }, [clearTimer, updatePresence, userId, deviceId]);
   useEffect(() => {
     endSessionRef.current = endSession;
   }, [endSession]);
@@ -521,7 +467,7 @@ export function useFocusSession(
             clearInterval(intervalRef.current);
             intervalRef.current = null;
           }
-          queueMicrotask(() => endSessionRef.current(true));
+          queueMicrotask(() => endSessionRef.current());
           return 0;
         }
         return next;
@@ -539,7 +485,6 @@ export function useFocusSession(
 
       totalMinutesRef.current = minutes;
       initialSecondsRef.current = seconds;
-      asleepBaselineRef.current = 0;
       setTaskLabel(label.trim());
       setTimeLeft(seconds);
       setIsActive(true);
@@ -592,7 +537,13 @@ export function useFocusSession(
       console.log("REACT: Firing Rust sniper ACTIVE signal...", exeList);
       // endTime travels to Rust so a session that outlives this webview (quit +
       // relaunch) still has a deadline the enforcer can expire it against.
-      invoke("update_enforcement", { isActive: true, blockedList: exeList, endTime })
+      invoke("update_enforcement", {
+        isActive: true,
+        blockedList: exeList,
+        endTime,
+        objective: label.trim(),
+        uid: userId,
+      })
         .then((res) => console.log("RUST RESPONSE:", res))
         .catch((err) =>
           reportEngineFailure(
@@ -627,8 +578,6 @@ export function useFocusSession(
       .then((s) => {
         if (cancelled) return;
 
-        if (s.unrecorded_bailout != null) recordLateBailout(s.unrecorded_bailout);
-
         if (isActiveRef.current && !s.focus_active) {
           resetLocalSession("auth-transition probe: Rust focus_active=false");
           return;
@@ -654,7 +603,6 @@ export function useFocusSession(
           // original start — the pre-restart portion was never observed here.
           totalMinutesRef.current = Math.ceil(remaining / 60);
           initialSecondsRef.current = remaining;
-          asleepBaselineRef.current = s.session_asleep_ms ?? 0;
           endTimeRef.current = s.session_end_time;
           sessionLiveRef.current = true;
           setTaskLabel("Untitled Session");
@@ -680,7 +628,7 @@ export function useFocusSession(
     return () => {
       cancelled = true;
     };
-  }, [userId, resetLocalSession, startCountdown, updatePresence, recordLateBailout]);
+  }, [userId, resetLocalSession, startCountdown, updatePresence]);
 
   // (3) RECONCILE — clear a session this device ended but never told Firebase
   // about. Session-end writes made offline only queue in memory; closing the

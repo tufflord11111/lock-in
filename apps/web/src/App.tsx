@@ -842,7 +842,7 @@ function AppInner() {
               isActive={isActive}
               timeLeft={timeLeft}
               taskLabel={taskLabel}
-              onEndSession={() => endSession(false)}
+              onEndSession={() => endSession()}
               intentions={intentions}
               setIntentions={setIntentions}
               blocklistHydrated={blocklistHydrated}

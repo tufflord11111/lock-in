@@ -2,6 +2,14 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BailOut } from "./BailOut";
 
+export type SessionRecord = {
+  ended_at: number;
+  minutes: number;
+  status: string;
+  objective: string;
+  uid: string | null;
+};
+
 /** Mirrors the Rust EnforcerState struct (serde emits these names as declared). */
 export type EnforcerState = {
   is_locked: boolean;
@@ -15,12 +23,10 @@ export type EnforcerState = {
   disarm_latch: boolean;
   /** Epoch ms deadline of the running session, or null when none is armed. */
   session_end_time: number | null;
-  /** When a fuse ended a session with no history entry written for it yet. */
-  unrecorded_bailout?: number | null;
+  /** Finished sessions Rust decided the entry for, not yet in Firebase. */
+  pending_records?: SessionRecord[];
   /** Closing the window keeps Lock-In running in the tray. */
   close_to_tray?: boolean;
-  /** Time asleep during the running session. */
-  session_asleep_ms?: number;
   /** Set when Rust has no app data folder: enforcing from memory, nothing persisted. */
   persistence_error?: string | null;
 };

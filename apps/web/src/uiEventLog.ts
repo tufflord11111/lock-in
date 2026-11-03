@@ -14,7 +14,7 @@ export type UiEvent =
   | "bailout-fired"
   | "reconcile-write"
   | "name-repair"
-  | "bailout-recorded-late"
+  | "session-recorded"
   | "autostart-error"
   | "start-apps-only";
 
