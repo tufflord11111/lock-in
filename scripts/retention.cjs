@@ -24,8 +24,17 @@ const admin = require("firebase-admin");
 // ── Who is not a real operator ──────────────────────────────────────────────
 /** Seeded demo rows, keyed by uid. */
 const GHOST_PREFIX = "ghost_operator_";
-/** The Web Store reviewer account and the throwaway accounts used for release testing. */
-const EXCLUDED_HANDLES = new Set(["lockinreviewer", "t122", "t124", "t125"]);
+/**
+ * The store reviewer accounts and the throwaway accounts used for release testing.
+ * Prefixes apply to handles only; uids are random, so a prefix means nothing there.
+ */
+const EXCLUDED_HANDLES = new Set(["lockinreviewer", "msreview", "t122", "t124", "t125", "t127", "t128", "t12456"]);
+const EXCLUDED_HANDLE_PREFIXES = ["lockintest"];
+
+function isExcludedHandle(handle) {
+  const h = String(handle).toLowerCase();
+  return EXCLUDED_HANDLES.has(h) || EXCLUDED_HANDLE_PREFIXES.some((p) => h.startsWith(p));
+}
 
 const ACTIVE_DAYS_THRESHOLD = 3;
 const RECENT_WINDOW_DAYS = 7;
@@ -155,7 +164,7 @@ function handleOf(node) {
       continue;
     }
     const handle = handleOf(node);
-    if (EXCLUDED_HANDLES.has(String(handle).toLowerCase()) || EXCLUDED_HANDLES.has(uid.toLowerCase())) {
+    if (isExcludedHandle(handle) || EXCLUDED_HANDLES.has(uid.toLowerCase())) {
       excluded++;
       continue;
     }
