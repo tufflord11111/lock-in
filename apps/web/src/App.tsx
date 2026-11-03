@@ -290,7 +290,7 @@ function AppInner() {
   // Sync blockedApps for Rust process killer.
   const stats = useLockInStats(user?.uid);
   useSnapshotWriter(user?.uid);
-  const { reachable } = useReachable();
+  const { reachable, checking: reachabilityChecking, retry: retryReachable } = useReachable();
   const [blockedApps, setBlockedApps] = useState<string[]>(() => bootSnapshot()?.blockedApps ?? []);
   // Raw {key: exe} and the parallel {key: originDeviceId} map, needed to tell
   // Rust which entries this device vouches for.
@@ -695,6 +695,9 @@ function AppInner() {
                     role="status"
                   >
                     {t("offline.pill")}
+                    <button onClick={retryReachable} disabled={reachabilityChecking} className="underline disabled:opacity-50">
+                      {reachabilityChecking ? "Checking…" : "Retry"}
+                    </button>
                   </span>
                 )}
                 {isActive && (
@@ -765,6 +768,9 @@ function AppInner() {
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-offline" />
                 {t("offline.pill")}
+                <button onClick={retryReachable} disabled={reachabilityChecking} className="underline disabled:opacity-50">
+                  {reachabilityChecking ? "Checking…" : "Retry"}
+                </button>
               </span>
             )}
             <button 

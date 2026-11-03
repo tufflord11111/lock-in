@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { db } from "@lock-in/firebase";
+import { onValue, ref } from "firebase/database";
 
 /**
  * Whether Firebase is actually reachable right now.
@@ -31,30 +33,60 @@ async function probe(timeoutMs: number): Promise<boolean> {
   }
 }
 
-export function useReachable(): { reachable: boolean; settled: boolean } {
+export function useReachable(): {
+  reachable: boolean;
+  settled: boolean;
+  /** A Retry the operator pressed is still waiting for its answer. */
+  checking: boolean;
+  retry: () => void;
+} {
   // Optimistic until the first probe lands, so an online boot never flashes
   // the pill; the probe settles well before anyone could read it.
   const [reachable, setReachable] = useState(true);
   const [settled, setSettled] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const probeNowRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     let alive = true;
     let timer: number | undefined;
+    let inFlight = false;
 
-    const run = async (timeout: number) => {
-      const ok = await probe(timeout);
+    const run = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      if (timer) window.clearTimeout(timer);
+      const ok = await probe(FIRST_PROBE_MS);
+      inFlight = false;
       if (!alive) return;
       setReachable(ok);
       setSettled(true);
-      timer = window.setTimeout(() => run(REPROBE_MS > 3000 ? 3000 : REPROBE_MS), REPROBE_MS);
+      timer = window.setTimeout(run, REPROBE_MS);
     };
+    probeNowRef.current = run;
 
-    run(FIRST_PROBE_MS);
+    run();
+
+    // Don't sit out the 30 s (far longer in a throttled hidden window) once the
+    // connection is back. Neither signal can prove we're offline, as above, but
+    // either one is a good moment to ask again.
+    window.addEventListener("online", run);
+    const offConnected = onValue(ref(db, ".info/connected"), (snap) => {
+      if (snap.val() === true) run();
+    });
+
     return () => {
       alive = false;
       if (timer) window.clearTimeout(timer);
+      window.removeEventListener("online", run);
+      offConnected();
     };
   }, []);
 
-  return { reachable, settled };
+  const retry = useCallback(() => {
+    setChecking(true);
+    probeNowRef.current().finally(() => setChecking(false));
+  }, []);
+
+  return { reachable, settled, checking, retry };
 }
