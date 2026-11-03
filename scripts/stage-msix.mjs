@@ -1,9 +1,8 @@
 /**
  * Stage the MSIX payload.
  *
- * The cargo binary is `app.exe` ([package] name = "app"), and only the Tauri
- * bundler renames it to Lock-In.exe inside the MSI/NSIS payload. The MSIX
- * build does not run the bundler, so the rename happens here — and it is not
+ * The cargo binary is `app.exe` ([package] name = "app"), and the NSIS install
+ * keeps that name. The MSIX is renamed here to Lock-In.exe, and that is not
  * cosmetic:
  *
  *   * protected_process_names() (lib.rs) adds current_exe()'s file stem to the

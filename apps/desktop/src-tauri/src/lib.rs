@@ -235,23 +235,34 @@ const PROTECTED_PROCESSES: &[&str] = &[
     "smss", "wininit", "dwm", "taskmgr",
 ];
 
-/// PROTECTED_PROCESSES plus this binary's own process name, which differs
-/// between the dev build (app.exe) and the bundled product (Lock-In.exe).
+/// This binary's own process name: app.exe in the dev and direct-download builds,
+/// Lock-In.exe in the Store build.
+fn own_process_stem() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let safe: String = exe
+        .file_stem()?
+        .to_str()?
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    (!safe.is_empty()).then_some(safe)
+}
+
+/// PROTECTED_PROCESSES plus this binary's own process name.
 fn protected_process_names() -> Vec<String> {
     let mut list: Vec<String> = PROTECTED_PROCESSES.iter().map(|s| s.to_string()).collect();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(stem) = exe.file_stem().and_then(|s| s.to_str()) {
-            let safe: String = stem
-                .to_lowercase()
-                .chars()
-                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
-                .collect();
-            if !safe.is_empty() {
-                list.push(safe);
-            }
-        }
-    }
+    list.extend(own_process_stem());
     list
+}
+
+/// True when a block term would match this binary's own process.
+///
+/// One way only. The kill is `*term*` over process names, so only a term inside
+/// our name can hit us. The reverse would refuse "whatsapp" for containing "app",
+/// which can never match app.exe.
+fn targets_own_process(term: &str, own_stem: &str) -> bool {
+    own_stem.contains(term)
 }
 
 /// True when a block term would target a protected process.
@@ -306,7 +317,10 @@ fn analyze_block_entry(raw: &str) -> Result<(String, bool), String> {
             MIN_BLOCK_TERM_LEN, clean
         ));
     }
-    if targets_protected(&clean, &protected_process_names()) {
+    let system: Vec<String> = PROTECTED_PROCESSES.iter().map(|s| s.to_string()).collect();
+    if targets_protected(&clean, &system)
+        || own_process_stem().map_or(false, |own| targets_own_process(&clean, &own))
+    {
         return Err(
             "would match a protected Windows system process (explorer, csrss, lsass, svchost…) or Lock-In itself — killing those crashes the machine or the enforcer".to_string(),
         );
@@ -1050,10 +1064,10 @@ fn get_running_apps() -> Result<Vec<String>, String> {
         .map_err(|e| e.to_string())?;
 
     // Lock-In must never appear in its own picker. The literal "lockin" that
-    // used to be filtered here matched NEITHER build — the dev binary is
-    // app.exe and the bundled product is Lock-In.exe (process name "lock-in").
-    // Use the real stem from current_exe(), with the release name as a
-    // fallback in case that lookup fails.
+    // used to be filtered here matched NEITHER build — the dev and direct-download
+    // binary is app.exe and the Store's is Lock-In.exe (process name "lock-in").
+    // Use the real stem from current_exe(), with the Store name as a fallback
+    // in case that lookup fails.
     let own_stem = std::env::current_exe()
         .ok()
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()))
@@ -2069,7 +2083,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, awake_in_gap, close_hides, other_install_present, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{arm_refusal, awake_in_gap, close_hides, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2109,6 +2123,28 @@ mod tests {
                 assert!(granted.iter().any(|p| p == &permission.as_str()), "{} missing", permission);
             }
         }
+    }
+
+    #[test]
+    fn only_terms_that_would_match_our_own_process_are_refused() {
+        // Direct-download and dev builds run as app.exe.
+        for allowed in ["whatsapp", "apple", "appstore", "steamapp"] {
+            assert!(!targets_own_process(allowed, "app"), "{}", allowed);
+        }
+        assert!(targets_own_process("app", "app"));
+        // The Store build runs as Lock-In.exe.
+        assert!(targets_own_process("lock", "lock-in"));
+        assert!(targets_own_process("lock-in", "lock-in"));
+        assert!(!targets_own_process("lockin", "lock-in"));
+        assert!(!targets_own_process("whatsapp", "lock-in"));
+    }
+
+    #[test]
+    fn system_processes_are_still_protected_both_ways() {
+        let system: Vec<String> = PROTECTED_PROCESSES.iter().map(|s| s.to_string()).collect();
+        assert!(targets_protected("ser", &system));
+        assert!(targets_protected("explorer2", &system));
+        assert!(!targets_protected("whatsapp", &system));
     }
 
     #[test]

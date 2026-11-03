@@ -13,6 +13,7 @@
 - The Clear All Blocks button now says plainly what it does.
 - Calendar links are checked properly: only Google's Public URL is accepted, and a saved link that isn't one shows the connect screen instead of a broken frame.
 - Lock-In itself now ends and credits a session, whether or not the window is open. A session that ends while the window is hidden or the app is closed is still recorded. It earns only the minutes the PC was awake with Lock-In running: time asleep or closed is no longer credited.
+- Fixed: in the direct download, apps with "app" in their name, such as WhatsApp, were refused as protected and couldn't be blocked.
 - To-dos wrap between words instead of mid-word.
 - Demo accounts no longer appear on The Pack's leaderboard.
 - Only the main window can drive the enforcer.
