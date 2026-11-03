@@ -358,6 +358,9 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     profile.permanent_exe.clear();
     profile.permanent_pending.clear();
     profile.session_end_time = None;
+    // A clear is a stand-down too. A fuse left behind would void the next
+    // session on its first tick. bailout_used_date stays: one per day.
+    profile.bailout_deadline = None;
     profile.disarm_latch = true;
     (cleared_session, cleared_permanent)
 }
@@ -458,6 +461,7 @@ fn restore_profile(profile: &Arc<Mutex<LockProfile>>, path: &PathBuf, app: &taur
                 // focus_active=false is what prevents arming; the list stays.
                 p.focus_active = false;
                 p.session_end_time = None;
+                p.bailout_deadline = None;
                 println!("[Persist] restored session had already expired — stood down, list retained");
                 // Inert at boot — no webview is listening yet — but keeps
                 // every stand-down site on the same path. The pull probe on
@@ -473,10 +477,17 @@ fn restore_profile(profile: &Arc<Mutex<LockProfile>>, path: &PathBuf, app: &taur
                 // end on its own: that is permanent lockout for anyone upgrading
                 // from a pre-deadline build. Stand down; the list stays.
                 p.focus_active = false;
+                p.bailout_deadline = None;
                 println!("[Persist] restored session has NO deadline — standing down");
                 emit_stood_down(app, "restored-no-deadline", p.exe_blacklist.len());
             }
         }
+    }
+
+    // A state file from before 1.2.9 can hold a fuse with no session behind it
+    // (a stand-down that did not clear it). It must not void the next session.
+    if !p.focus_active {
+        p.bailout_deadline = None;
     }
 
     println!(
@@ -598,6 +609,36 @@ fn arm_refusal(end_time: Option<u64>, now: u64) -> Option<String> {
     }
 }
 
+/// What update_enforcement does with a request. Pure, so the rules can be tested.
+#[derive(Debug, PartialEq)]
+enum EnforcementDecision {
+    Arm,
+    StandDown,
+    /// Another device's session ending must not end the one running here. The
+    /// armed session still ends at its own deadline or fuse.
+    IgnoreRemoteStop,
+    /// A session started elsewhere has no countdown or Bail out on this
+    /// desktop, so it would kill apps behind an idle-looking dashboard.
+    RefuseRemoteArm,
+    /// A local start must not cancel a burning fuse.
+    RefuseArmDuringFuse,
+}
+
+fn enforcement_decision(
+    is_active: bool,
+    remote: bool,
+    focus_active: bool,
+    fuse_burning: bool,
+) -> EnforcementDecision {
+    match (is_active, remote) {
+        (true, true) => EnforcementDecision::RefuseRemoteArm,
+        (true, false) if focus_active && fuse_burning => EnforcementDecision::RefuseArmDuringFuse,
+        (true, false) => EnforcementDecision::Arm,
+        (false, true) if focus_active => EnforcementDecision::IgnoreRemoteStop,
+        (false, _) => EnforcementDecision::StandDown,
+    }
+}
+
 // ─── IPC Command: update_enforcement ─────────────────────────────────────────
 // Lightweight alias called by the session start/stop flow.
 // Accepts { isActive, blockedList } to enforce during a focus session.
@@ -610,11 +651,38 @@ fn update_enforcement(
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
-    // A mirrored session from another device is NOT deliberate local action, so
-    // it may neither lift the disarm latch nor arm through it.
+    // A mirrored session from another device is NOT deliberate local action:
+    // it can neither arm this desktop nor stop a session armed here.
     let remote = from_remote.unwrap_or(false);
     match app_state.profile.lock() {
         Ok(mut profile) => {
+            let now = now_millis();
+            let fuse_burning = profile.bailout_deadline.map_or(false, |d| d > now);
+            match enforcement_decision(is_active, remote, profile.focus_active, fuse_burning) {
+                EnforcementDecision::IgnoreRemoteStop => {
+                    println!(
+                        "[Enforcer] IGNORED remote stop — local session armed until {:?}",
+                        profile.session_end_time
+                    );
+                    log_ui_event(&app, "remote-stop-ignored");
+                    return Ok("Remote stop ignored — session armed".to_string());
+                }
+                EnforcementDecision::RefuseRemoteArm => {
+                    // Ok, not Err: the mirror's catch must not read this as an
+                    // engine failure.
+                    println!(
+                        "[Enforcer] REFUSED remote arm — no desktop UI to show it (end_time={:?})",
+                        end_time
+                    );
+                    log_ui_event(&app, "remote-arm-refused");
+                    return Ok("Remote arm refused — not shown on this desktop".to_string());
+                }
+                EnforcementDecision::RefuseArmDuringFuse => {
+                    println!("[Enforcer] REFUSED arm — a bail-out fuse is burning");
+                    return Err("Refused to arm: a bail-out is burning".to_string());
+                }
+                EnforcementDecision::Arm | EnforcementDecision::StandDown => {}
+            }
             if is_active {
                 // Never arm a session that can't be running. With no deadline it
                 // would never expire on its own; with a past one the loop could
@@ -623,10 +691,6 @@ fn update_enforcement(
                 if let Some(reason) = arm_refusal(end_time, now_millis()) {
                     println!("[Enforcer] REFUSED arm — {} (remote = {})", reason, remote);
                     return Err(format!("Refused to arm: {}", reason));
-                }
-                if remote && profile.disarm_latch {
-                    println!("[Enforcer] disarm latch ACTIVE — refusing REMOTE session arm");
-                    return Ok("Remote arm refused — disarm latch active".to_string());
                 }
                 // An explicit LOCAL session start is the only thing that lifts
                 // the latch — deliberate operator action, not a reconnect or a
@@ -643,6 +707,8 @@ fn update_enforcement(
                 profile.exe_blacklist = profile.exe_approved.clone();
                 // Deadline so a session persisted across a restart still ends.
                 profile.session_end_time = end_time;
+                // Any fuse still set here belongs to a session that is over.
+                profile.bailout_deadline = None;
                 println!(
                     "🔒 ENFORCER ARMED: Active = {}, remote = {}, approved targets = {:?}, end_time = {:?}",
                     is_active, remote, profile.exe_blacklist, end_time
@@ -653,6 +719,8 @@ fn update_enforcement(
                 // wiping it here meant every stop persisted exe=0, so an
                 // offline boot had nothing to restore.
                 profile.session_end_time = None;
+                // bailout_used_date stays: it is what makes it one per day.
+                profile.bailout_deadline = None;
                 println!(
                     "🔓 ENFORCER STOOD DOWN: remote={}, {} target(s) retained",
                     remote,
@@ -1054,6 +1122,8 @@ const UI_EVENTS: &[&str] = &[
     "bailout-fired",
     "reconcile-write",
     "name-repair",
+    "remote-stop-ignored",
+    "remote-arm-refused",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
@@ -1077,6 +1147,14 @@ fn iso8601_utc(ms: u64) -> String {
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
         y, mo, d, h, mi, se, millis
     )
+}
+
+/// Rust's own line in the same trail. A release build has no console, so a
+/// println! alone is invisible when someone asks why the enforcer did something.
+fn log_ui_event(app: &tauri::AppHandle, event: &str) {
+    if let Err(e) = append_ui_event(event.to_string(), String::new(), app.clone()) {
+        println!("[UiEvents] could not log {}: {}", event, e);
+    }
 }
 
 #[tauri::command]
@@ -1688,7 +1766,47 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, iso8601_utc};
+    use super::{arm_refusal, enforcement_decision, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+
+    fn profile_with_fuse() -> LockProfile {
+        let mut p: LockProfile = serde_json::from_str("{}").unwrap();
+        p.focus_active = true;
+        p.session_end_time = Some(2_000);
+        p.bailout_deadline = Some(1_000);
+        p.bailout_used_date = Some("2026-11-03".to_string());
+        p
+    }
+
+    #[test]
+    fn remote_stop_is_ignored_only_while_armed() {
+        assert_eq!(enforcement_decision(false, true, true, false), EnforcementDecision::IgnoreRemoteStop);
+        assert_eq!(enforcement_decision(false, true, true, true), EnforcementDecision::IgnoreRemoteStop);
+        assert_eq!(enforcement_decision(false, true, false, false), EnforcementDecision::StandDown);
+        assert_eq!(enforcement_decision(false, false, true, true), EnforcementDecision::StandDown);
+    }
+
+    #[test]
+    fn remote_arm_is_always_refused() {
+        assert_eq!(enforcement_decision(true, true, false, false), EnforcementDecision::RefuseRemoteArm);
+        assert_eq!(enforcement_decision(true, true, true, true), EnforcementDecision::RefuseRemoteArm);
+    }
+
+    #[test]
+    fn local_arm_refused_only_over_a_burning_fuse() {
+        assert_eq!(enforcement_decision(true, false, true, true), EnforcementDecision::RefuseArmDuringFuse);
+        assert_eq!(enforcement_decision(true, false, true, false), EnforcementDecision::Arm);
+        // A stale fuse with no session behind it: arm clears it.
+        assert_eq!(enforcement_decision(true, false, false, true), EnforcementDecision::Arm);
+    }
+
+    #[test]
+    fn clear_all_blocks_clears_the_fuse_but_not_the_daily_limit() {
+        let mut p = profile_with_fuse();
+        wipe_all_blocks(&mut p);
+        assert_eq!(p.bailout_deadline, None);
+        assert_eq!(p.bailout_used_date.as_deref(), Some("2026-11-03"));
+        assert!(p.disarm_latch);
+    }
 
     #[test]
     fn arm_refusal_rejects_missing_or_past_deadlines() {
