@@ -42,9 +42,10 @@ function humanFuse(ms: number): string {
  *
  * Bailing out does not stop the session — it schedules its end a few minutes
  * out and voids it. Rust owns the deadline and the countdown here only renders
- * what Rust already decided, so quitting the app, signing out or editing the
- * clock cannot bring the end forward. There is no cancel: a fuse you can put
- * out is not a commitment.
+ * what Rust already decided, so quitting the app or signing out does not bring
+ * the end forward. The deadline is wall-clock time, though: moving the Windows
+ * clock forward does end the fuse, and any session, early. There is no cancel:
+ * a fuse you can put out is not a commitment.
  */
 export function BailOut({ userId, className = "" }: { userId?: string; className?: string }) {
   const t = useCopy();
