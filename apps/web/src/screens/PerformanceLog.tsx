@@ -7,6 +7,7 @@ import { db } from "@lock-in/firebase";
 import { ref, onValue, set, remove } from "firebase/database";
 import { awaitWriteOrQueue } from "../offlineWrite";
 import { guardWrite, reportWriteFailure } from "../writeFailures";
+import { buildCalendarSrc } from "../calendarSrc";
 
 const WEEK_DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 type WeekDay = typeof WEEK_DAYS[number];
@@ -84,9 +85,12 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
     return () => unsub();
   }, [userId]);
 
+  const calendarSrc = buildCalendarSrc(calendarUrl);
+  const calendarInputValid = buildCalendarSrc(calendarInput) !== null;
+
   const saveCalendarUrl = async () => {
     const raw = calendarInput.trim();
-    if (!raw || !raw.startsWith('https://calendar.google.com')) return;
+    if (buildCalendarSrc(raw) === null) return;
     // Raced: offline, the modal used to stay open forever.
     const lateErrorMessage = "Couldn't save your calendar link — it was refused.";
     try {
@@ -137,9 +141,9 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
           )}
         </div>
 
-        {calendarUrl ? (
+        {calendarSrc ? (
           <iframe
-            src={`${calendarUrl}&mode=WEEK&showTitle=0&showNav=1&showDate=1&showPrint=0&showTabs=0&showCalendars=0`}
+            src={calendarSrc}
             style={{ width: '100%', height: '500px', border: '2px solid var(--ink-2)', borderRadius: '8px' }}
             frameBorder="0"
             scrolling="no"
@@ -199,9 +203,14 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
                 placeholder="https://calendar.google.com/calendar/embed?src=..."
                 className="w-full bg-surface border-1 border-ink-2 rounded-lg px-4 py-3 text-[10px] font-mono text-ink-2 placeholder:text-ink-2/30 outline-none focus:border-ink mb-4 transition-colors"
               />
+              {calendarInput.trim() && !calendarInputValid && (
+                <p className="text-[10px] font-bold text-danger mb-4 [overflow-wrap:anywhere]">
+                  That isn't the Public URL. It should start https://calendar.google.com/calendar/embed?src=
+                </p>
+              )}
               <button
                 onClick={saveCalendarUrl}
-                disabled={!calendarInput.trim().startsWith('https://calendar.google.com')}
+                disabled={!calendarInputValid}
                 className="w-full bg-ink-2 text-surface-inverse py-3 rounded-lg font-black text-[10px] label-action-sm hover:bg-ink transition-colors disabled:opacity-40"
               >
                 SAVE & CONNECT
@@ -282,7 +291,7 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
                             <Circle size={16} className="text-ink" strokeWidth={3} />
                           )}
                         </div>
-                        <span className={`text-xs font-bold tracking-tight leading-tight break-all whitespace-normal ${task.completed ? "line-through text-ink/60" : "text-ink"}`}>
+                        <span className={`text-xs font-bold tracking-tight leading-tight [overflow-wrap:anywhere] whitespace-normal min-w-0 ${task.completed ? "line-through text-ink/60" : "text-ink"}`}>
                           {task.text}
                         </span>
                       </button>

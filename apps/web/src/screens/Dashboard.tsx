@@ -375,14 +375,14 @@ export function Dashboard({
                   >
                     <button 
                       onClick={() => toggleIntention(item.id)}
-                      className="flex items-center gap-4 flex-1 text-left"
+                      className="flex items-center gap-4 flex-1 text-left min-w-0"
                     >
                       {item.completed ? (
                         <CheckCircle size={22} className="text-ink fill-highlight" strokeWidth={2.5} />
                       ) : (
                         <Circle size={22} className="text-ink" strokeWidth={3} />
                       )}
-                      <span className={`text-sm font-bold tracking-tight ${item.completed ? "line-through" : "text-slate-ink"}`}>
+                      <span className={`text-sm font-bold tracking-tight min-w-0 [overflow-wrap:anywhere] ${item.completed ? "line-through" : "text-slate-ink"}`}>
                         {item.text}
                       </span>
                     </button>
