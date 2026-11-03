@@ -185,8 +185,9 @@ export function EnforcerDisarmPanel({
       )}
 
       <p className="text-[9px] font-bold text-ink/40 label-plain tracking-wide leading-relaxed">
-        Ends the session, unblocks Task Manager, and clears ALL blocks — including
-        permanent 24/7 blocks. Nothing re-arms until you start a new session.
+        Ends any running session and stops closing your blocked apps on this PC,
+        including permanent blocks. Nothing is closed again until you start a new
+        session or approve your permanent blocks again.
       </p>
 
       {probeError && (
