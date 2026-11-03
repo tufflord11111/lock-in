@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { motion, AnimatePresence } from "framer-motion";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, update } from "firebase/database";
@@ -31,7 +32,7 @@ import { BaselineQuestion, hasBeenAsked } from "./components/BaselineQuestion";
 import { DemoOverlay } from "./components/DemoOverlay";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
-import { guardWrite } from "./writeFailures";
+import { guardWrite, reportWriteFailure } from "./writeFailures";
 import { WriteFailureToasts } from "./components/WriteFailureToasts";
 import { awaitWriteOrQueue } from "./offlineWrite";
 import { reportEngineFailure } from "./engineHealth";
@@ -198,6 +199,15 @@ function AppInner() {
   // Test-only UI, gated on a DEV_MODE file in the app data dir (see Rust
   // is_dev_mode). Outside Tauri the invoke fails and it stays off.
   const [devMode, setDevMode] = useState(false);
+  // Rust has already refused the tray's Quit and shown the window; say why.
+  useEffect(() => {
+    const unlisten = listen<{ reason: string }>("quit-refused", (event) => {
+      reportWriteFailure(event.payload.reason, undefined, "info");
+    });
+    return () => {
+      unlisten.then((f) => f()).catch(() => {});
+    };
+  }, []);
   // Ctrl+Shift+T cycles themes so every screen can be checked quickly.
   // Test-only: without the DEV_MODE file the listener is never attached.
   useEffect(() => {

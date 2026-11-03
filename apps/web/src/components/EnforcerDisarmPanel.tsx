@@ -17,6 +17,8 @@ export type EnforcerState = {
   session_end_time: number | null;
   /** When a fuse ended a session with no history entry written for it yet. */
   unrecorded_bailout?: number | null;
+  /** Closing the window keeps Lock-In running in the tray. */
+  close_to_tray?: boolean;
   /** Set when Rust has no app data folder: enforcing from memory, nothing persisted. */
   persistence_error?: string | null;
 };

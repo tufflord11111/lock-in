@@ -58,6 +58,8 @@ export function BlockRegistry({
   const [autostartOn, setAutostartOn] = useState(false);
   // Store build only: Windows refused because the user turned it off in Settings.
   const [autostartNote, setAutostartNote] = useState<string | null>(null);
+  // Default on; Rust owns the value.
+  const [closeToTray, setCloseToTray] = useState(true);
 
   // Vault Status Panel state
   const [extensionLastSeen, setExtensionLastSeen] = useState<number | null>(null);
@@ -83,6 +85,9 @@ export function BlockRegistry({
       // A failed read must not claim autostart is on. Opt-in means OFF unless
       // the OS positively confirms it.
       .catch(() => setAutostartOn(false));
+    invoke<{ close_to_tray?: boolean }>('get_enforcer_state')
+      .then((s) => setCloseToTray(s.close_to_tray !== false))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -287,6 +292,18 @@ export function BlockRegistry({
       set(ref(db, `users/${userId}/customBlocks/${safeKey}`), domain),
       `Couldn't add ${domain} to your blocks. It isn't blocked yet — try again.`
     );
+  };
+
+  const handleToggleCloseToTray = async () => {
+    const next = !closeToTray;
+    try {
+      setCloseToTray(await invoke<boolean>('set_close_to_tray', { enabled: next }));
+    } catch (err) {
+      reportWriteFailure(
+        `Couldn't change that setting, so closing the window still ${closeToTray ? 'keeps Lock-In running' : 'quits Lock-In'}.`,
+        err
+      );
+    }
   };
 
   const handleToggleAutostart = async () => {
@@ -522,6 +539,46 @@ export function BlockRegistry({
                   position: 'absolute',
                   top: '2px',
                   left: autostartOn ? '24px' : '2px',
+                  width: '18px',
+                  height: '18px',
+                  borderRadius: '50%',
+                  background: 'var(--ink-2)',
+                  transition: 'left 0.2s',
+                }}
+              />
+            </button>
+          </div>
+          <div className="flex items-center justify-between mt-5">
+            <div>
+              <p className="text-sm font-black text-ink label-plain tracking-tight">Keep running when the window is closed</p>
+              <p className="text-[9px] font-bold text-ink/40 mt-1">Lock-In stays in the tray. During a session, closing always hides it</p>
+            </div>
+            <button
+              onClick={handleToggleCloseToTray}
+              role="switch"
+              aria-checked={closeToTray}
+              aria-label="Keep running when the window is closed"
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'center',
+                width: '48px',
+                height: '26px',
+                borderRadius: '999px',
+                border: '2px solid var(--ink-2)',
+                background: closeToTray ? 'var(--highlight-2)' : 'transparent',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+                flexShrink: 0,
+                padding: 0,
+                outline: 'none',
+              }}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  left: closeToTray ? '24px' : '2px',
                   width: '18px',
                   height: '18px',
                   borderRadius: '50%',

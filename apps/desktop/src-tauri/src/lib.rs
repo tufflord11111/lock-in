@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State, Emitter};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 #[cfg(feature = "autostart")]
 use tauri_plugin_autostart::ManagerExt;
 
@@ -105,6 +107,22 @@ struct LockProfile {
     /// so what is owed has to outlive the process.
     #[serde(default)]
     unrecorded_bailout: Option<u64>,
+    /// Keep running in the tray when the window is closed. A running session
+    /// always hides, whatever this says.
+    #[serde(default = "default_true")]
+    close_to_tray: bool,
+}
+
+impl LockProfile {
+    /// A session is running here. Closing hides and Quit is refused until it
+    /// ends. Permanent blocks don't count: the setting decides for those.
+    fn armed(&self) -> bool {
+        self.focus_active
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 // "soft" everywhere by default — "hard" seizes the screen (fullscreen,
@@ -369,6 +387,54 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     profile.bailout_deadline = None;
     profile.disarm_latch = true;
     (cleared_session, cleared_permanent)
+}
+
+/// What closing the window does. Hide keeps the enforcer thread alive.
+fn close_hides(armed: bool, close_to_tray: bool) -> bool {
+    armed || close_to_tray
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// True when Windows started us (the plugin's Run key passes this): stay in the
+/// tray instead of opening a window on every sign-in.
+fn is_silent_launch<S: AsRef<str>>(args: &[S]) -> bool {
+    args.iter().any(|a| a.as_ref() == "--silently")
+}
+
+const QUIT_REFUSED_MESSAGE: &str = "A session is running. Use Bail out.";
+
+#[derive(Clone, Serialize)]
+struct QuitRefusedPayload {
+    reason: String,
+}
+
+/// The tray's Quit. Refused while armed; Task Manager still ends the app, as
+/// the site FAQ says, but the tray won't be the way out of a session.
+fn tray_quit(app: &tauri::AppHandle) {
+    let armed = app
+        .state::<AppState>()
+        .profile
+        .lock()
+        .map(|p| p.armed())
+        .unwrap_or(false);
+    if armed {
+        println!("[Tray] Quit refused — a session is running");
+        log_ui_event(app, "quit-refused");
+        show_main_window(app);
+        let _ = app.emit(
+            "quit-refused",
+            QuitRefusedPayload { reason: QUIT_REFUSED_MESSAGE.to_string() },
+        );
+        return;
+    }
+    app.exit(0);
 }
 
 /// End a session that a bail-out voided, and note that its entry is owed.
@@ -1142,6 +1208,7 @@ const UI_EVENTS: &[&str] = &[
     "remote-stop-ignored",
     "remote-arm-refused",
     "bailout-recorded-late",
+    "quit-refused",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
@@ -1235,6 +1302,7 @@ struct EnforcerState {
     /// See LockProfile::unrecorded_bailout. The webview writes the entry, then
     /// calls ack_bailout_recorded.
     unrecorded_bailout: Option<u64>,
+    close_to_tray: bool,
     /// Set when the state file cannot be written at all (no app data folder):
     /// enforcement works, but nothing survives a restart.
     persistence_error: Option<String>,
@@ -1256,10 +1324,26 @@ fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Resu
             bailout_used_date: profile.bailout_used_date.clone(),
             bailout_fuse_ms: if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS },
             unrecorded_bailout: profile.unrecorded_bailout,
+            close_to_tray: profile.close_to_tray,
             persistence_error: app_state.persist_error.clone(),
         }),
         Err(e) => Err(format!("Mutex lock failed: {}", e)),
     }
+}
+
+// ─── IPC Command: set_close_to_tray ──────────────────────────────────────────
+// A setting of this machine's window, not of the account, so it stays out of
+// Firebase and lives with the rest of the enforcer's state.
+#[tauri::command]
+fn set_close_to_tray(enabled: bool, app_state: State<AppState>) -> Result<bool, String> {
+    let mut profile = app_state
+        .profile
+        .lock()
+        .map_err(|e| format!("Mutex lock failed: {}", e))?;
+    profile.close_to_tray = enabled;
+    persist_profile(&profile, &app_state.state_path);
+    println!("[Tray] keep running when closed = {}", enabled);
+    Ok(enabled)
 }
 
 // ─── IPC Command: ack_bailout_recorded ───────────────────────────────────────
@@ -1539,6 +1623,7 @@ pub fn run() {
         bailout_deadline: None,
         bailout_used_date: None,
         unrecorded_bailout: None,
+        close_to_tray: true,
     }));
 
     let profile_for_sniper = Arc::clone(&profile);
@@ -1549,17 +1634,33 @@ pub fn run() {
         // order). A second launch exits at once and focuses this window —
         // two enforcers would each kill the other's targets and race on
         // enforcer_state.json. Every other plugin is registered in setup().
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            println!("[SingleInstance] second launch — focusing the existing window");
-            if let Some(window) = app.get_webview_window("main") {
-                // Shown even inside the 3 s boot delay, when it is still hidden.
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if is_silent_launch(&argv) {
+                println!("[SingleInstance] second silent launch — staying hidden");
+                return;
             }
+            println!("[SingleInstance] second launch — focusing the existing window");
+            // Shown even inside the 3 s boot delay, or hidden in the tray.
+            show_main_window(app);
         }))
+        // No handler means close = exit, which ends the enforcer thread with it.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let Some(state) = window.try_state::<AppState>() else { return };
+                let hide = state
+                    .profile
+                    .lock()
+                    .map(|p| close_hides(p.armed(), p.close_to_tray))
+                    .unwrap_or(true);
+                if hide {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    println!("[Tray] window closed — hidden, still running");
+                }
+            }
+        })
         // Expose ALL commands so any JS call succeeds
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, set_close_to_tray, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -1585,6 +1686,35 @@ pub fn run() {
                 state_path: state_path.clone(),
                 persist_error,
             });
+
+            // ── Tray ───────────────────────────────────────────────────────
+            // Driven from Rust only, so no capability is needed for it.
+            let open_item = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+            let mut tray = TrayIconBuilder::with_id("main")
+                .tooltip("Lock-In")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open" => show_main_window(app),
+                    "quit" => tray_quit(app),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main_window(tray.app_handle());
+                    }
+                });
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+            tray.build(app)?;
 
             let sniper_state_path = state_path.clone();
 
@@ -1779,7 +1909,11 @@ pub fn run() {
             // network stack before the webview tries to reach Firebase.
             // The window starts hidden (tauri.conf.json: "visible": false)
             // and this thread makes it visible once the delay has passed.
-            if let Some(boot_window) = app.get_webview_window("main") {
+            let silent = is_silent_launch(&std::env::args().collect::<Vec<_>>());
+            if silent {
+                println!("[Boot] silent launch — staying in the tray");
+            }
+            if let (false, Some(boot_window)) = (silent, app.get_webview_window("main")) {
                 thread::spawn(move || {
                     thread::sleep(std::time::Duration::from_secs(3));
                     let _ = boot_window.show();
@@ -1807,7 +1941,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, enforcement_decision, iso8601_utc, stand_down_voided, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{arm_refusal, close_hides, enforcement_decision, is_silent_launch, iso8601_utc, stand_down_voided, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -1816,6 +1950,27 @@ mod tests {
         p.bailout_deadline = Some(1_000);
         p.bailout_used_date = Some("2026-11-03".to_string());
         p
+    }
+
+    #[test]
+    fn a_running_session_always_hides_on_close() {
+        assert!(close_hides(true, false));
+        assert!(close_hides(true, true));
+        assert!(close_hides(false, true));
+        assert!(!close_hides(false, false));
+    }
+
+    #[test]
+    fn keep_running_defaults_on_for_old_state_files() {
+        let p: LockProfile = serde_json::from_str("{}").unwrap();
+        assert!(p.close_to_tray);
+    }
+
+    #[test]
+    fn silent_launch_is_only_the_exact_flag() {
+        assert!(is_silent_launch(&["app.exe", "--silently"]));
+        assert!(!is_silent_launch(&["app.exe"]));
+        assert!(!is_silent_launch(&["app.exe", "--silent"]));
     }
 
     #[test]
