@@ -30,6 +30,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = { version = "2", optional = true }
 # Store autostart: Windows.ApplicationModel.StartupTask (needs package identity).
 windows = { version = "0.61", features = ["ApplicationModel", "Foundation"], optional = true }
+windows-future = { version = "0.2", optional = true }
 
 # NSIS (GitHub releases) is the default build. The Microsoft Store (MSIX) build
 # is `--no-default-features --features store`: the Store updates the app, and
@@ -38,6 +39,6 @@ windows = { version = "0.61", features = ["ApplicationModel", "Foundation"], opt
 default = ["updater", "autostart"]
 updater = ["dep:tauri-plugin-updater"]
 autostart = ["dep:tauri-plugin-autostart"]
-store = ["dep:windows"]
+store = ["dep:windows", "dep:windows-future"]
 
 

@@ -91,6 +91,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "windows 0.61.3",
+ "windows-future",
 ]
 
 [[package]]

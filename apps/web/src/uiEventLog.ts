@@ -14,7 +14,8 @@ export type UiEvent =
   | "bailout-fired"
   | "reconcile-write"
   | "name-repair"
-  | "bailout-recorded-late";
+  | "bailout-recorded-late"
+  | "autostart-error";
 
 const isTauri =
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;

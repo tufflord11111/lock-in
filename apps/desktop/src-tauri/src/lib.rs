@@ -1209,6 +1209,8 @@ const UI_EVENTS: &[&str] = &[
     "remote-arm-refused",
     "bailout-recorded-late",
     "quit-refused",
+    "autostart-set",
+    "autostart-error",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
@@ -1513,6 +1515,7 @@ fn toggle_autostart(
         println!("[AutoStart] Disabled via toggle");
     }
     let enabled = manager.is_enabled().map_err(|e| e.to_string())?;
+    log_ui_event(&app, "autostart-set");
     Ok(AutostartResult {
         enabled,
         state: if enabled { "Enabled" } else { "Disabled" }.to_string(),
@@ -1524,13 +1527,32 @@ fn toggle_autostart(
 // unpackaged store-feature binary reports an error rather than a state.
 #[cfg(feature = "store")]
 mod store_autostart {
-    use windows::core::HSTRING;
+    use std::time::{Duration, Instant};
+    use windows::core::{RuntimeType, HSTRING};
     use windows::ApplicationModel::{StartupTask, StartupTaskState};
+    use windows_future::{AsyncStatus, IAsyncOperation};
 
     const TASK_ID: &str = "LockInAutostart";
+    const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 
-    fn task() -> windows::core::Result<StartupTask> {
-        StartupTask::GetAsync(&HSTRING::from(TASK_ID))?.get()
+    /// Poll the operation instead of blocking on .get(). 1.2.8's switch sat
+    /// still with no toast while Windows had in fact changed the task, which is
+    /// what a completion that never arrives looks like. Polling doesn't depend
+    /// on that delivery, and the deadline guarantees the UI gets an answer.
+    fn answer<T: RuntimeType + 'static>(op: IAsyncOperation<T>) -> Result<T, String> {
+        let started = Instant::now();
+        while op.Status().map_err(|e| e.to_string())? == AsyncStatus::Started {
+            if started.elapsed() > ANSWER_TIMEOUT {
+                return Err("Windows didn't answer".to_string());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        op.GetResults().map_err(|e| e.to_string())
+    }
+
+    fn task() -> Result<StartupTask, String> {
+        let op = StartupTask::GetAsync(&HSTRING::from(TASK_ID)).map_err(|e| e.to_string())?;
+        answer(op).map_err(|e| format!("StartupTask unavailable: {}", e))
     }
 
     pub fn is_on(state: StartupTaskState) -> bool {
@@ -1548,24 +1570,23 @@ mod store_autostart {
     }
 
     pub fn read() -> Result<StartupTaskState, String> {
-        task().and_then(|t| t.State()).map_err(|e| format!("StartupTask unavailable: {}", e))
+        task()?.State().map_err(|e| format!("StartupTask unavailable: {}", e))
     }
 
     /// RequestEnableAsync cannot override DisabledByUser or a policy; it
     /// returns the state Windows settled on, which is what we report.
     pub fn set(enable: bool) -> Result<StartupTaskState, String> {
-        let t = task().map_err(|e| format!("StartupTask unavailable: {}", e))?;
-        let result = if enable {
-            t.RequestEnableAsync().and_then(|op| op.get())
+        let t = task()?;
+        if enable {
+            answer(t.RequestEnableAsync().map_err(|e| e.to_string())?)
         } else {
-            t.Disable().and_then(|_| t.State())
-        };
-        result.map_err(|e| e.to_string())
+            t.Disable().and_then(|_| t.State()).map_err(|e| e.to_string())
+        }
     }
 }
 
-// Async + spawn_blocking: .get() blocks on a WinRT operation, which must not
-// run on the main (UI) thread that sync commands use.
+// Async + spawn_blocking: waiting on a WinRT operation must not happen on the
+// main (UI) thread that sync commands use.
 #[cfg(feature = "store")]
 #[tauri::command]
 async fn get_autostart_state() -> Result<bool, String> {
@@ -1576,10 +1597,11 @@ async fn get_autostart_state() -> Result<bool, String> {
 
 #[cfg(feature = "store")]
 #[tauri::command]
-async fn toggle_autostart(enable: bool) -> Result<AutostartResult, String> {
+async fn toggle_autostart(enable: bool, app: tauri::AppHandle) -> Result<AutostartResult, String> {
     let state = tauri::async_runtime::spawn_blocking(move || store_autostart::set(enable))
         .await
         .map_err(|e| e.to_string())??;
+    log_ui_event(&app, "autostart-set");
     println!("[AutoStart] StartupTask {} → {}", if enable { "enable" } else { "disable" }, store_autostart::name(state));
     Ok(AutostartResult {
         enabled: store_autostart::is_on(state),

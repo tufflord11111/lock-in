@@ -8,6 +8,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { db } from "@lock-in/firebase";
 import { ref, onValue, set, remove, update } from "firebase/database";
 import { guardWrite, reportWriteFailure } from "../writeFailures";
+import { logUiEvent } from "../uiEventLog";
 import { getDeviceId } from "../deviceId";
 import { DeleteAccountButton } from "../components/DeleteAccountButton";
 import { AppearancePicker } from "../theme/AppearancePicker";
@@ -78,13 +79,33 @@ export function BlockRegistry({
     return () => clearInterval(interval);
   }, []);
 
-  // Read real OS autostart state on mount
+  // The switch shows what Windows says. Read on mount, after every toggle, and
+  // whenever the window regains focus: it can also change in Settings > Apps >
+  // Startup while Lock-In is open.
+  const readAutostart = useCallback(
+    (reportFailure: boolean) =>
+      invoke<boolean>('get_autostart_state')
+        .then((enabled) => setAutostartOn(enabled))
+        .catch((err) => {
+          // A failed read must not claim autostart is on. Opt-in means OFF
+          // unless the OS positively confirms it. Say so, or OFF looks true.
+          setAutostartOn(false);
+          logUiEvent('autostart-error', userId);
+          if (reportFailure) {
+            reportWriteFailure("Couldn't read launch-on-startup from Windows, so this switch may be wrong.", err);
+          }
+        }),
+    [userId]
+  );
+
   useEffect(() => {
-    invoke<boolean>('get_autostart_state')
-      .then((enabled) => setAutostartOn(enabled))
-      // A failed read must not claim autostart is on. Opt-in means OFF unless
-      // the OS positively confirms it.
-      .catch(() => setAutostartOn(false));
+    readAutostart(true);
+    const onFocus = () => readAutostart(false);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [readAutostart]);
+
+  useEffect(() => {
     invoke<{ close_to_tray?: boolean }>('get_enforcer_state')
       .then((s) => setCloseToTray(s.close_to_tray !== false))
       .catch(() => {});
@@ -315,15 +336,17 @@ export function BlockRegistry({
     try {
       result = await invoke<{ enabled: boolean; state: string }>('toggle_autostart', { enable: newState });
     } catch (err) {
-      setAutostartOn(previous);
+      logUiEvent('autostart-error', userId);
       reportWriteFailure(
-        `Couldn't turn launch-on-startup ${newState ? 'on' : 'off'}, so it's still ${previous ? 'on' : 'off'}.`,
+        `Couldn't turn launch-on-startup ${newState ? 'on' : 'off'}. The switch shows what Windows says now.`,
         err
       );
+      await readAutostart(false);
       return;
     }
     setAutostartOn(result.enabled);
     setAutostartNote(result.state === 'DisabledByUser' ? 'Turn it on in Settings > Apps > Startup' : null);
+    await readAutostart(true);
     if (result.enabled === previous) return;
     // Firebase only mirrors the setting for other surfaces; don't block on it.
     guardWrite(
