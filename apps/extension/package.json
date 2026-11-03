@@ -1,11 +1,12 @@
 {
   "name": "@lock-in/extension",
-  "version": "1.2.2",
+  "version": "1.2.4",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test dnrRules.test.mjs"
   },
   "dependencies": {
     "firebase": "^12.11.0"

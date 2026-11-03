@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, update, set, forceWebSockets } from "firebase/database";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extension";
+import { buildRules, sameRules } from "./dnrRules.js";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -22,13 +23,19 @@ forceWebSockets();
 const db = getDatabase(app);
 const auth = getAuth(app);
 
+// A null user is not a sign-out. Auth can report none while the worker wakes or
+// offline, and wiping on that dropped every block mid-session. It only stops the
+// listening. Blocks are cleared by an explicit sign-out (the popup's SIGNED_OUT),
+// a deleted account, or a different account signing in.
 onAuthStateChanged(auth, (user) => {
-  if (user) {
-    startLockInSession(user.uid);
-  } else {
-    console.log('[Lock-In] No auth session');
-    stopLockInSession();
-  }
+  hydrating.then(() => {
+    if (user) {
+      startLockInSession(user.uid);
+    } else {
+      console.log('[Lock-In] No auth session — keeping the saved blocks');
+      detachFirebase();
+    }
+  });
 });
 
 const BLOCKED_DOMAINS = [
@@ -54,9 +61,6 @@ let focusActive = false;
 let sessionEndTime = null;
 // emergencyUnlock.expiry (epoch ms), or null.
 let unlockExpiry = null;
-// Set by the popup's FORCE_UNLOCK; cleared by the next snapshot, the same
-// lifetime the previous stored-boolean override had.
-let forceUnlocked = false;
 let activeDynamicBlacklist = [...STATIC_BLACKLIST];
 /**
  * MV3 evicts this worker after ~30 s idle and every variable here resets. The
@@ -93,6 +97,8 @@ const hydrating = (async () => {
     console.warn("[Lock-In] guard hydrate failed:", err);
   } finally {
     hydrated = true;
+    updateBadge();
+    applyRules();
   }
 })();
 
@@ -137,7 +143,9 @@ const ACCOUNT_GONE_CODES = new Set([
 function startLockInSession(uid) {
   if (activeUid === uid) return;
 
-  stopLockInSession();
+  detachFirebase();
+  // Another account's blocks must not carry over to this one.
+  if (storedUid && storedUid !== uid) stopLockInSession();
   activeUid = uid;
 
   // 1. Firebase Listener: users/{id} (full lock state + session blocklist)
@@ -178,7 +186,6 @@ function startLockInSession(uid) {
     sessionEndTime =
       typeof data.sessionState?.endTime === "number" ? data.sessionState.endTime : null;
     thresholdReached = totalMinutesToday >= thresholdLimit;
-    forceUnlocked = false;
 
     // Build final dynamic blocklist:
     // DEFAULT_BLOCKS + customBlocks - removedDefaults
@@ -218,6 +225,7 @@ function startLockInSession(uid) {
     // Mirror to disk so an eviction does not lose it.
     storedUid = activeUid;
     persistGuardState();
+    applyRules();
 
     console.log(
       "[Lock-In] Session state -> locked:", isLockedNow(),
@@ -265,8 +273,8 @@ async function handleMissingProfile(uid) {
   }
 }
 
-function stopLockInSession() {
-  console.log("[Lock-In] Securing vault. Session stopped.");
+/** Stop listening and beating. Everything being enforced stays as it is. */
+function detachFirebase() {
   if (userUnsub) userUnsub();
   if (heartbeatInterval) clearInterval(heartbeatInterval);
 
@@ -274,17 +282,23 @@ function stopLockInSession() {
   heartbeatInterval = null;
   profileConfirmed = false;
   activeUid = null;
+}
+
+/** Forget this account's blocks entirely. Resolves once the rules are gone. */
+function stopLockInSession() {
+  console.log("[Lock-In] Securing vault. Session stopped.");
+  detachFirebase();
   manualLock = false;
   thresholdReached = false;
   focusActive = false;
   sessionEndTime = null;
   unlockExpiry = null;
-  forceUnlocked = false;
   activeDynamicBlacklist = [...STATIC_BLACKLIST];
   permanentBlocklist = [];
   storedUid = null;
   chrome.storage.local.remove(PERSIST_KEY).catch(() => {});
   updateBadge();
+  return applyRules();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -296,7 +310,6 @@ function stopLockInSession() {
  * behaviour and locks for as long as focusActive is true.
  */
 function isLockedNow() {
-  if (forceUnlocked) return false;
   const now = Date.now();
   if (unlockExpiry != null && now < unlockExpiry) return false;
   const sessionLive =
@@ -327,6 +340,49 @@ function updateBadge() {
   chrome.action.setBadgeText({ text: locked ? "LOCK" : "" });
   chrome.action.setBadgeBackgroundColor({ color: locked ? "#FF0000" : "#002855" });
 }
+
+// ─── Blocking Rules ───────────────────────────────────────────────────────────
+// Dynamic rules block before the request leaves, and survive worker eviction and
+// browser restarts. The decision comes from isLockedNow(), never from which
+// alarm fired, so a late alarm only delays removal until the next keepAlive.
+function armExpiryAlarm(name, when) {
+  if (typeof when === "number" && when > Date.now()) {
+    chrome.alarms.create(name, { when });
+  } else {
+    chrome.alarms.clear(name);
+  }
+}
+
+async function reconcileRules() {
+  await hydrating;
+  const wanted = buildRules({
+    locked: isLockedNow(),
+    sessionSites: activeDynamicBlacklist,
+    permanentSites: permanentBlocklist,
+  });
+  const existing = await chrome.declarativeNetRequest.getDynamicRules();
+  if (!sameRules(existing, wanted)) {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: existing.map((r) => r.id),
+      addRules: wanted,
+    });
+    console.log("[Lock-In] blocking rules now:", wanted.map((r) => r.id));
+  }
+  armExpiryAlarm("sessionEnd", focusActive ? sessionEndTime : null);
+  armExpiryAlarm("unlockEnd", unlockExpiry);
+}
+
+// One at a time: overlapping updates would fight over the same rule ids.
+let rulesQueue = Promise.resolve();
+function applyRules() {
+  rulesQueue = rulesQueue
+    .then(reconcileRules)
+    .catch((err) => console.error("[Lock-In] rule update failed:", err));
+  return rulesQueue;
+}
+
+chrome.runtime.onStartup.addListener(() => applyRules());
+chrome.runtime.onInstalled.addListener(() => applyRules());
 
 function isDomainBlocked(url, blockList) {
   try {
@@ -379,42 +435,24 @@ function guardNavigation(tabId, url) {
   } catch (_) {}
 }
 
+// Same outcome as the rules: the block page. This used to close the tab, which
+// would now also race the redirect and close a tab on its way to block.html.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   const currentUrl = changeInfo.url || tab.url;
   if (!currentUrl) return;
-  if (!hydrated) {
-    hydrating.then(() => chrome.tabs.get(tabId).then((t) => {
-      const u = t?.url;
-      if (u && (isDomainBlocked(u, permanentBlocklist) ||
-                (isLockedNow() && isDomainBlocked(u, activeDynamicBlacklist)))) {
-        chrome.tabs.remove(tabId);
-      }
-    }).catch(() => {}));
-    return;
-  }
-  try {
-    // Always block permanent sites
-    if (isDomainBlocked(currentUrl, permanentBlocklist)) {
-      const urlObj = new URL(currentUrl);
-      console.log(`[Lock-In] PERMANENT BLOCK: ${urlObj.hostname}`);
-      chrome.tabs.remove(tabId);
-      return;
-    }
-    // Block session sites only when locked
-    if (isLockedNow() && isDomainBlocked(currentUrl, activeDynamicBlacklist)) {
-      const urlObj = new URL(currentUrl);
-      console.log(`[Lock-In] THREAT BLOCKED: ${urlObj.hostname}`);
-      chrome.tabs.remove(tabId);
-    }
-  } catch (e) {}
+  hydrating.then(() => guardNavigation(tabId, currentUrl));
 });
 
 // ─── Keep-Alive Alarm ─────────────────────────────────────────────────────────
 chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  // The badge is otherwise only redrawn on a snapshot, and endTime passing
-  // produces none. Every period, so it clears within ~24 s of a session's end.
-  if (alarm.name === "keepAlive") updateBadge();
+  // The badge and rules otherwise change only on a snapshot, and endTime passing
+  // produces none. sessionEnd/unlockEnd land on time; keepAlive (about every
+  // 30 s) is the backstop for a missed one.
+  hydrating.then(() => {
+    updateBadge();
+    applyRules();
+  });
   if (alarm.name === "keepAlive" && activeUid) {
     // Keep-alive read against this user's own node — global_session is locked
     // in the rules and would return permission_denied.
@@ -433,11 +471,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ─── Message Handler ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "checkStatus") {
-    sendResponse({ isLocked: isLockedNow(), blocklist: activeDynamicBlacklist });
-  } else if (request.action === "FORCE_UNLOCK") {
-    forceUnlocked = true;
-    updateBadge();
-    sendResponse({ status: "unlocked" });
+    hydrating.then(() => sendResponse({ isLocked: isLockedNow(), blocklist: activeDynamicBlacklist }));
+    return true;
+  } else if (request.action === "SIGNED_OUT") {
+    // Sent by the popup before it signs out: the one user-made clear.
+    stopLockInSession().then(() => sendResponse({ status: "cleared" }));
+    return true;
   } else if (request.type === "GET_TIMER_STATE") {
     chrome.storage.local.get(["timeLeft", "focusActive"], (res) => {
       sendResponse({ timeLeft: res.timeLeft, focusActive: res.focusActive });

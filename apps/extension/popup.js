@@ -39,6 +39,38 @@ function showView(view) {
   if (view === 'menu') menuView.classList.remove('hidden');
 }
 
+// ─── First Paint ─────────────────────────────────────────────────────────────
+// From what the background saved, so the popup is never blank while the worker
+// wakes or Firebase can't be reached. updateUI() refines it. Mirrors isLockedNow.
+const PERSIST_KEY = "lockin_guard_state";
+
+function lockedFromSaved(g) {
+  const now = Date.now();
+  if (typeof g.unlockExpiry === "number" && now < g.unlockExpiry) return false;
+  const sessionLive = g.focusActive === true && (typeof g.sessionEndTime !== "number" || now < g.sessionEndTime);
+  return g.manualLock === true || g.thresholdReached === true || sessionLive;
+}
+
+function paintStatus(isLocked) {
+  statusDiv.textContent = isLocked ? "LOCKED" : "UNLOCKED";
+  statusDiv.className = `status ${isLocked ? 'locked' : ''}`;
+  updateLogoutButton(isLocked);
+  // Signed in but nothing enforcing: tell the user where a session starts,
+  // instead of leaving the popup looking dead.
+  if (sessionHint) sessionHint.classList.toggle('hidden', isLocked);
+}
+
+chrome.storage.local.get(PERSIST_KEY).then((stored) => {
+  const g = stored?.[PERSIST_KEY];
+  if (g && typeof g.uid === "string") {
+    userInfoDiv.textContent = `ID: ${g.uid.substring(0, 8)}...`;
+    showView('menu');
+    paintStatus(lockedFromSaved(g));
+  } else {
+    showView('login');
+  }
+}).catch(() => {});
+
 // ─── Auth Logic ──────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user) => {
   if (user) {
@@ -92,6 +124,9 @@ logoutBtn.addEventListener('click', async (e) => {
     return;
   }
   try {
+    // Before signOut: the background keeps its blocks through a null auth
+    // state, so it has to be told this one is deliberate.
+    await chrome.runtime.sendMessage({ action: "SIGNED_OUT" });
     await signOut(auth);
   } catch (err) {
     console.error("Logout failed:", err);
@@ -101,14 +136,7 @@ logoutBtn.addEventListener('click', async (e) => {
 // ─── Menu Actions ────────────────────────────────────────────────────────────
 function updateUI() {
   chrome.runtime.sendMessage({ action: "checkStatus" }, (response) => {
-    if (response) {
-      statusDiv.textContent = response.isLocked ? "LOCKED" : "UNLOCKED";
-      statusDiv.className = `status ${response.isLocked ? 'locked' : ''}`;
-      updateLogoutButton(response.isLocked);
-      // Signed in but nothing enforcing: tell the user where a session starts,
-      // instead of leaving the popup looking dead.
-      if (sessionHint) sessionHint.classList.toggle('hidden', response.isLocked);
-    }
+    if (response) paintStatus(response.isLocked);
   });
 }
 

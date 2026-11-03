@@ -1,4 +1,4 @@
-# Chrome Web Store submission — Lock-In Web Police 1.2.3
+# Chrome Web Store submission — Lock-In Web Police 1.2.4
 
 Everything the developer dashboard asks for on this update, in one place.
 Paste each block into the matching field.
@@ -8,10 +8,10 @@ Paste each block into the matching field.
 | | |
 |---|---|
 | Item | Lock-In Web Police (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
-| Version | 1.2.3 (previous published version: 1.0.7) |
-| Zip | `apps/extension/lock-in-extension-v1.2.3.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
-| SHA256 | `B16BB82B78A681EB56C7B299EC2624B3DADA459569846CEAEBA82A364C4EE88A` (108,805 bytes, 2026-10-05) |
-| Permissions | `storage`, `webNavigation`, `alarms` |
+| Version | 1.2.4 |
+| Zip | `apps/extension/lock-in-extension-v1.2.4.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
+| SHA256 | `A9F29E7A61892D8D217DC97773E15598651C83C113FED76836B58A75F58E3B6E` (110,463 bytes, 2026-11-03) |
+| Permissions | `storage`, `webNavigation`, `alarms`, `declarativeNetRequestWithHostAccess` |
 | Host permissions | `<all_urls>` |
 
 If you rebuild the zip, update the SHA256 above. Entry names must use `/`
@@ -20,6 +20,13 @@ PowerShell's `Compress-Archive` writes `\` on Windows, so this zip is built by
 `scripts`-free Node instead; verify with any unzip tool that the entries read
 `assets/index.js`, not `assets\index.js`, and that `manifest.json` sits at the
 root rather than inside a `dist/` folder.
+
+## Store listing text
+
+Put this line in the description. Never write "no override": the fuse and End
+task are real ways out, and the listing must not claim otherwise.
+
+> No pause button. The session ends when the timer does.
 
 ## What changed since the published version (1.0.7)
 
@@ -39,6 +46,19 @@ For the reviewer's "what's new", and for your own record:
 > regression in a resilience path only — blocking with a live connection is
 > unaffected — but do not describe 1.2.3 as fixing offline enforcement.
 
+- **1.2.4** — sites are blocked by `declarativeNetRequest` rules, so a blocked
+  page no longer paints first and blocked iframes are covered. Rules survive the
+  worker being suspended and a browser restart. A momentary missing auth state no
+  longer clears the blocks; only signing out does. The session's end is a timed
+  alarm, so blocking stops on time offline. The popup paints from saved state. A
+  dead unlock message handler is gone.
+
+**Review:** a new permission plus `web_accessible_resources` means a full review.
+Plan on days. `declarativeNetRequestWithHostAccess` adds no install warning of
+its own, so existing users are not asked to re-approve on update. `block.html`
+becoming web-accessible means a page could detect that the extension is
+installed; low risk, and worth saying if asked.
+
 ## Store listing → Privacy practices
 
 ### Single purpose
@@ -57,11 +77,15 @@ For the reviewer's "what's new", and for your own record:
 
 **alarms**
 
-> Manifest V3 service workers are suspended when idle. A periodic alarm keeps the extension's connection to the user's Lock-In account alive, so a focus session started on another device is enforced promptly, and updates the extension's check-in time.
+> Manifest V3 service workers are suspended when idle. A periodic alarm keeps the extension's connection to the user's Lock-In account alive and updates the extension's check-in time, and a one-shot alarm at the session's end time removes the blocking rules on time, including offline.
+
+**declarativeNetRequestWithHostAccess**
+
+> Blocks the sites on the user's own blocklist during a focus session, and their permanent blocks, by redirecting them to the extension's local block page before the request is sent, so a blocked page never loads. Rules name only the domains the user chose. This is the API Chrome recommends for blocking under Manifest V3. It is used with the existing host access and adds no access of its own.
 
 **Host permission `<all_urls>`**
 
-> The blocklist is defined entirely by the user, so the extension cannot know in advance which sites it must check. It compares the hostname of pages the user opens against that personal list, and on a match during an active session redirects the tab to a local block page or closes it. The same host access lets it connect to the user's Lock-In account (Firebase) to read that blocklist and the session state. The extension has no content scripts and does not request the scripting permission, so it never reads page content, the DOM, cookies or form data. No browsing data is transmitted or stored off the device.
+> The blocklist is defined entirely by the user, so the extension cannot know in advance which sites it must check. It compares the hostname of pages the user opens against that personal list, and on a match during an active session redirects the tab to a local block page. The same host access lets it connect to the user's Lock-In account (Firebase) to read that blocklist and the session state. The extension has no content scripts and does not request the scripting permission, so it never reads page content, the DOM, cookies or form data. No browsing data is transmitted or stored off the device.
 
 ### Remote code
 
