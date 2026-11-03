@@ -111,9 +111,43 @@ struct LockProfile {
     /// always hides, whatever this says.
     #[serde(default = "default_true")]
     close_to_tray: bool,
+    /// How long the PC has been asleep during the running session. Sessions
+    /// are credited only for the rest. Reset when a session arms.
+    #[serde(default)]
+    session_asleep_ms: u64,
+    /// When the enforcer last looked at the clock. Not persisted: time with the
+    /// app closed isn't sleep, and a restored session credits from adoption.
+    #[serde(skip)]
+    last_clock_check: Option<u64>,
+}
+
+/// The enforcer looks at the clock every 2 s, so a gap this long means nothing
+/// was running: asleep or hibernating. A forward clock edit reads the same way
+/// and is no more deserving of credit.
+const SLEEP_GAP_MS: u64 = 30_000;
+
+/// How much of the gap from `prev` to `now` was sleep inside the session. Time
+/// after the session's own end isn't session time, so it can't be taken off.
+fn asleep_in_gap(prev: u64, now: u64, session_end: Option<u64>) -> u64 {
+    if now.saturating_sub(prev) < SLEEP_GAP_MS {
+        return 0;
+    }
+    session_end.map_or(now, |end| end.min(now)).saturating_sub(prev)
 }
 
 impl LockProfile {
+    /// Returns true if it found sleep. Called by the enforcer every tick, and
+    /// when the webview asks: on waking, its timer can fire first.
+    fn note_clock(&mut self, now: u64) -> bool {
+        let asleep = match self.last_clock_check {
+            Some(prev) if self.focus_active => asleep_in_gap(prev, now, self.session_end_time),
+            _ => 0,
+        };
+        self.last_clock_check = Some(now);
+        self.session_asleep_ms += asleep;
+        asleep > 0
+    }
+
     /// A session is running here. Closing hides and Quit is refused until it
     /// ends. Permanent blocks don't count: the setting decides for those.
     fn armed(&self) -> bool {
@@ -792,6 +826,7 @@ fn update_enforcement(
                 profile.exe_blacklist = profile.exe_approved.clone();
                 // Deadline so a session persisted across a restart still ends.
                 profile.session_end_time = end_time;
+                profile.session_asleep_ms = 0;
                 // Any fuse still set here belongs to a session that is over.
                 profile.bailout_deadline = None;
                 println!(
@@ -1308,6 +1343,7 @@ struct EnforcerState {
     /// calls ack_bailout_recorded.
     unrecorded_bailout: Option<u64>,
     close_to_tray: bool,
+    session_asleep_ms: u64,
     /// Set when the state file cannot be written at all (no app data folder):
     /// enforcement works, but nothing survives a restart.
     persistence_error: Option<String>,
@@ -1330,6 +1366,7 @@ fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Resu
             bailout_fuse_ms: if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS },
             unrecorded_bailout: profile.unrecorded_bailout,
             close_to_tray: profile.close_to_tray,
+            session_asleep_ms: profile.session_asleep_ms,
             persistence_error: app_state.persist_error.clone(),
         }),
         Err(e) => Err(format!("Mutex lock failed: {}", e)),
@@ -1349,6 +1386,20 @@ fn set_close_to_tray(enabled: bool, app_state: State<AppState>) -> Result<bool, 
     persist_profile(&profile, &app_state.state_path);
     println!("[Tray] keep running when closed = {}", enabled);
     Ok(enabled)
+}
+
+// ─── IPC Command: session_asleep_ms ──────────────────────────────────────────
+// Asked once as a session ends, so its minutes leave out the time asleep.
+#[tauri::command]
+fn session_asleep_ms(app_state: State<AppState>) -> Result<u64, String> {
+    let mut profile = app_state
+        .profile
+        .lock()
+        .map_err(|e| format!("Mutex lock failed: {}", e))?;
+    if profile.note_clock(now_millis()) {
+        persist_profile(&profile, &app_state.state_path);
+    }
+    Ok(profile.session_asleep_ms)
 }
 
 // ─── IPC Command: ack_bailout_recorded ───────────────────────────────────────
@@ -1661,6 +1712,8 @@ pub fn run() {
         bailout_used_date: None,
         unrecorded_bailout: None,
         close_to_tray: true,
+        session_asleep_ms: 0,
+        last_clock_check: None,
     }));
 
     let profile_for_sniper = Arc::clone(&profile);
@@ -1698,7 +1751,7 @@ pub fn run() {
         })
         // Every one is also listed in app_commands.in, and only a window whose
         // capability grants it can call it: "main" alone (see build.rs).
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_bailout_recorded, set_close_to_tray, open_web_guard_store, session_asleep_ms, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -1775,6 +1828,12 @@ pub fn run() {
                     // Session expiry — a session that survived a restart has no
                     // JS timer left to end it, so the enforcer ends it itself.
                     if let Ok(mut profile) = profile_for_sniper.lock() {
+                        // Before expiry, or waking past the deadline would end
+                        // the session with its sleep uncounted.
+                        if profile.note_clock(now_millis()) {
+                            println!("[Enforcer] slept during the session — {} ms so far", profile.session_asleep_ms);
+                            persist_profile(&profile, &sniper_state_path);
+                        }
                         if profile.focus_active {
                             // Two deadlines can end a session: its own, and a
                             // bail-out fuse. Whichever lands first ends it —
@@ -1979,7 +2038,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, close_hides, enforcement_decision, is_silent_launch, iso8601_utc, stand_down_voided, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{arm_refusal, asleep_in_gap, close_hides, enforcement_decision, is_silent_launch, iso8601_utc, stand_down_voided, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2019,6 +2078,44 @@ mod tests {
                 assert!(granted.iter().any(|p| p == &permission.as_str()), "{} missing", permission);
             }
         }
+    }
+
+    const MIN: u64 = 60_000;
+
+    #[test]
+    fn a_normal_tick_is_not_sleep() {
+        assert_eq!(asleep_in_gap(1_000, 3_000, Some(100 * MIN)), 0);
+        assert_eq!(asleep_in_gap(1_000, 1_000 + 29_999, Some(100 * MIN)), 0);
+    }
+
+    #[test]
+    fn a_long_gap_counts_up_to_the_sessions_end() {
+        // Slept 10 min inside the session.
+        assert_eq!(asleep_in_gap(5 * MIN, 15 * MIN, Some(25 * MIN)), 10 * MIN);
+        // Slept from minute 10 for two hours: only the last 15 were session time.
+        assert_eq!(asleep_in_gap(10 * MIN, 130 * MIN, Some(25 * MIN)), 15 * MIN);
+    }
+
+    #[test]
+    fn a_backward_clock_is_not_sleep() {
+        assert_eq!(asleep_in_gap(10 * MIN, 5 * MIN, Some(25 * MIN)), 0);
+    }
+
+    #[test]
+    fn sleep_is_only_counted_during_a_session() {
+        let mut p: LockProfile = serde_json::from_str("{}").unwrap();
+        p.note_clock(MIN);
+        assert!(!p.note_clock(60 * MIN));
+        assert_eq!(p.session_asleep_ms, 0);
+
+        p.focus_active = true;
+        p.session_end_time = Some(200 * MIN);
+        assert!(!p.note_clock(60 * MIN + 2_000));
+        assert!(p.note_clock(70 * MIN + 2_000));
+        assert_eq!(p.session_asleep_ms, 10 * MIN);
+        // Asked again straight after, the same gap isn't counted twice.
+        assert!(!p.note_clock(70 * MIN + 2_100));
+        assert_eq!(p.session_asleep_ms, 10 * MIN);
     }
 
     #[test]

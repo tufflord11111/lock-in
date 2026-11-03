@@ -6,6 +6,7 @@ import { getDeviceId } from "../deviceId";
 import { dismissWriteFailure, guardWrite, reportWriteFailure } from "../writeFailures";
 import { logUiEvent } from "../uiEventLog";
 import { reportEngineFailure } from "../engineHealth";
+import { creditedMinutes } from "../sessionCredit";
 import type { EnforcerState } from "../components/EnforcerDisarmPanel";
 import {
   useCallback,
@@ -90,6 +91,9 @@ export function useFocusSession(
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const totalMinutesRef = useRef(0);
   const initialSecondsRef = useRef(0);
+  // Sleep Rust had already counted when this webview took the session over.
+  // Credit runs from adoption, so sleep before it was never going to be credited.
+  const asleepBaselineRef = useRef(0);
   // Wall-clock deadline (epoch ms) of the running session, or null. The
   // countdown is derived from it rather than decremented once per tick:
   // WebView2 throttles — and after ~5 minutes suspends — timers in a hidden or
@@ -367,9 +371,19 @@ export function useFocusSession(
       const remaining = secondsRemaining() ?? timeLeft;
       endTimeRef.current = null;
       const secondsSpent = Math.max(0, initialSecondsRef.current - remaining);
+      // Before the stand-down below, and read from Rust: on waking, this timer
+      // can fire before the enforcer's next tick has seen the gap. No answer
+      // means no enforcer to ask (a plain browser), so nothing is taken off.
+      const baseline = asleepBaselineRef.current;
+      const asleepMs = voided
+        ? 0
+        : await invoke<number>("session_asleep_ms")
+            .then((ms) => Math.max(0, ms - baseline))
+            .catch(() => 0);
+      if (asleepMs > 0) console.info(`[SESSION] not crediting ${asleepMs} ms asleep`);
       // A bailed-out session is void in full — at one minute in or at 55 of
       // 60. Nothing is credited, so there is nothing to round up.
-      const minutesToLog = voided ? 0 : Math.ceil(secondsSpent / 60);
+      const minutesToLog = voided ? 0 : creditedMinutes(secondsSpent, asleepMs);
 
       // STEP 3: Reset ALL UI state immediately
       // This happens synchronously — UI unfreezes NOW
@@ -525,6 +539,7 @@ export function useFocusSession(
 
       totalMinutesRef.current = minutes;
       initialSecondsRef.current = seconds;
+      asleepBaselineRef.current = 0;
       setTaskLabel(label.trim());
       setTimeLeft(seconds);
       setIsActive(true);
@@ -639,6 +654,7 @@ export function useFocusSession(
           // original start — the pre-restart portion was never observed here.
           totalMinutesRef.current = Math.ceil(remaining / 60);
           initialSecondsRef.current = remaining;
+          asleepBaselineRef.current = s.session_asleep_ms ?? 0;
           endTimeRef.current = s.session_end_time;
           sessionLiveRef.current = true;
           setTaskLabel("Untitled Session");

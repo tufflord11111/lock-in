@@ -19,6 +19,8 @@ export type EnforcerState = {
   unrecorded_bailout?: number | null;
   /** Closing the window keeps Lock-In running in the tray. */
   close_to_tray?: boolean;
+  /** Time asleep during the running session. */
+  session_asleep_ms?: number;
   /** Set when Rust has no app data folder: enforcing from memory, nothing persisted. */
   persistence_error?: string | null;
 };

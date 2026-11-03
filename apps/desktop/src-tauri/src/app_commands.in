@@ -24,6 +24,7 @@
     "ack_bailout_recorded",
     "set_close_to_tray",
     "open_web_guard_store",
+    "session_asleep_ms",
     "read_snapshot",
     "write_snapshot",
     "clear_snapshot",

@@ -36,6 +36,7 @@
     "allow-ack-bailout-recorded",
     "allow-set-close-to-tray",
     "allow-open-web-guard-store",
+    "allow-session-asleep-ms",
     "allow-read-snapshot",
     "allow-write-snapshot",
     "allow-clear-snapshot",
