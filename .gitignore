@@ -20,6 +20,7 @@ dist/
 target/
 .turbo/
 .vercel/
+.expo/
 
 # Enforcer state file (lives in %APPDATA%/com.lockin.app, listed defensively)
 enforcer_state.json

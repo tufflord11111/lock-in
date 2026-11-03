@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "dev": "pnpm --filter @lock-in/mobile start --clear",
+    "dev": "pnpm --filter @lock-in/mobile dev",
     "web": "pnpm --filter @lock-in/web dev",
     "typecheck": "turbo run typecheck && pnpm check:tokens",
     "check:tokens": "node scripts/check-tokens.mjs",
