@@ -58,7 +58,7 @@ export function Pack() {
         </button>
         {error && <div className="error">⚠ {error}</div>}
         {rows.length === 0 && !busy && !error ? (
-          <p className="muted" style={{ margin: 0 }}>No records found.</p>
+          <p className="muted" style={{ margin: 0 }}>You're the first in The Pack. Invite a friend</p>
         ) : (
           <ul className="list">
             {rows.map((r) => (

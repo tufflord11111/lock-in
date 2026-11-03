@@ -31,6 +31,7 @@ export function ThePack({ userId }: ThePackProps) {
   const [visibleFriends, setVisibleFriends] = useState(10);
   const [visibleLeaderboard, setVisibleLeaderboard] = useState(10);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardFailed, setLeaderboardFailed] = useState(false);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [addSuccess, setAddSuccess] = useState(false);
@@ -109,6 +110,7 @@ export function ThePack({ userId }: ThePackProps) {
 
   const fetchLeaderboard = async () => {
     setIsLoadingLeaderboard(true);
+    setLeaderboardFailed(false);
     try {
       const snapshot = await get(child(ref(db), 'leaderboard/all_time'));
       if (snapshot.exists()) {
@@ -153,6 +155,7 @@ export function ThePack({ userId }: ThePackProps) {
       }
     } catch (err) {
       console.error("Leaderboard fetch failed:", err);
+      setLeaderboardFailed(true);
     } finally {
       setIsLoadingLeaderboard(false);
     }
@@ -361,8 +364,12 @@ export function ThePack({ userId }: ThePackProps) {
           <div className="flex flex-col gap-3">
             {leaderboard.length === 0 && !isLoadingLeaderboard && (
               <div className="py-20 flex flex-col items-center justify-center border-1 border-dashed border-ink/20 rounded-2xl bg-ground/50">
-                <span className="text-[10px] font-black text-ink/30 label-lg mb-2">{t("pack.empty")}</span>
-                <p className="text-sm font-bold text-ink/40 italic">{t("pack.emptyHint")}</p>
+                {/* A failed read says nothing about who's on the board. */}
+                <p className="text-sm font-bold text-ink/60 text-center">
+                  {leaderboardFailed
+                    ? "Couldn't load the board. Try refreshing."
+                    : "You're the first in The Pack. Invite a friend"}
+                </p>
               </div>
             )}
 
