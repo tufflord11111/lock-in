@@ -19,7 +19,17 @@
  * a key from anywhere except that environment variable.
  */
 const fs = require("node:fs");
-const admin = require("firebase-admin");
+const { initializeApp, applicationDefault, getApp, deleteApp } = require("firebase-admin/app");
+const { getDatabase } = require("firebase-admin/database");
+const { getAuth } = require("firebase-admin/auth");
+// firebase-admin 14 removed the legacy `admin` namespace; this shim keeps the call sites below unchanged.
+const admin = {
+  initializeApp,
+  credential: { applicationDefault },
+  database: () => getDatabase(),
+  auth: () => getAuth(),
+  app: () => ({ delete: () => deleteApp(getApp()) }),
+};
 
 // ── Who is not a real operator ──────────────────────────────────────────────
 /** Seeded demo rows, keyed by uid. */
