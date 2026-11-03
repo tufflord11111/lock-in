@@ -27,6 +27,8 @@ import { useCopy, daypart, weekday } from "./theme/copy";
 import { useLockInStats } from "./hooks/useLockInStats";
 import { useSnapshotWriter } from "./hooks/useSnapshotWriter";
 import { useReachable } from "./hooks/useReachable";
+import { useExtensionPresence } from "./hooks/useExtensionPresence";
+import { useSessionSites } from "./hooks/useSessionSites";
 import { bootSnapshot } from "./snapshot";
 import { BaselineQuestion, hasBeenAsked } from "./components/BaselineQuestion";
 import { DemoOverlay } from "./components/DemoOverlay";
@@ -41,12 +43,11 @@ import { Login } from "./screens/Login";
 const CHROME_WEB_STORE_URL = "https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea";
 
 type ConnectionGateProps = {
-  userId?: string;
+  extensionStale: boolean;
   engineOffline: boolean;
 };
 
-function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
-  const [extensionStale, setExtensionStale] = useState(false);
+function ConnectionGate({ extensionStale, engineOffline }: ConnectionGateProps) {
   const [dismissed, setDismissed] = useState(false);
   // Rust could not find its app data folder: blocking works, but nothing it
   // holds survives a restart. Fixed for the life of the process, so ask once.
@@ -57,22 +58,6 @@ function ConnectionGate({ userId, engineOffline }: ConnectionGateProps) {
       .then((s) => setPersistError(s.persistence_error ?? null))
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!userId) return;
-    const heartbeatRef = ref(db, `users/${userId}/extension_state/last_seen`);
-    const unsub = onValue(heartbeatRef, (snapshot) => {
-      const lastSeen = snapshot.val();
-      if (!lastSeen) {
-        setExtensionStale(true);
-      } else {
-        const diff = Date.now() - lastSeen;
-        setExtensionStale(diff > 300000);
-      }
-    });
-
-    return () => unsub();
-  }, [userId]);
 
   if (dismissed) return null;
   if (!extensionStale && !engineOffline && !persistError) return null;
@@ -499,12 +484,23 @@ function AppInner() {
   // releases the Rust latch. Runs once per boot, on first successful auth.
   useDisarmRecovery(user?.uid);
 
+  const { stale: extensionQuiet, isStaleNow: extensionQuietNow } = useExtensionPresence(user?.uid);
+  const sessionSites = useSessionSites(user?.uid, WEB_BLOCKLIST);
+  // Unreachable, the heartbeat can't be read, so a quiet extension proves
+  // nothing. The extension blocks offline from its own saved state, and an
+  // offline session must still start.
+  const startRefusal = useCallback(() => {
+    if (!reachable || sessionSites.length === 0 || !extensionQuietNow()) return null;
+    return `This session blocks websites, but the Lock-In extension isn't answering. Open Chrome and check it's on, or install it: ${CHROME_WEB_STORE_URL}`;
+  }, [reachable, sessionSites, extensionQuietNow]);
+
   const { isActive, timeLeft, taskLabel, startSession, endSession } = useFocusSession(
     user?.uid,
     setTotalMinutesFocused,
     blockedApps,
     WEB_BLOCKLIST,
-    updatePresence
+    updatePresence,
+    startRefusal
   );
 
   // Global Timer Formatter
@@ -807,7 +803,7 @@ function AppInner() {
       </header>
       )}
 
-      <ConnectionGate userId={user.uid} engineOffline={engineOffline} />
+      <ConnectionGate extensionStale={extensionQuiet && reachable} engineOffline={engineOffline} />
 
       <PendingPermanentBanner userId={user.uid} />
 

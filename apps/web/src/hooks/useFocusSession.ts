@@ -82,7 +82,9 @@ export function useFocusSession(
   setTotalMinutesFocused: Dispatch<SetStateAction<number>>,
   blockedApps: string[] = [],
   blockedWebsites: string[] = [],
-  updatePresence?: (state: "online" | "offline" | "locked-in") => Promise<void>
+  updatePresence?: (state: "online" | "offline" | "locked-in") => Promise<void>,
+  /** Why a session can't start right now, or null. Asked at the moment of Start. */
+  startRefusal?: () => string | null
 ) {
   const [isActive, setIsActive] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -518,6 +520,13 @@ export function useFocusSession(
   const startSession = useCallback(
     (minutes: number, label: string) => {
       if (!userId) return;
+      const refusal = startRefusal?.();
+      if (refusal) {
+        logUiEvent("start-refused-extension", userId);
+        // Sticky: it carries a URL to copy.
+        reportWriteFailure(refusal, undefined, "info", { sticky: true });
+        return;
+      }
       clearTimer();
       const seconds = Math.max(0, Math.floor(minutes * 60));
       if (seconds === 0) return;
@@ -591,7 +600,7 @@ export function useFocusSession(
         updatePresence("locked-in");
       }
     },
-    [clearTimer, endSession, startCountdown, blockedApps, blockedWebsites, updatePresence, userId, deviceId],
+    [clearTimer, endSession, startCountdown, blockedApps, blockedWebsites, updatePresence, userId, deviceId, startRefusal],
   );
 
   // (2) PULL — on every userId transition, ask Rust and reconcile BOTH ways.

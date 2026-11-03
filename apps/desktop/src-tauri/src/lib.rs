@@ -1211,6 +1211,7 @@ const UI_EVENTS: &[&str] = &[
     "quit-refused",
     "autostart-set",
     "autostart-error",
+    "start-refused-extension",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
