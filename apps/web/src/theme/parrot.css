@@ -1,0 +1,116 @@
+/*
+ * The parrot overlay's own sheet. It doesn't load global.css or tokens.css: both
+ * paint the page, and this page has to stay transparent. Its colours are fixed in
+ * the Notebook sticker style, because the overlay sits on any wallpaper, not on a
+ * theme.
+ */
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  font: 600 13px/1.3 "Segoe UI", system-ui, sans-serif;
+  color: #2b3a55;
+}
+
+#bird {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 96px;
+  height: 96px;
+  background-repeat: no-repeat;
+  will-change: transform;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.parrot-card {
+  position: fixed;
+  box-sizing: border-box;
+  width: 224px;
+  padding: 10px 12px;
+  background: #fffdf5;
+  border: 2px solid #2b3a55;
+  border-radius: 12px;
+  outline: 2px solid #ffffff;
+  animation: parrot-rise 120ms ease-out;
+}
+
+.parrot-card p {
+  margin: 0 0 8px;
+}
+
+.parrot-card p:last-child {
+  margin-bottom: 0;
+}
+
+.parrot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.parrot-menu {
+  width: 136px;
+  padding: 6px;
+}
+
+.parrot-menu .parrot-actions {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.parrot-card button {
+  flex: 1 1 auto;
+  padding: 4px 8px;
+  font: inherit;
+  white-space: nowrap;
+  color: inherit;
+  background: transparent;
+  border: 1.5px solid #2b3a55;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.parrot-card button:hover {
+  background: #f4e7b8;
+}
+
+.parrot-card button:first-child {
+  background: #2b3a55;
+  color: #fffdf5;
+}
+
+.parrot-card button:first-child:hover {
+  background: #3d4f70;
+}
+
+.parrot-menu button,
+.parrot-menu button:first-child {
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border-color: transparent;
+}
+
+.parrot-menu button:hover,
+.parrot-menu button:first-child:hover {
+  background: #f4e7b8;
+}
+
+@keyframes parrot-rise {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .parrot-card {
+    animation: none;
+  }
+}

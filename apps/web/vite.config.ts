@@ -7,6 +7,11 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
+    build: {
+      rollupOptions: {
+        input: { main: "index.html", parrot: "parrot.html" },
+      },
+    },
     define: {
       "process.env": {},
       "import.meta.env.VITE_FIREBASE_API_KEY": JSON.stringify(env.VITE_FIREBASE_API_KEY),

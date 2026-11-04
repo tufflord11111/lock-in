@@ -12,6 +12,11 @@ import { loadBootSnapshot } from "./snapshot";
 const mirrored = readMirror();
 applyTheme(mirrored.theme, mirrored.accent);
 
+// The overlay has its own page; the app never mounts in its window.
+if (window.location.pathname.endsWith("parrot.html")) {
+  throw new Error("The app loaded in the parrot page");
+}
+
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("Root element #root not found");
