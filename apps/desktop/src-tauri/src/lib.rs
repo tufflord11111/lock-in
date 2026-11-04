@@ -1246,37 +1246,43 @@ fn sync_blocklist(
     }
 }
 
+/// Where a .lnk points, read through the shell's own IShellLinkW. On its own thread
+/// because COM must be set up per thread, and the caller's may already be in another
+/// apartment. An unreadable shortcut, or one with no target, is an error.
+fn shortcut_target(path: String) -> Result<String, String> {
+    use windows::core::{Interface, HSTRING};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED, STGM_READ,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+    thread::spawn(move || unsafe {
+        CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().map_err(|e| e.to_string())?;
+        let read = || -> windows::core::Result<String> {
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            link.cast::<IPersistFile>()?.Load(&HSTRING::from(path.as_str()), STGM_READ)?;
+            let mut buffer = [0u16; 1024];
+            link.GetPath(&mut buffer, std::ptr::null_mut(), 0)?;
+            let len = buffer.iter().position(|c| *c == 0).unwrap_or(buffer.len());
+            Ok(String::from_utf16_lossy(&buffer[..len]))
+        };
+        let target = read();
+        CoUninitialize();
+        target.map_err(|e| e.to_string())
+    })
+    .join()
+    .map_err(|_| "shortcut reader stopped".to_string())?
+}
+
 #[tauri::command]
 fn resolve_shortcut(shortcut_path: String) -> Result<String, String> {
-    // Validate it looks like a real file path
-    // Only allow path-safe characters
-    let safe_path = shortcut_path
-        .replace("'", "''")  // Escape single quotes for PowerShell
-        .replace("`", "")    // Remove backtick (PS escape char)
-        .replace(";", "")    // Remove command separator
-        .replace("&", "");   // Remove background operator
-
     // Verify it ends in .lnk or .exe
-    if !safe_path.ends_with(".lnk") && 
-       !safe_path.ends_with(".exe") {
+    if !shortcut_path.ends_with(".lnk") && !shortcut_path.ends_with(".exe") {
         return Err("Invalid shortcut path".to_string());
     }
-
-    let output = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-Command",
-            &format!("(New-Object -COM WScript.Shell).CreateShortcut('{}').TargetPath", safe_path)
-        ])
-        .creation_flags(0x08000000)
-        .output()
-        .map_err(|e| e.to_string())?;
-        
-    let target = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if target.is_empty() {
-        Err("Could not resolve shortcut".to_string())
-    } else {
-        Ok(target)
+    match shortcut_target(shortcut_path) {
+        Ok(target) if !target.is_empty() => Ok(target),
+        _ => Err("Could not resolve shortcut".to_string()),
     }
 }
 
@@ -2455,7 +2461,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2563,6 +2569,50 @@ mod tests {
         assert!(targets_protected("ser", &system));
         assert!(targets_protected("explorer2", &system));
         assert!(!targets_protected("whatsapp", &system));
+    }
+
+    /// A real .lnk on disk, written through the same COM interfaces.
+    fn write_shortcut(path: &std::path::Path, target: &str) {
+        use windows::core::{Interface, HSTRING};
+        use windows::Win32::System::Com::*;
+        use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+        let path = path.to_path_buf();
+        let target = target.to_string();
+        std::thread::spawn(move || unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok().unwrap();
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).unwrap();
+            link.SetPath(&HSTRING::from(target.as_str())).unwrap();
+            link.cast::<IPersistFile>()
+                .unwrap()
+                .Save(&HSTRING::from(path.to_str().unwrap()), true)
+                .unwrap();
+            CoUninitialize();
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn a_shortcut_resolves_to_its_target() {
+        let dir = std::env::temp_dir().join(format!("lockin-lnk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let notepad = std::env::var("SystemRoot").unwrap() + "\\notepad.exe";
+        // Including the characters the old PowerShell string had to strip or escape.
+        for name in ["plain.lnk", "it's & a; `test.lnk"] {
+            let lnk = dir.join(name);
+            write_shortcut(&lnk, &notepad);
+            let got = resolve_shortcut(lnk.to_str().unwrap().to_string()).unwrap();
+            assert_eq!(got.to_lowercase(), notepad.to_lowercase(), "{}", name);
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn what_isnt_a_shortcut_is_refused_as_before() {
+        assert_eq!(resolve_shortcut("C:\\x\\notes.txt".into()).unwrap_err(), "Invalid shortcut path");
+        assert_eq!(resolve_shortcut("C:\\no\\such\\file.lnk".into()).unwrap_err(), "Could not resolve shortcut");
+        let notepad = std::env::var("SystemRoot").unwrap() + "\\notepad.exe";
+        assert_eq!(resolve_shortcut(notepad).unwrap_err(), "Could not resolve shortcut");
     }
 
     #[test]
