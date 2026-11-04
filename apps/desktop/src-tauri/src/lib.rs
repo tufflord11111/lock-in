@@ -1,6 +1,7 @@
 mod browsers;
 mod heartbeat;
 mod lockdown;
+mod notify;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -519,6 +520,25 @@ struct LockdownWarningPayload {
     message: String,
 }
 
+/// Put a warning in front of the operator, wherever the window is. The toast also
+/// goes out every time, so it's there when the window is next looked at.
+fn deliver_warning(app: &tauri::AppHandle, title: &str, message: String) {
+    let _ = app.emit("lockdown-warning", LockdownWarningPayload { message: message.clone() });
+    let focused = app
+        .get_webview_window("main")
+        .map_or(false, |w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
+    if focused {
+        return;
+    }
+    let shown = notify::show_windows_notification(title, &message);
+    if let Err(e) = &shown {
+        println!("[Lockdown] notification not shown ({}) — showing the window", e);
+    }
+    if notify::route(focused, shown.is_ok()) == notify::Route::ShowWindow {
+        show_main_window(app);
+    }
+}
+
 /// Run lockdown for as long as the app runs. Only looks at processes during a
 /// session that uses it, so the rest of the time this is one lock a second.
 fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beats: Arc<heartbeat::BeatStore>) {
@@ -555,7 +575,7 @@ fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beat
                         name = browsers::name_of(browser)
                     );
                     log_ui_event(&app, "lockdown-warned");
-                    let _ = app.emit("lockdown-warning", LockdownWarningPayload { message });
+                    deliver_warning(&app, "Lock-In is closing a browser", message);
                 }
                 lockdown::Action::SoftClose { browser } => {
                     if let Some(pids) = running.get(browser) {

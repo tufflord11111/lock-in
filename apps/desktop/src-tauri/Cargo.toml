@@ -30,7 +30,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = { version = "2", optional = true }
 # Lockdown: find and close browser windows. Store autostart adds
 # Windows.ApplicationModel.StartupTask (needs package identity) through the feature.
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "UI_Notifications", "Data_Xml_Dom", "Foundation"] }
 windows-future = { version = "0.2", optional = true }
 
 # NSIS (GitHub releases) is the default build. The Microsoft Store (MSIX) build
@@ -40,6 +40,6 @@ windows-future = { version = "0.2", optional = true }
 default = ["updater", "autostart"]
 updater = ["dep:tauri-plugin-updater"]
 autostart = ["dep:tauri-plugin-autostart"]
-store = ["windows/ApplicationModel", "windows/Foundation", "dep:windows-future"]
+store = ["windows/ApplicationModel", "dep:windows-future"]
 
 
