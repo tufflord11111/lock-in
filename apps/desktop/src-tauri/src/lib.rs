@@ -313,6 +313,22 @@ fn own_tree_of(sys: &System) -> HashSet<u32> {
     own_process_tree(&processes, std::process::id())
 }
 
+/// End a process directly. sysinfo's own kill isn't used because on Windows it
+/// spawns a hidden `taskkill.exe /PID n /F` for each process, every time. This is the
+/// same forced end, with no extra process. Exit code 1, as taskkill /F gives.
+fn terminate_process(pid: u32) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) else {
+            return false;
+        };
+        let ended = TerminateProcess(handle, 1).is_ok();
+        let _ = CloseHandle(handle);
+        ended
+    }
+}
+
 /// The kill pass's whole decision for one process.
 fn may_kill(stem: &str, pid: u32, term: &str, protected: &[String], own_tree: &HashSet<u32>) -> bool {
     stem.contains(term) && !protected.iter().any(|p| p == stem) && !own_tree.contains(&pid)
@@ -468,7 +484,7 @@ fn kill_processes_matching(sys: &System, term: &str, protected: &[String]) -> Ve
         if !may_kill(stem, pid.as_u32(), term, protected, &own_tree) {
             continue;
         }
-        if process.kill() {
+        if terminate_process(pid.as_u32()) {
             killed.push(stem.to_string());
         }
     }
@@ -670,9 +686,7 @@ fn lockdown_runner(
                 lockdown::Action::ForceClose { browser } => {
                     if let Some(pids) = running.get(browser) {
                         for pid in pids {
-                            if let Some(process) = sys.process(sysinfo::Pid::from_u32(*pid)) {
-                                process.kill();
-                            }
+                            terminate_process(*pid);
                         }
                     }
                     println!("[Lockdown] closed {}", browser);
@@ -2511,7 +2525,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2650,11 +2664,29 @@ mod tests {
     }
 
     #[test]
+    fn terminate_process_really_ends_a_process() {
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        assert!(terminate_process(child.id()));
+        assert_eq!(child.wait().unwrap().code(), Some(1));
+    }
+
+    #[test]
+    fn terminate_process_reports_a_process_that_isnt_there() {
+        assert!(!terminate_process(0xFFFF_FFF0));
+    }
+
+    #[test]
     fn nothing_shells_out_to_these_any_more() {
         let src = include_str!("lib.rs");
         for name in ["powershell", "rundll32", "taskkill"] {
             assert!(!src.contains(&format!("Command::new(\"{}", name)), "{}", name);
         }
+        // sysinfo's kill spawns taskkill.exe on Windows.
+        assert!(!src.contains(&format!("process{}kill()", ".")));
     }
 
     /// A real .lnk on disk, written through the same COM interfaces.
