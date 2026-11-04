@@ -208,3 +208,12 @@ carry on.
     Micro, watch Lock-In in Task Manager's Details tab for 5 minutes each.
     - Nothing stays busy, the fan doesn't rise, and it matches this PC's numbers in the
       final report within reason.
+
+## Open question from testing
+
+40. **Focus after closing main.** Click into the main window, then click X so it hides
+    to the tray. Straight away, type something harmless, and watch what has focus.
+    - The window you were in before, or another normal window, gets focus. The bird
+      must not. If your typing goes nowhere until you click, the overlay took focus:
+      write that down. It showed up once in a measurement run on the desktop PC and
+      could not be reproduced there.
