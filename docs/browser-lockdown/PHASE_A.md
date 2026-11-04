@@ -8,11 +8,9 @@ even if it isn't Chrome, and closing is warned about first.
 Anything not checked on a real machine or against a source is marked
 **UNVERIFIED**.
 
-**Missing input:** the brief cites a "26 Oct web-blocking plan" for v2. Nothing
-under `C:\dev` mentions `URLBlocklist` or `WebsiteFilter`, and the only 26 Oct
-doc is the parrot design. §7 is written from what I know of those policies and is
-**UNVERIFIED** throughout. If that plan exists elsewhere, §7 should be redone
-against it.
+§7 (v2) has been re-checked against
+[WEB_BLOCKING_PLAN_26OCT.md](WEB_BLOCKING_PLAN_26OCT.md) and that plan's sources.
+Only §7 was re-checked; the UNVERIFIED marks elsewhere stand.
 
 ---
 
@@ -192,7 +190,7 @@ permission, and goes in the beat. Then:
 allows `chrome.exe`, and Profile B and Guest then browse free in the same process
 tree. `--profile-directory` is on the command line of some launches, but profile
 switching inside the browser leaves no reliable trace. **v1 can't close this. It
-says so plainly.** Only v2 can (§7).
+says so plainly.** v2 might, but that's still unconfirmed (§7).
 
 **Other holes:** unlisted browsers, renamed or portable exes, and another PC. All
 are accepted in v1.
@@ -213,40 +211,91 @@ are accepted in v1.
 **Gate button:** "Start and close other browsers", with the line "Browsers without
 Web Guard close after a 10 second warning. Unsaved typing in them is lost."
 
-## 7. How v2 replaces it (UNVERIFIED; see the note at the top)
+## 7. How v2 replaces it
 
-Browser policies block at the browser, in every profile, and need no extension:
+Checked on 3 Nov 2026 against [WEB_BLOCKING_PLAN_26OCT.md](WEB_BLOCKING_PLAN_26OCT.md)
+and the sources it lists. The plan describes itself as "docs say", not "tested", and
+so does this section: no mark means **documented**, not that it works on a laptop.
+**UNVERIFIED** means neither the plan's sources nor a check here support it.
 
-| Browser | Policy | Where |
-|---|---|---|
-| Chrome, Brave | `URLBlocklist` | `HKLM\SOFTWARE\Policies\Google\Chrome\URLBlocklist`; Brave has its own key |
-| Edge | `URLBlocklist` | `HKLM\SOFTWARE\Policies\Microsoft\Edge\URLBlocklist` |
-| Firefox | `WebsiteFilter` | `HKLM\SOFTWARE\Policies\Mozilla\Firefox\WebsiteFilter`, or `policies.json` |
-| Gaps | `IncognitoModeAvailability`, `BrowserGuestModeEnabled`, `BrowserAddProfileEnabled` | Same keys |
+Browser policies block at the browser and need no extension.
 
-What changes:
+### What the sources back
 
-- Incognito, other profiles and Guest stop being holes, because policy applies to
-  all of them.
-- Lockdown shrinks to browsers with no policy support, and the heartbeat stops
-  deciding who gets closed.
+| Claim | Basis |
+|---|---|
+| Edge: `SOFTWARE\Policies\Microsoft\Edge\URLBlocklist`, values `1, 2, 3…`, 1,000 entries, Windows 77+ | [Microsoft](https://learn.microsoft.com/en-us/deployedge/microsoft-edge-policies/urlblocklist), read directly |
+| Firefox: `Software\Policies\Mozilla\Firefox\WebsiteFilter\Block\1`, or `policies.json`, 1,000 entries, since 60 | [Mozilla](https://firefox-admin-docs.mozilla.org/reference/policies/websitefilter/), read directly |
+| Chrome: `Software\Policies\Google\Chrome\URLBlocklist`, values `1, 2, 3…`, 1,000 entries, Windows since 86, "Applied to browser without restart" | The plan's quotes of [Google's page](https://chromeenterprise.google/policies/#URLBlocklist). That page doesn't render for my fetch tool, so these are second-hand |
+| Most policies work on home PCs; only a few protected ones need a managed machine | [Eric Lawrence](https://textslashplain.com/2022/03/22/edge-chrome-policy-registry-entries), read directly |
+| Reload happens on restart, about every 15 min, Reload Policies, or a Group Policy notice. The registry watcher was backed out | Same page |
+| WebView2 isn't covered: "The vast majority of Edge policies do not apply to the WebView2 control" | Same page. Plan §6 draws the same conclusion for Discord and Electron |
 
-What it costs, and why this isn't simply v1:
+### What stays UNVERIFIED
 
-- **HKLM needs admin.** That means a UAC prompt or an elevated helper, which is a
-  big change for an app that installs per-user with no admin rights.
-- **A crash must not leave sites blocked for good.** Policies outlive the app. The
-  list needs removing on stand-down, on next launch, and on uninstall, including
-  after an End task. An FAQ promise depends on this.
-- **MSIX:** registry writes are virtualised, and HKLM policy from a Store app with a
-  helper is a much harder review. Likely NSIS only, which splits the product.
-- Browsers show "Managed by your organization" while a policy is set. The copy must
-  warn about that.
-- Whether Chrome honours these on non-domain-joined home PCs is to be confirmed.
+| Claim | Why |
+|---|---|
+| `URLBlocklist` specifically isn't one of the protected policies | The plan says so. The page I read only gives the general rule. Check `chrome://policy` on a home PC |
+| **Incognito, Guest and other profiles stop being holes** | The plan's table says "all profiles", but it quotes only "Applied at Chrome profile level", and its own spike step 3 still asks the question. No source I could read says it. **This is v2's main benefit, so it needs the spike before anything else** |
+| Brave, Vivaldi and other Chromium builds read these policies, and at which keys | The plan lists them, but none of its sources mention either browser |
+| `IncognitoModeAvailability`, `BrowserGuestModeEnabled` do what's needed | The plan names them. Their Google pages don't render for my tool, so only the first page's title is confirmed |
+| `BrowserAddProfileEnabled` | **Mine, not in the plan.** My guess at its URL returned 404 |
+| Chrome and Edge show "Managed by your organization" | Plan §6 states it, with no source |
+| Opera, Opera GX, Arc and Tor ignore policy | The plan says "no evidence". Its [Opera link](https://forums.opera.com/post/9759) is an undated feature request, which suggests no support but doesn't establish it. Arc and Tor have no source. Closing them is the safe assumption either way |
+| Firefox applies a change without a restart | Mozilla's page doesn't say. Spike step 6 |
+| MSIX can write these keys | Plan §6 says it "may" be virtualised, and spike step 9 is untested. My earlier "likely NSIS only" and "much harder review" had no source, so treat them as opinion |
 
-Migration: v1's exe table, gate button and toast carry over. The heartbeat stays
-for telling whether Web Guard is healthy. Lockdown's rule becomes "no policy
-support, so close".
+### Where the sources disagree with the plan or with this doc
+
+1. **"HKCU: no admin" looks wrong.** The plan's table says it, and none of its sources
+   do. On this PC, `HKCU\Software\Policies` grants the signed-in user `ReadKey` only;
+   `FullControl` is for Administrators and SYSTEM, and this session's Administrators
+   group is deny-only. So an unelevated Lock-In can't create these keys, and spike
+   step 1's PowerShell should fail unless run elevated. I read the access rules and
+   didn't attempt a write. It's one PC, on Windows 11 Home. If it holds, **every
+   policy route needs admin**, and the plan's no-admin version doesn't exist.
+2. **"Instant" isn't, for an open browser.** The plan's table says instant, but its §4
+   calls reload timing the risk. "Without restart" doesn't say when: the only
+   documented triggers are the ones above, so a running browser may take up to 15
+   minutes.
+   - At session start, the plan closes browsers once, which works around it.
+   - **At session end nothing does, and the plan doesn't cover this.** Sites could
+     stay blocked for up to 15 minutes after the session is over, which breaks "The
+     session ends when the timer does". Spike step 4 measures it. The Group Policy
+     notice may be the answer; nobody has tested it.
+3. **Edge may skip the profile most home users have.** Microsoft's page says "Applies to
+   a profile that is signed in with a Microsoft account: No". The plan quotes the two
+   rows above it and omits this one. What it means on an unmanaged PC is unclear, so it
+   goes in spike step 5.
+4. **In-page navigation.** Microsoft: the policy "doesn't prevent the page from updating
+   dynamically through JavaScript". A page already open can move to a blocked path
+   without a reload. Whole-domain entries, which is what Lock-In uses, make this
+   mostly harmless.
+
+### What v2 costs
+
+- **Admin.** HKLM needs it, and per point 1 above HKCU probably does too. That means a
+  UAC prompt or an elevated service, and the plan notes this breaks the Store's
+  "doesn't need admin rights" line.
+- **A crash must not leave sites blocked for good.** My requirement, not the plan's: its
+  step 5 only deletes the values at session end or when the fuse fires. Policies
+  outlive the app, so they also need removing on next launch and on uninstall,
+  including after End task. The FAQ's End task promise depends on this.
+- **A second block page.** Policy-blocked pages show the browser's own page. The plan
+  keeps the extension for a "nicer block page", no longer as the safety net.
+
+### Migration
+
+The plan's Web Shield maps onto v1 like this:
+
+- Its Layer 2 kill list is this doc's exe table (§3), and it needs the same exact-match
+  function. v1 work carries over.
+- Lockdown's rule becomes "no policy support, so close", and the heartbeat stops deciding
+  who gets closed. It stays for telling whether Web Guard is healthy.
+- New at Start: write the policy, then close browsers once so they read it.
+
+**Run the plan's spike (§7 there) before designing v2 further.** Steps 1, 3, 4 and 9
+decide whether it's viable. Add the Microsoft-account profile to step 5.
 
 ## 8. Tests (before Phase B ships)
 
@@ -282,7 +331,9 @@ support, so close".
 7. **Web Store listings.** Edge Add-ons has its own listing and extension id, and the
    origin check needs all of them. List on Edge, or rely on Edge's "allow extensions
    from other stores" setting?
-8. **v2:** is admin elevation and an NSIS/Store split acceptable? That decides whether
-   v2 happens at all. Also, please point me at the 26 Oct plan if it exists.
+8. **v2:** is admin elevation acceptable? On this PC even the HKCU policy key needs it
+   (§7), which contradicts the plan's "HKCU: no admin". That, the Store's "doesn't need
+   admin rights" line, and up to 15 minutes of blocking after a session ends decide
+   whether v2 happens at all. Recommendation: run the plan's spike first.
 
 **STOP. Phase A ends here.**
