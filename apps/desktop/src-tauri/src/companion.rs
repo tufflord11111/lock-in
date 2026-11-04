@@ -281,6 +281,13 @@ fn run(app: AppHandle) {
                 let _ = if show { window.show() } else { window.hide() };
                 shown = show;
             }
+            // "Show desktop" and the like minimise it too, and nothing else brings it back.
+            if shown && window.is_minimized().unwrap_or(false) {
+                let _ = window.unminimize();
+                if let Some(f) = fit {
+                    apply_fit(&window, f);
+                }
+            }
             let every = if world.session_active && !world.fullscreen { POLL_ASLEEP } else { POLL_AWAKE };
             next_poll = Instant::now() + every;
         }
