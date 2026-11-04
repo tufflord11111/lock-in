@@ -1,3 +1,4 @@
+mod companion;
 mod browsers;
 mod heartbeat;
 mod lockdown;
