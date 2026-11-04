@@ -10,7 +10,7 @@ Paste each block into the matching field.
 | Item | Lock-In Web Police (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
 | Version | 1.2.5 |
 | Zip | `apps/extension/lock-in-extension-v1.2.5.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
-| SHA256 | `A9F29E7A61892D8D217DC97773E15598651C83C113FED76836B58A75F58E3B6E` (110,463 bytes, 2026-11-03) |
+| SHA256 | `F0F6565B0024D2258FCD9FDF2A13C7B03B4D479AFD180169E85B38C52D7A6A23` (110,720 bytes, 2026-11-04) |
 | Permissions | `storage`, `webNavigation`, `alarms`, `declarativeNetRequestWithHostAccess` |
 | Host permissions | `<all_urls>` |
 

@@ -27,7 +27,7 @@
   <Identity
     Name="Lock-In.Lock-In"
     Publisher="CN=EC943FE9-9A95-4BE3-A697-7161B4850732"
-    Version="1.2.9.0"
+    Version="1.2.10.0"
     ProcessorArchitecture="x64" />
 
   <Properties>
