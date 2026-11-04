@@ -1907,6 +1907,11 @@ fn reject_pending_exe(app_state: State<AppState>) -> Result<String, String> {
     }
 }
 
+/// ShellExecuteW reports success as any value above 32.
+fn shell_execute_succeeded(code: isize) -> bool {
+    code > 32
+}
+
 /// Where Chrome installs, machine-wide then per-user, in the order to try.
 fn chrome_candidates(program_files: &[Option<PathBuf>], local_app_data: Option<PathBuf>) -> Vec<PathBuf> {
     let tail = ["Google", "Chrome", "Application", "chrome.exe"];
@@ -1936,12 +1941,24 @@ fn open_web_guard_store() -> Result<(), String> {
             .map_err(|e| e.to_string());
     }
     println!("[WebGuard] no chrome.exe found — opening the store page in the default browser");
-    std::process::Command::new("rundll32.exe")
-        .args(["url.dll,FileProtocolHandler", WEB_GUARD_STORE_URL])
-        .creation_flags(0x08000000)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    use windows::core::{w, HSTRING, PCWSTR};
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let code = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            &HSTRING::from(WEB_GUARD_STORE_URL),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if shell_execute_succeeded(code.0 as isize) {
+        Ok(())
+    } else {
+        Err(format!("Windows couldn't open the page (code {})", code.0 as isize))
+    }
 }
 
 /// True in the Microsoft Store (MSIX) build. The webview asks before touching
@@ -2445,7 +2462,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2553,6 +2570,14 @@ mod tests {
         assert!(targets_protected("ser", &system));
         assert!(targets_protected("explorer2", &system));
         assert!(!targets_protected("whatsapp", &system));
+    }
+
+    #[test]
+    fn shell_execute_reports_success_above_32() {
+        assert!(shell_execute_succeeded(33));
+        assert!(!shell_execute_succeeded(32));
+        assert!(!shell_execute_succeeded(2)); // file not found
+        assert!(!shell_execute_succeeded(0));
     }
 
     #[test]
