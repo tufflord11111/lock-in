@@ -9,9 +9,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use tauri::menu::CheckMenuItem;
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder,
+    WebviewWindow, WebviewWindowBuilder, Wry,
 };
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
@@ -226,6 +227,33 @@ struct Shared {
 pub struct CompanionState {
     shared: Mutex<Shared>,
     wake: Condvar,
+    tray_item: Mutex<Option<CheckMenuItem<Wry>>>,
+}
+
+pub const TRAY_ITEM_ID: &str = "parrot";
+
+/// The tray's "Show parrot". Ticked only while the bird exists.
+pub fn tray_item(app: &AppHandle) -> tauri::Result<CheckMenuItem<Wry>> {
+    let item = CheckMenuItem::with_id(app, TRAY_ITEM_ID, "Show parrot", true, false, None::<&str>)?;
+    let state = app.state::<CompanionState>();
+    *state.tray_item.lock().unwrap_or_else(|e| e.into_inner()) = Some(item.clone());
+    Ok(item)
+}
+
+/// The tray flips the account's setting, as the Block Registry toggle does. Main owns
+/// that write and works while hidden; it answers through companion_set_enabled, which
+/// sets the tick. The bird's existence decides, so a tick that Windows flipped on the
+/// click can't send the wrong answer.
+pub fn tray_item_clicked(app: &AppHandle) {
+    let enabled = app.get_webview_window(LABEL).is_none();
+    let _ = app.emit_to("main", "companion:tray-toggle", enabled);
+}
+
+fn sync_tray_item(state: &CompanionState, enabled: bool) {
+    let item = state.tray_item.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(item) = item {
+        let _ = item.set_checked(enabled);
+    }
 }
 
 fn primary_fit(app: &AppHandle) -> Option<Fit> {
@@ -384,6 +412,7 @@ pub fn start(app: &AppHandle) {
 pub async fn companion_set_enabled(enabled: bool, app: AppHandle, state: State<'_, CompanionState>) -> Result<(), String> {
     let exists = app.get_webview_window(LABEL);
     if enabled == exists.is_some() {
+        sync_tray_item(&state, enabled);
         return Ok(());
     }
     if enabled {
@@ -397,6 +426,7 @@ pub async fn companion_set_enabled(enabled: bool, app: AppHandle, state: State<'
             window.destroy().map_err(|e| e.to_string())?;
         }
     }
+    sync_tray_item(&state, enabled);
     Ok(())
 }
 

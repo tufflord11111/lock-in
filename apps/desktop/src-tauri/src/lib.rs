@@ -2301,7 +2301,8 @@ pub fn run() {
             // Driven from Rust only, so no capability is needed for it.
             let open_item = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+            let parrot_item = companion::tray_item(&handle)?;
+            let tray_menu = Menu::with_items(app, &[&open_item, &parrot_item, &quit_item])?;
             let mut tray = TrayIconBuilder::with_id("main")
                 .tooltip("Lock-In")
                 .menu(&tray_menu)
@@ -2309,6 +2310,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id().as_ref() {
                     "open" => show_main_window(app),
                     "quit" => tray_quit(app),
+                    companion::TRAY_ITEM_ID => companion::tray_item_clicked(app),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {

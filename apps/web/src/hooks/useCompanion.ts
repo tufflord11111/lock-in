@@ -54,6 +54,17 @@ export function useCompanionSettings(uid: string | undefined) {
       listen("companion:hide", () => {
         if (latestUid.current) void writeCompanionSettings(latestUid.current, { enabled: false });
       }),
+      // The tray's Show parrot. Signed out there is no bird to show, so the tick goes back.
+      listen<boolean>("companion:tray-toggle", (e) => {
+        const settle = (enabled: boolean) => void invoke("companion_set_enabled", { enabled }).catch(() => {});
+        const uid = latestUid.current;
+        if (!uid) {
+          settle(false);
+          return;
+        }
+        // The account's answer applies the change. This covers a write that changed nothing.
+        void writeCompanionSettings(uid, { enabled: e.payload }).then(() => settle(current.current.enabled));
+      }),
     ];
     return () => {
       for (const stop of stops) void stop.then((off) => off());
