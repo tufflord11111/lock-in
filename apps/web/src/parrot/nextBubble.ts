@@ -95,16 +95,30 @@ export function nextBubble(now: number, settings: Settings | null, memory: Memor
   return { kind: "nudge", text: line, actions: ["start25", "notNow", "quiet1h"] };
 }
 
+/** Slack around the planned end: the dashboard's countdown and the enforcer's clock differ a little. */
+export const FINISHED_SLACK_MS = 5_000;
+
+/**
+ * Whether a session ran its full length. At a natural end the dashboard's own
+ * countdown usually stops the enforcer before its deadline check does, and that
+ * arrives as session-ended-local, the same reason as any other local stop. So
+ * the planned end decides.
+ */
+export function finishedOnTime(reason: string, plannedEndAt: number | null, endedAt: number): boolean {
+  if (reason === "deadline-expired") return true;
+  return reason === "session-ended-local" && plannedEndAt !== null && endedAt >= plannedEndAt - FINISHED_SLACK_MS;
+}
+
 /** The line when a session ends. Same limits as any other unprompted bubble. */
 export function sessionEndBubble(
   now: number,
-  reason: string,
+  finished: boolean,
   settings: Settings | null,
   memory: Memory,
   world: World,
 ): Bubble | null {
   if (!maySpeak(now, settings, memory, world)) return null;
-  return reason === "deadline-expired"
+  return finished
     ? { kind: "sessionDone", text: SESSION_DONE_LINE, actions: ["quiet1h"] }
     : { kind: "sessionOver", text: SESSION_OVER_LINE, actions: ["quiet1h"] };
 }

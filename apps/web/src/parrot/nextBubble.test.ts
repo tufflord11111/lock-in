@@ -6,6 +6,7 @@ import {
   HOUR,
   MINUTE,
   USER_IDLE_MS,
+  finishedOnTime,
   inQuietHours,
   nextBubble,
   nextQuietEnd,
@@ -75,18 +76,31 @@ describe("sessions", () => {
   });
 
   it("no session-end line if another session is already running", () => {
-    expect(sessionEndBubble(NOON, "deadline-expired", DEFAULT_SETTINGS, memory(), { ...AWAKE, sessionActive: true })).toBeNull();
+    expect(sessionEndBubble(NOON, true, DEFAULT_SETTINGS, memory(), { ...AWAKE, sessionActive: true })).toBeNull();
   });
 
   it("says the session-end line, happy only for a finished session", () => {
-    expect(sessionEndBubble(NOON, "deadline-expired", DEFAULT_SETTINGS, memory(), AWAKE)?.text).toBe(SESSION_DONE_LINE);
-    for (const reason of ["bailout-expired", "session-ended-local", "session-ended-remote"]) {
-      expect(sessionEndBubble(NOON, reason, DEFAULT_SETTINGS, memory(), AWAKE)?.text).toBe(SESSION_OVER_LINE);
+    expect(sessionEndBubble(NOON, true, DEFAULT_SETTINGS, memory(), AWAKE)?.text).toBe(SESSION_DONE_LINE);
+    expect(sessionEndBubble(NOON, false, DEFAULT_SETTINGS, memory(), AWAKE)?.text).toBe(SESSION_OVER_LINE);
+  });
+
+  it("a session that ran its length counts as finished, whichever clock stopped it", () => {
+    expect(finishedOnTime("deadline-expired", NOON, NOON)).toBe(true);
+    expect(finishedOnTime("deadline-expired", null, NOON)).toBe(true);
+    expect(finishedOnTime("session-ended-local", NOON, NOON)).toBe(true);
+    expect(finishedOnTime("session-ended-local", NOON, NOON - 4_000)).toBe(true);
+  });
+
+  it("stopping early, a bail-out or another device is not finishing", () => {
+    expect(finishedOnTime("session-ended-local", NOON, NOON - 6 * MINUTE)).toBe(false);
+    expect(finishedOnTime("session-ended-local", null, NOON)).toBe(false);
+    for (const reason of ["bailout-expired", "session-ended-remote", "clear-all-blocks", "restored-expired"]) {
+      expect(finishedOnTime(reason, NOON, NOON + MINUTE)).toBe(false);
     }
   });
 
   it("the session-end line obeys the same limit and quiet", () => {
-    const end = (m: Memory, now = NOON) => sessionEndBubble(now, "deadline-expired", DEFAULT_SETTINGS, m, AWAKE);
+    const end = (m: Memory, now = NOON) => sessionEndBubble(now, true, DEFAULT_SETTINGS, m, AWAKE);
     expect(end(memory({ lastBubbleAt: NOON - 10 * MINUTE }))).toBeNull();
     expect(end(memory({ quietUntil: NOON + 1 }))).toBeNull();
     expect(end(memory(), at(23))).toBeNull();
@@ -217,8 +231,8 @@ describe("what it says", () => {
     const bubbles = [
       next(),
       next(NOON, memory({ helloShown: false })),
-      sessionEndBubble(NOON, "deadline-expired", DEFAULT_SETTINGS, memory(), AWAKE),
-      sessionEndBubble(NOON, "bailout-expired", DEFAULT_SETTINGS, memory(), AWAKE),
+      sessionEndBubble(NOON, true, DEFAULT_SETTINGS, memory(), AWAKE),
+      sessionEndBubble(NOON, false, DEFAULT_SETTINGS, memory(), AWAKE),
       openAppBubble(),
     ];
     for (const b of bubbles) expect(b?.actions).toContain("quiet1h");

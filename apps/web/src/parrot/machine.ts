@@ -33,7 +33,7 @@ export type BirdEvent =
   | { type: "tick" }
   | { type: "resize"; width: number }
   | { type: "session"; active: boolean }
-  | { type: "stoodDown"; reason: string }
+  | { type: "stoodDown"; finished: boolean }
   | { type: "hidden"; hidden: boolean }
   | { type: "reducedMotion"; reduced: boolean }
   | { type: "talkStart" }
@@ -158,7 +158,7 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
         ? { ...s, sessionActive: false, mode: "wake", enteredAt: now }
         : { ...s, sessionActive: false };
     case "stoodDown": {
-      const happyAfterWake = event.reason === "deadline-expired";
+      const happyAfterWake = event.finished;
       if (s.mode === "sleep") return { ...s, sessionActive: false, mode: "wake", enteredAt: now, happyAfterWake };
       // The poll may have woken the bird a moment before this event arrived.
       if (s.mode === "wake") return { ...s, sessionActive: false, happyAfterWake };

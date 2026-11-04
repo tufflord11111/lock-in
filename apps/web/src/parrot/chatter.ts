@@ -57,7 +57,7 @@ const ACTION_LABEL: Record<BubbleAction, string> = {
 export type Chatter = {
   setSettings: (settings: Settings) => void;
   setWorld: (world: World) => void;
-  sessionEnded: (reason: string, timestamp: number) => void;
+  sessionEnded: (finished: boolean, timestamp: number) => void;
   startRefused: () => void;
   toggleMenu: (trigger: string) => void;
   rects: () => DOMRect[];
@@ -167,13 +167,13 @@ export function createChatter(bird: Bird): Chatter {
       world = next;
       if (next.sessionActive || next.hidden) closeCard();
     },
-    sessionEnded(reason, timestamp) {
+    sessionEnded(finished, timestamp) {
       memory.lastSessionEndAt = timestamp;
       remember("lastSessionEndAt", timestamp);
       world = { ...world, sessionActive: false };
       window.setTimeout(() => {
         if (card) return;
-        const bubble = sessionEndBubble(Date.now(), reason, settings, memory, world);
+        const bubble = sessionEndBubble(Date.now(), finished, settings, memory, world);
         if (bubble) show(bubble);
       }, AFTER_WAKE_MS);
     },

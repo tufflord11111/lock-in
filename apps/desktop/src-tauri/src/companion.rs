@@ -153,6 +153,8 @@ fn overlay_fit(work: Fit, monitor: Fit) -> Fit {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub struct World {
     session_active: bool,
+    /// When the running session is due to end, to tell finishing from stopping early.
+    session_end_at: Option<u64>,
     fullscreen: bool,
     user_idle: bool,
 }
@@ -222,10 +224,10 @@ fn build_overlay(app: &AppHandle) -> tauri::Result<()> {
 
 /// Reads the session from the enforcer's profile. Never blocks it: if the lock
 /// is busy, this poll keeps what it last saw.
-fn session_active(app: &AppHandle, previous: bool) -> bool {
+fn session_read(app: &AppHandle, previous: World) -> (bool, Option<u64>) {
     app.try_state::<crate::AppState>()
-        .and_then(|s| s.profile.try_lock().ok().map(|p| p.armed()))
-        .unwrap_or(previous)
+        .and_then(|s| s.profile.try_lock().ok().map(|p| (p.armed(), p.session_end_time)))
+        .unwrap_or((previous.session_active, previous.session_end_at))
 }
 
 fn run(app: AppHandle) {
@@ -266,8 +268,10 @@ fn run(app: AppHandle) {
             // doesn't flicker it.
             let over_fullscreen = foreground_is_fullscreen();
             clear_polls = if over_fullscreen { 0 } else { clear_polls.saturating_add(1) };
+            let (session_active, session_end_at) = session_read(&app, previous);
             let world = World {
-                session_active: session_active(&app, previous.session_active),
+                session_active,
+                session_end_at,
                 fullscreen: over_fullscreen || (previous.fullscreen && clear_polls < 2),
                 user_idle: user_idle_ms() > USER_IDLE_AFTER_MS,
             };
@@ -396,7 +400,8 @@ pub fn companion_log_menu(trigger: String, app: AppHandle) -> Result<(), String>
 #[tauri::command]
 pub fn companion_state(app: AppHandle, state: State<'_, CompanionState>) -> Result<World, String> {
     let world = state.shared.lock().map_err(|e| e.to_string())?.world;
-    Ok(World { session_active: session_active(&app, world.session_active), ..world })
+    let (session_active, session_end_at) = session_read(&app, world);
+    Ok(World { session_active, session_end_at, ..world })
 }
 
 #[cfg(test)]
@@ -458,8 +463,9 @@ mod tests {
 
     #[test]
     fn the_world_the_page_sees_carries_no_names() {
-        let json = serde_json::to_value(World::default()).unwrap();
-        assert!(json.as_object().unwrap().values().all(|v| v.is_boolean()));
+        let world = World { session_end_at: Some(5), ..World::default() };
+        let json = serde_json::to_value(world).unwrap();
+        assert!(json.as_object().unwrap().values().all(|v| v.is_boolean() || v.is_number()));
     }
 
     const MONITOR: ScreenRect = ScreenRect { left: 0, top: 0, right: 1920, bottom: 1080 };

@@ -87,7 +87,7 @@ describe("sessions", () => {
 
   it("wakes happy when a session ran to its end", () => {
     let s = go(start(), { type: "session", active: true });
-    s = go(s, { type: "stoodDown", reason: "deadline-expired" });
+    s = go(s, { type: "stoodDown", finished: true });
     expect(s.mode).toBe("wake");
     s = tick(s, T0 + 500);
     expect(s.mode).toBe("happy");
@@ -96,25 +96,23 @@ describe("sessions", () => {
   });
 
   it("wakes without the celebration on any other ending", () => {
-    for (const reason of ["bailout-expired", "session-ended-local", "session-ended-remote", "clear-all-blocks"]) {
-      let s = go(start(), { type: "session", active: true });
-      s = go(s, { type: "stoodDown", reason });
-      expect(s.mode).toBe("wake");
-      s = tick(s, T0 + 500);
-      expect(s.mode).toBe("idle");
-    }
+    let s = go(start(), { type: "session", active: true });
+    s = go(s, { type: "stoodDown", finished: false });
+    expect(s.mode).toBe("wake");
+    s = tick(s, T0 + 500);
+    expect(s.mode).toBe("idle");
   });
 
   it("is still happy if the poll woke it just before the event", () => {
     let s = go(start(), { type: "session", active: true });
     s = go(s, { type: "session", active: false });
-    s = go(s, { type: "stoodDown", reason: "deadline-expired" });
+    s = go(s, { type: "stoodDown", finished: true });
     expect(tick(s, T0 + 500).mode).toBe("happy");
   });
 
   it("goes back to sleep if a new session starts while it wakes", () => {
     let s = go(start(), { type: "session", active: true });
-    s = go(s, { type: "stoodDown", reason: "deadline-expired" });
+    s = go(s, { type: "stoodDown", finished: true });
     s = go(s, { type: "session", active: true });
     expect(s.mode).toBe("sleep");
   });

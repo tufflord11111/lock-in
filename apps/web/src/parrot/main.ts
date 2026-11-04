@@ -5,10 +5,15 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { createBird } from "./bird";
 import { createChatter, type Chatter } from "./chatter";
-import type { Settings } from "./nextBubble";
+import { finishedOnTime, type Settings } from "./nextBubble";
 
-/** Mirrors companion.rs's World. Booleans only: no process or app names. */
-type NativeWorld = { session_active: boolean; fullscreen: boolean; user_idle: boolean };
+/** Mirrors companion.rs's World. No process or app names. */
+type NativeWorld = {
+  session_active: boolean;
+  session_end_at: number | null;
+  fullscreen: boolean;
+  user_idle: boolean;
+};
 
 const BACKSTOP_MS = 60_000;
 
@@ -29,7 +34,10 @@ async function boot() {
   chatter = createChatter(bird);
   const talk = chatter;
 
+  // Kept after the session ends, which is when it is needed.
+  let plannedEndAt: number | null = null;
   const applyWorld = (world: NativeWorld) => {
+    if (world.session_end_at !== null) plannedEndAt = world.session_end_at;
     bird.dispatch({ type: "session", active: world.session_active });
     bird.dispatch({ type: "hidden", hidden: world.fullscreen });
     talk.setWorld({ sessionActive: world.session_active, hidden: world.fullscreen, userIdle: world.user_idle });
@@ -38,8 +46,10 @@ async function boot() {
 
   await listen<NativeWorld>("parrot-world", (e) => applyWorld(e.payload));
   await listen<{ reason: string; timestamp: number }>("enforcer-stood-down", (e) => {
-    bird.dispatch({ type: "stoodDown", reason: e.payload.reason });
-    talk.sessionEnded(e.payload.reason, e.payload.timestamp);
+    const finished = finishedOnTime(e.payload.reason, plannedEndAt, e.payload.timestamp);
+    plannedEndAt = null;
+    bird.dispatch({ type: "stoodDown", finished });
+    talk.sessionEnded(finished, e.payload.timestamp);
   });
   await listen<Settings>("companion:settings", (e) => talk.setSettings(e.payload));
   await listen("companion:start-refused", () => talk.startRefused());
