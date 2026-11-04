@@ -198,8 +198,12 @@ function AppInner() {
     const unlisten = listen<{ reason: string }>("quit-refused", (event) => {
       reportWriteFailure(event.payload.reason, undefined, "info");
     });
+    const unlistenLockdown = listen<{ message: string }>("lockdown-warning", (event) => {
+      reportWriteFailure(event.payload.message, undefined, "info");
+    });
     return () => {
       unlisten.then((f) => f()).catch(() => {});
+      unlistenLockdown.then((f) => f()).catch(() => {});
     };
   }, []);
   // Ctrl+Shift+T cycles themes so every screen can be checked quickly.

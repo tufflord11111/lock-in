@@ -1,5 +1,6 @@
 mod browsers;
 mod heartbeat;
+mod lockdown;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -15,7 +16,7 @@ use tauri_plugin_autostart::ManagerExt;
 #[cfg(all(feature = "store", any(feature = "updater", feature = "autostart")))]
 compile_error!("feature \"store\" requires --no-default-features (no updater, no autostart plugin)");
 use serde::{Serialize, Deserialize};
-use sysinfo::{ProcessRefreshKind, System};
+use sysinfo::{ProcessRefreshKind, System, UpdateKind};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread;
 use std::path::PathBuf;
@@ -112,6 +113,9 @@ struct LockProfile {
     session_objective: Option<String>,
     #[serde(default)]
     session_uid: Option<String>,
+    /// The operator chose "Start and close other browsers" for this session.
+    #[serde(default)]
+    browser_lockdown: bool,
     /// Finished sessions whose history entry hasn't reached Firebase. Only the
     /// signed-in webview can write it, so what's owed outlives the process and
     /// waits here until the webview confirms the write.
@@ -160,7 +164,8 @@ impl LockProfile {
         self.last_clock_check = Some(now);
     }
 
-    fn start_session(&mut self, now: u64, end_time: Option<u64>, objective: Option<String>, uid: Option<String>) {
+    fn start_session(&mut self, now: u64, end_time: Option<u64>, objective: Option<String>, uid: Option<String>, browser_lockdown: bool) {
+        self.browser_lockdown = browser_lockdown;
         self.session_end_time = end_time;
         self.session_awake_ms = 0;
         self.session_objective = objective;
@@ -193,6 +198,7 @@ impl LockProfile {
         self.session_end_time = None;
         self.bailout_deadline = None;
         self.session_awake_ms = 0;
+        self.browser_lockdown = false;
     }
 
     fn ack_record(&mut self, ended_at: u64) -> bool {
@@ -469,6 +475,109 @@ fn build_label() -> String {
     format!("{} ({})", env!("CARGO_PKG_VERSION"), kind)
 }
 
+/// Every running process that is a known browser, by browser id.
+fn running_browsers(sys: &mut System) -> std::collections::HashMap<&'static str, Vec<u32>> {
+    sys.refresh_processes_specifics(ProcessRefreshKind::new().with_exe(UpdateKind::OnlyIfNotSet));
+    let mut found: std::collections::HashMap<&'static str, Vec<u32>> = std::collections::HashMap::new();
+    for (pid, process) in sys.processes() {
+        let name = process.name().to_lowercase();
+        let stem = name.strip_suffix(".exe").unwrap_or(&name);
+        let path = process.exe().map(|p| p.to_string_lossy().to_lowercase());
+        if let Some(id) = browsers::identify(stem, path.as_deref()) {
+            found.entry(id).or_default().push(pid.as_u32());
+        }
+    }
+    found
+}
+
+/// WM_CLOSE to these processes' top-level windows, the way the X button asks.
+fn post_close_to_windows(pids: &[u32]) {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE,
+    };
+    unsafe extern "system" fn close_if_ours(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let pids = unsafe { &*(lparam.0 as *const Vec<u32>) };
+        let mut pid = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            if pids.contains(&pid) && IsWindowVisible(hwnd).as_bool() {
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+            }
+        }
+        BOOL(1)
+    }
+    let pids = pids.to_vec();
+    unsafe {
+        let _ = EnumWindows(Some(close_if_ours), LPARAM(&pids as *const Vec<u32> as isize));
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct LockdownWarningPayload {
+    message: String,
+}
+
+/// Run lockdown for as long as the app runs. Only looks at processes during a
+/// session that uses it, so the rest of the time this is one lock a second.
+fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beats: Arc<heartbeat::BeatStore>) {
+    let mut sys = System::new();
+    let mut tracker = lockdown::Tracker::default();
+    let mut session_key = None;
+    loop {
+        thread::sleep(std::time::Duration::from_secs(1));
+        let (active, end, uid) = match profile.lock() {
+            Ok(p) => (p.focus_active && p.browser_lockdown, p.session_end_time, p.session_uid.clone()),
+            Err(_) => continue,
+        };
+        if session_key != end || !active {
+            tracker.reset();
+            session_key = end;
+        }
+        if !active {
+            continue;
+        }
+        let running = running_browsers(&mut sys);
+        let ids: Vec<&'static str> = running.keys().copied().collect();
+        let last_beat = |b: &str| beats.latest(b, uid.as_deref()).map(|beat| beat.at);
+        let tick = lockdown::Tick {
+            now: now_millis(),
+            running: &ids,
+            last_beat: &last_beat,
+            fresh_ms: heartbeat::FRESH_MS,
+        };
+        for action in tracker.tick(&tick) {
+            match action {
+                lockdown::Action::Warn { browser } => {
+                    let message = format!(
+                        "Closing {name} in 10 seconds. Save anything you've typed. Lock-In can't block sites in it during this session.",
+                        name = browsers::name_of(browser)
+                    );
+                    log_ui_event(&app, "lockdown-warned");
+                    let _ = app.emit("lockdown-warning", LockdownWarningPayload { message });
+                }
+                lockdown::Action::SoftClose { browser } => {
+                    if let Some(pids) = running.get(browser) {
+                        post_close_to_windows(pids);
+                    }
+                }
+                lockdown::Action::ForceClose { browser } => {
+                    if let Some(pids) = running.get(browser) {
+                        for pid in pids {
+                            if let Some(process) = sys.process(sysinfo::Pid::from_u32(*pid)) {
+                                process.kill();
+                            }
+                        }
+                    }
+                    println!("[Lockdown] closed {}", browser);
+                    log_ui_event(&app, "lockdown-closed");
+                }
+            }
+        }
+    }
+}
+
 /// Epoch milliseconds, monotonic enough for a wall-clock session deadline.
 fn now_millis() -> u64 {
     SystemTime::now()
@@ -524,6 +633,7 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     // A clear is a stand-down too. A fuse left behind would void the next
     // session on its first tick. bailout_used_date stays: one per day.
     profile.bailout_deadline = None;
+    profile.browser_lockdown = false;
     profile.disarm_latch = true;
     (cleared_session, cleared_permanent)
 }
@@ -859,6 +969,7 @@ fn update_enforcement(
     from_remote: Option<bool>,
     objective: Option<String>,
     uid: Option<String>,
+    lockdown: Option<bool>,
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
@@ -917,7 +1028,7 @@ fn update_enforcement(
                 // do nothing. The passed `blocked_list` is ignored for arming.
                 profile.exe_blacklist = profile.exe_approved.clone();
                 // Deadline so a session persisted across a restart still ends.
-                profile.start_session(now, end_time, objective, uid);
+                profile.start_session(now, end_time, objective, uid, lockdown.unwrap_or(false));
                 println!(
                     "🔒 ENFORCER ARMED: Active = {}, remote = {}, approved targets = {:?}, end_time = {:?}",
                     is_active, remote, profile.exe_blacklist, end_time
@@ -1343,6 +1454,8 @@ const UI_EVENTS: &[&str] = &[
     "autostart-set",
     "autostart-error",
     "start-apps-only",
+    "lockdown-warned",
+    "lockdown-closed",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
@@ -1795,6 +1908,7 @@ pub fn run() {
         session_awake_ms: 0,
         session_objective: None,
         session_uid: None,
+        browser_lockdown: false,
         pending_records: Vec::new(),
         last_clock_check: None,
     }));
@@ -1875,9 +1989,13 @@ pub fn run() {
                 state_path: state_path.clone(),
                 persist_error,
                 other_install: detect_other_install(),
-                beats,
+                beats: Arc::clone(&beats),
                 heartbeat_listening,
             });
+
+            let lockdown_app = handle.clone();
+            let lockdown_profile = Arc::clone(&profile_for_setup);
+            thread::spawn(move || lockdown_runner(lockdown_app, lockdown_profile, beats));
 
             // ── Tray ───────────────────────────────────────────────────────
             // Driven from Rust only, so no capability is needed for it.
@@ -2195,7 +2313,7 @@ mod tests {
     fn started(end: u64) -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
         p.focus_active = true;
-        p.start_session(0, Some(end), Some("Write".to_string()), Some("uid1".to_string()));
+        p.start_session(0, Some(end), Some("Write".to_string()), Some("uid1".to_string()), false);
         p
     }
 
