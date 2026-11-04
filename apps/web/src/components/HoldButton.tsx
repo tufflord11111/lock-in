@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * A button that only fires after it has been held down.
  *
  * Used where a single click would be too cheap for what it does: starting a
- * long session you cannot stop, and bailing out of one. The fill is the whole
+ * long session that only Bail out can end early, and bailing out of one. The fill is the whole
  * affordance — it tells you the hold is working and how much longer to wait.
  *
  * Keyboard reaches it too: Space or Enter held down fills at the same rate, so

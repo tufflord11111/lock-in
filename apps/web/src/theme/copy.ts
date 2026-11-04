@@ -543,7 +543,7 @@ const SAFETY = {
   "bailout.countingSub": "Blocking continues until then. This can't be cancelled.",
   "bailout.usedToday": "You've already bailed out today.",
   "bailout.voidNotice": "Session voided — bailed out. No minutes recorded.",
-  "hold.warning": "You can't stop this early. Bail-out voids the whole session.",
+  "hold.warning": "Bail out ends it early, but voids the whole session.",
   "hold.instruction": "Hold to start",
 } as const;
 
