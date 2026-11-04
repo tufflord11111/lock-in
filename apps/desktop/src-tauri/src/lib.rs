@@ -265,11 +265,59 @@ fn own_process_stem() -> Option<String> {
     (!safe.is_empty()).then_some(safe)
 }
 
-/// PROTECTED_PROCESSES plus this binary's own process name.
+/// Lock-In's own window is this process, as are Teams' and Outlook's. Never killed.
+/// It isn't in PROTECTED_PROCESSES because that check runs both ways, and "msedge"
+/// must stay blockable: it closes Edge and now passes over this.
+const WEBVIEW_PROCESS: &str = "msedgewebview2";
+
+/// PROTECTED_PROCESSES, the webview, and this binary's own process name.
 fn protected_process_names() -> Vec<String> {
     let mut list: Vec<String> = PROTECTED_PROCESSES.iter().map(|s| s.to_string()).collect();
+    list.push(WEBVIEW_PROCESS.to_string());
     list.extend(own_process_stem());
     list
+}
+
+/// True when the only thing a term could match is the webview ("webview", "view2"),
+/// so it would block nothing and should say so. "msedge" and "edge" also match Edge.
+fn targets_only_webview(term: &str) -> bool {
+    WEBVIEW_PROCESS.contains(term) && !"msedge".contains(term)
+}
+
+/// Every process Lock-In started, directly or not, from (pid, parent, is a browser).
+/// A browser ends the walk: "Install Web Guard" starts Chrome, and that Chrome is
+/// the user's, so it must not become unblockable.
+fn own_process_tree(processes: &[(u32, Option<u32>, bool)], root: u32) -> HashSet<u32> {
+    let mut tree = HashSet::from([root]);
+    loop {
+        let before = tree.len();
+        for (pid, parent, is_browser) in processes {
+            if !is_browser && parent.map_or(false, |p| tree.contains(&p)) {
+                tree.insert(*pid);
+            }
+        }
+        if tree.len() == before {
+            return tree;
+        }
+    }
+}
+
+fn own_tree_of(sys: &System) -> HashSet<u32> {
+    let processes: Vec<(u32, Option<u32>, bool)> = sys
+        .processes()
+        .iter()
+        .map(|(pid, p)| {
+            let name = p.name().to_lowercase();
+            let stem = name.strip_suffix(".exe").unwrap_or(&name);
+            (pid.as_u32(), p.parent().map(|x| x.as_u32()), browsers::identify(stem, None).is_some())
+        })
+        .collect();
+    own_process_tree(&processes, std::process::id())
+}
+
+/// The kill pass's whole decision for one process.
+fn may_kill(stem: &str, pid: u32, term: &str, protected: &[String], own_tree: &HashSet<u32>) -> bool {
+    stem.contains(term) && !protected.iter().any(|p| p == stem) && !own_tree.contains(&pid)
 }
 
 /// True when a block term would match this binary's own process.
@@ -335,6 +383,7 @@ fn analyze_block_entry(raw: &str) -> Result<(String, bool), String> {
     }
     let system: Vec<String> = PROTECTED_PROCESSES.iter().map(|s| s.to_string()).collect();
     if targets_protected(&clean, &system)
+        || targets_only_webview(&clean)
         || own_process_stem().map_or(false, |own| targets_own_process(&clean, &own))
     {
         return Err(
@@ -414,14 +463,11 @@ fn classify_block_entry(raw: String) -> BlockEntryVerdict {
 /// Caller must refresh `sys` first. Returns the names actually terminated.
 fn kill_processes_matching(sys: &System, term: &str, protected: &[String]) -> Vec<String> {
     let mut killed = Vec::new();
-    for process in sys.processes().values() {
+    let own_tree = own_tree_of(sys);
+    for (pid, process) in sys.processes() {
         let lowered = process.name().to_lowercase();
         let stem = lowered.strip_suffix(".exe").unwrap_or(&lowered);
-        if !stem.contains(term) {
-            continue;
-        }
-        if protected.iter().any(|p| p == stem) {
-            println!("[Guard] skipped protected process '{}'", stem);
+        if !may_kill(stem, pid.as_u32(), term, protected, &own_tree) {
             continue;
         }
         if process.kill() {
@@ -2399,7 +2445,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, awake_in_gap, chrome_candidates, close_hides, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2439,6 +2485,52 @@ mod tests {
                 assert!(granted.iter().any(|p| p == &permission.as_str()), "{} missing", permission);
             }
         }
+    }
+
+    #[test]
+    fn a_term_never_kills_the_webview_but_still_kills_edge() {
+        let protected = vec!["msedgewebview2".to_string(), "app".to_string()];
+        let none = std::collections::HashSet::new();
+        assert!(may_kill("msedge", 10, "msedge", &protected, &none));
+        assert!(!may_kill("msedgewebview2", 11, "msedge", &protected, &none));
+        assert!(!may_kill("msedgewebview2", 11, "edge", &protected, &none));
+        assert!(!may_kill("app", 12, "app", &protected, &none));
+        assert!(may_kill("whatsapp", 13, "whatsapp", &protected, &none));
+        assert!(!may_kill("notepad", 14, "discord", &protected, &none));
+    }
+
+    #[test]
+    fn terms_that_could_only_hit_the_webview_are_refused() {
+        for term in ["webview", "webview2", "msedgewebview2", "view2"] {
+            assert!(targets_only_webview(term), "{}", term);
+        }
+        for term in ["msedge", "edge", "discord"] {
+            assert!(!targets_only_webview(term), "{}", term);
+        }
+    }
+
+    #[test]
+    fn nothing_in_lock_ins_own_tree_is_killed() {
+        let processes = [
+            (100, Some(1), false),   // app.exe, us
+            (101, Some(100), false), // a webview
+            (102, Some(101), false), // its helper
+            (200, Some(1), false),   // someone else's
+            (201, Some(200), false),
+        ];
+        let tree = own_process_tree(&processes, 100);
+        assert_eq!(tree, std::collections::HashSet::from([100, 101, 102]));
+        let protected = vec![];
+        assert!(!may_kill("somehelper", 102, "helper", &protected, &tree));
+        assert!(may_kill("somehelper", 201, "helper", &protected, &tree));
+    }
+
+    #[test]
+    fn a_browser_we_opened_is_not_in_our_tree() {
+        // "Install Web Guard" starts Chrome: blocking it must still work.
+        let processes = [(100, Some(1), false), (300, Some(100), true), (301, Some(300), true)];
+        let tree = own_process_tree(&processes, 100);
+        assert_eq!(tree, std::collections::HashSet::from([100]));
     }
 
     #[test]

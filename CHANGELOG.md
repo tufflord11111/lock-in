@@ -6,6 +6,7 @@
 - It isn't airtight, and we'd rather say so. A browser Lock-In doesn't know about stays open, a second Chrome profile or a Guest window without Web Guard isn't blocked, and Incognito is only covered if you've allowed Web Guard there; Lock-In warns you when you haven't. End task still stops Lock-In, and lockdown with it.
 - If Web Guard stops answering in a browser during a session that blocks sites, while online, Lock-In warns you and closes that browser until the session ends.
 - "Install Web Guard" now opens Chrome rather than your default browser.
+- Fixed: a blocklist term like "msedge" could also close Lock-In's own window, and apps using the same web component. It now closes Edge and nothing of Lock-In's.
 - The line under Hold to Start no longer says you can't stop a session early. Bail out ends it early, and voids the whole session.
 - Chrome extension 1.2.5 tells Lock-In on the same PC that it's running and which browser it's in. That stays on your PC.
 
