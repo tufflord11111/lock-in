@@ -185,7 +185,8 @@ export function createChatter(bird: Bird): Chatter {
         closeCard();
         return;
       }
-      void invoke("companion_log_menu", { trigger }).catch(() => {});
+      // The command exists in debug builds only.
+      if (import.meta.env.DEV) void invoke("companion_log_menu", { trigger }).catch(() => {});
       openCard(
         (el) => {
           const actions = document.createElement("div");

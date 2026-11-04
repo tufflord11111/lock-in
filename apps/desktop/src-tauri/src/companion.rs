@@ -430,6 +430,8 @@ pub fn companion_set_dragging(dragging: bool, state: State<'_, CompanionState>) 
 
 /// One line per menu open with what triggered it, so a menu that opened by
 /// itself would show up. Local only. Pointer facts, nothing about other apps.
+/// Debug builds only: a release build has no such command and writes no such file.
+#[cfg(debug_assertions)]
 #[tauri::command]
 pub fn companion_log_menu(trigger: String, app: AppHandle) -> Result<(), String> {
     use std::io::Write;
