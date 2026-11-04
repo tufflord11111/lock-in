@@ -26,7 +26,7 @@ root rather than inside a `dist/` folder.
 Put this line in the description. Never write "no override": the fuse and End
 task are real ways out, and the listing must not claim otherwise.
 
-> No pause button. The session ends when the timer does.
+> No pause button. The session ends when the timer does, or early if you Bail out (which voids it).
 
 ## What changed since the published version (1.0.7)
 

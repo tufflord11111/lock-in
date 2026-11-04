@@ -7,6 +7,10 @@ limitations, and browser lockdown force-closes other apps.
 
 Optional browser lockdown closes browsers that can't block sites during a session, after a 10 second warning. They are closed by force, so unsent typing in them is lost.
 
+## Listing line
+
+No pause button. The session ends when the timer does, or early if you Bail out (which voids it).
+
 ## Notes
 
 - Policy text wasn't re-read for this file. The 10.1.1 wording comes from
