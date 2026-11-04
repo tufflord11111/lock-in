@@ -6,6 +6,13 @@ Written 4 Nov 2026 against `765e9b1`.
 aren't. Decisions: no signing for now, and direct-download publishing waits for Microsoft's
 verdict.
 
+**Correction, 4 Nov:** this doc said kills were in-process `TerminateProcess` calls. They
+aren't. `process.kill()` in sysinfo 0.30 runs a hidden `taskkill.exe /PID <pid> /F` for every
+process killed (`sysinfo-0.30.13/src/windows/process.rs:443`). So **1.2.10 still spawns hidden
+`taskkill`**, and it's the kill itself, not the stale check that was removed. The same call is
+what lockdown's force-close uses. Calling `OpenProcess` + `TerminateProcess` directly would
+remove it, with the same effect on the target. Not done: awaiting Cayden's decision.
+
 ## What happened
 
 On 4 Nov 2026 Microsoft Defender quarantined 1.2.9's `app.exe` as
@@ -55,10 +62,10 @@ worse to a human reviewer at Microsoft, who is deciding this report right now.
 | Behaviour | Where | Likely weight | Why | Needed for blocking? |
 |---|---|---|---|---|
 | **Unsigned, low-prevalence exe** | Every release has a new hash and no signature | High | Reputation is the strongest benign signal there is, and this file has none | No |
-| **`TerminateProcess` on other processes in a loop** | Sniper, every 2 s, `process.kill()` | High, and it's when this one fired | Malware kills security tools this way. **This is the product** | **Yes: keep** |
+| **Hidden `taskkill.exe /PID n /F` for every kill** | Sniper every 2 s and lockdown's force-close, through sysinfo's `process.kill()` | High, and it's when this one fired | A process repeatedly spawning hidden `taskkill` against other programs looks like malware killing security tools. **Killing is the product, but spawning `taskkill` to do it isn't** | Killing yes; the spawn no |
 | **Hidden `powershell.exe -Command`** | `get_running_apps`, `resolve_shortcut` (`lib.rs:1292`, `:1272`), with `CREATE_NO_WINDOW`, and `New-Object -COM WScript.Shell` | High | A hidden PowerShell with a COM object is a classic malware pattern | No: both are doable in-process |
 | **`rundll32.exe url.dll,FileProtocolHandler`** | `open_web_guard_store` fallback (`lib.rs:1939`), added in 1.2.9 | Medium to high | A listed "living off the land" technique. **I introduced this in 1.2.9** | No |
-| **`taskkill` spawned at onboarding** | `check_sniper` (`lib.rs:995`), runs `taskkill /?` | Medium | Stale: kills have been in-process since 1.2.1, so this tests nothing real | No |
+| **`taskkill /?` at onboarding** | `check_sniper`. **Removed in 1.2.10** | Was medium | It tested nothing real | No |
 | **Process enumeration every 1–2 s** | Sniper (names only, only with terms); lockdown (1 s, with full paths) | Medium | Common to malware and to legitimate tools alike | Yes, but it can be lighter |
 | **Closing other apps' windows** (`WM_CLOSE`, `EnumWindows`) | Lockdown, new in 1.2.10 | Low to medium | **1.2.10 adds more of this, so don't assume the risk fell** | Yes |
 | **Words in the binary** | `Sniper`, `💀 terminated`, `Kill`, `Enforcer`, `[Guard]`; 64 `println!` calls, which go nowhere in release | Low to medium | Static models read strings, and these read like a tool that attacks things | No |
