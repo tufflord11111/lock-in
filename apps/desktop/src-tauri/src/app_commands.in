@@ -22,6 +22,7 @@
     "is_dev_mode",
     "arm_bailout",
     "ack_session_record",
+    "lockdown_status",
     "lockdown_set_online",
     "set_close_to_tray",
     "open_web_guard_store",

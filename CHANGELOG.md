@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.10] — 2026-11-04
+
+- Browser lockdown. If you start a session that blocks websites while Web Guard isn't answering, or another browser is open, Lock-In offers to close the browsers it can't block. They get a 10 second warning, by Windows notification if the window is hidden, then close, and close again if reopened. Anything typed and not sent in them is lost. Browsers with a working Web Guard stay open.
+- It isn't airtight, and we'd rather say so. A browser Lock-In doesn't know about stays open, a second Chrome profile or a Guest window without Web Guard isn't blocked, and Incognito is only covered if you've allowed Web Guard there; Lock-In warns you when you haven't. End task still stops Lock-In, and lockdown with it.
+- If Web Guard stops answering in a browser during a session that blocks sites, while online, Lock-In warns you and closes that browser until the session ends.
+- "Install Web Guard" now opens Chrome rather than your default browser.
+- Chrome extension 1.2.5 tells Lock-In on the same PC that it's running and which browser it's in. That stays on your PC.
+
 ## [1.2.9] — 2026-11-03
 
 - Lock-In now lives in the tray, with Open and Quit. Closing the window keeps it running by default; you can turn that off in the Block Registry. During a session, closing always hides it, and Quit says "A session is running. Use Bail out." End task still stops the app.

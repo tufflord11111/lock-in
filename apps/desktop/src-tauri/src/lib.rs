@@ -1653,6 +1653,73 @@ fn set_close_to_tray(enabled: bool, app_state: State<AppState>) -> Result<bool, 
     Ok(enabled)
 }
 
+// ─── IPC Command: lockdown_status ────────────────────────────────────────────
+// What the Start dialog needs to know.
+#[derive(Serialize)]
+struct LockdownStatus {
+    /// False means no beat can arrive, so lockdown must not be offered: it would
+    /// close every browser, including ones with a working Web Guard.
+    listening: bool,
+    closable: Vec<String>,
+    incognito_gaps: Vec<String>,
+}
+
+fn pids_with_windows() -> HashSet<u32> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowThreadProcessId, IsWindowVisible};
+    unsafe extern "system" fn add(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let pids = unsafe { &mut *(lparam.0 as *mut HashSet<u32>) };
+        let mut pid = 0u32;
+        unsafe {
+            if IsWindowVisible(hwnd).as_bool() {
+                GetWindowThreadProcessId(hwnd, Some(&mut pid));
+                pids.insert(pid);
+            }
+        }
+        BOOL(1)
+    }
+    let mut pids = HashSet::new();
+    unsafe {
+        let _ = EnumWindows(Some(add), LPARAM(&mut pids as *mut HashSet<u32> as isize));
+    }
+    pids
+}
+
+#[tauri::command]
+async fn lockdown_status(uid: Option<String>, app_state: State<'_, AppState>) -> Result<LockdownStatus, String> {
+    let beats = Arc::clone(&app_state.beats);
+    let listening = app_state.heartbeat_listening;
+    // Reading every process takes a moment; not on the UI thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut sys = System::new();
+        let running = running_browsers(&mut sys);
+        let windows = pids_with_windows();
+        let open: Vec<&'static str> = running
+            .iter()
+            .filter(|(_, pids)| pids.iter().any(|p| windows.contains(p)))
+            .map(|(id, _)| *id)
+            .collect();
+        let now = now_millis();
+        let uid = uid.as_deref();
+        let is_fresh = |b: &str| beats.is_fresh(b, uid, now);
+        LockdownStatus {
+            listening,
+            closable: lockdown::closable(&open, &is_fresh)
+                .into_iter()
+                .map(|id| browsers::name_of(id).to_string())
+                .collect(),
+            incognito_gaps: open
+                .iter()
+                .filter(|id| is_fresh(id) && beats.latest(id, uid).map_or(false, |b| !b.incognito_allowed))
+                .map(|id| browsers::name_of(id).to_string())
+                .collect(),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 // ─── IPC Command: lockdown_set_online ────────────────────────────────────────
 #[tauri::command]
 fn lockdown_set_online(online: bool, app_state: State<AppState>) {
@@ -2012,7 +2079,7 @@ pub fn run() {
         })
         // Every one is also listed in app_commands.in, and only a window whose
         // capability grants it can call it: "main" alone (see build.rs).
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
 

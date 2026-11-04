@@ -57,6 +57,16 @@ struct Entry {
 }
 
 /// What the rest of the app knows, for one tick.
+/// What the Start dialog would name: open now, with windows, and no beat. A hidden
+/// background browser (Edge's startup boost) isn't worth stopping anyone for.
+pub fn closable(with_windows: &[&'static str], is_fresh: &dyn Fn(&str) -> bool) -> Vec<&'static str> {
+    KNOWN
+        .iter()
+        .map(|b| b.id)
+        .filter(|id| with_windows.contains(id) && !is_fresh(id))
+        .collect()
+}
+
 pub struct Tick<'a> {
     pub now: u64,
     /// The operator chose to close browsers without a heartbeat.
@@ -215,6 +225,14 @@ mod tests {
 
     fn no_beats(_: &str) -> Option<u64> {
         None
+    }
+
+    #[test]
+    fn the_dialog_names_only_open_browsers_without_a_beat() {
+        let fresh = |b: &str| b == "chrome";
+        assert_eq!(closable(&["chrome", "firefox", "opera_gx"], &fresh), vec!["opera_gx", "firefox"]);
+        assert!(closable(&["chrome"], &fresh).is_empty());
+        assert!(closable(&[], &fresh).is_empty());
     }
 
     #[test]

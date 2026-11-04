@@ -507,23 +507,47 @@ function AppInner() {
     updatePresence
   );
 
-  // A session that blocks websites, started while Web Guard is quiet: ask first.
-  // Unreachable, the heartbeat can't be read, so a quiet extension proves
-  // nothing. The extension blocks offline from its own saved state, and an
-  // offline session starts as usual.
+  // A session that blocks websites, started while Web Guard is quiet or another
+  // browser is open: ask first. Unreachable, the Firebase heartbeat can't be read,
+  // so a quiet extension proves nothing, and the extension blocks offline from
+  // its own saved state. Open browsers are local, so they count either way.
   useEffect(() => {
     invoke("lockdown_set_online", { online: reachable }).catch(() => {});
   }, [reachable]);
-  const [pendingStart, setPendingStart] = useState<{ minutes: number; label: string } | null>(null);
+  const [pendingStart, setPendingStart] = useState<{
+    minutes: number;
+    label: string;
+    webGuardQuiet: boolean;
+    closable: string[];
+    canLockDown: boolean;
+    incognitoGaps: string[];
+  } | null>(null);
   const gatedStartSession = useCallback(
-    (minutes: number, label: string) => {
-      if (reachable && sessionSites.length > 0 && extensionQuietNow()) {
-        setPendingStart({ minutes, label });
-        return;
+    async (minutes: number, label: string) => {
+      const blocksSites = sessionSites.length > 0;
+      if (blocksSites) {
+        const status = await invoke<{ listening: boolean; closable: string[]; incognito_gaps: string[] }>(
+          "lockdown_status",
+          { uid: user?.uid ?? null }
+        ).catch(() => null);
+        const webGuardQuiet = reachable && extensionQuietNow();
+        const canLockDown = status?.listening === true;
+        const closable = canLockDown ? status.closable : [];
+        if (webGuardQuiet || closable.length > 0) {
+          setPendingStart({
+            minutes,
+            label,
+            webGuardQuiet,
+            closable,
+            canLockDown,
+            incognitoGaps: status?.incognito_gaps ?? [],
+          });
+          return;
+        }
       }
-      startSession(minutes, label, { blocksSites: sessionSites.length > 0 });
+      startSession(minutes, label, { blocksSites });
     },
-    [reachable, sessionSites, extensionQuietNow, startSession]
+    [reachable, sessionSites, extensionQuietNow, startSession, user?.uid]
   );
 
   // Global Timer Formatter
@@ -836,6 +860,18 @@ function AppInner() {
       {pendingStart && (
         <WebGuardGate
           storeUrl={CHROME_WEB_STORE_URL}
+          webGuardQuiet={pendingStart.webGuardQuiet}
+          closable={pendingStart.closable}
+          canLockDown={pendingStart.canLockDown}
+          incognitoGaps={pendingStart.incognitoGaps}
+          onStartLockdown={() => {
+            startSession(pendingStart.minutes, pendingStart.label, { lockdown: true, blocksSites: true });
+            setPendingStart(null);
+          }}
+          onStartAnyway={() => {
+            startSession(pendingStart.minutes, pendingStart.label, { blocksSites: true });
+            setPendingStart(null);
+          }}
           onStartAppsOnly={() => {
             startSession(pendingStart.minutes, pendingStart.label, { appsOnly: true });
             setPendingStart(null);
