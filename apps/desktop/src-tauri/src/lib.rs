@@ -593,6 +593,13 @@ fn lockdown_runner(
         };
         for action in tracker.tick(&tick) {
             match action {
+                // Nothing on screen to lose or to warn about, like Edge's startup
+                // boost in the background. It still closes on time.
+                lockdown::Action::Warn { browser, .. }
+                    if !running.get(browser).map_or(false, |pids| {
+                        let open = pids_with_windows();
+                        pids.iter().any(|p| open.contains(p))
+                    }) => {}
                 lockdown::Action::Warn { browser, lost_web_guard } => {
                     let name = browsers::name_of(browser);
                     let message = if lost_web_guard {
