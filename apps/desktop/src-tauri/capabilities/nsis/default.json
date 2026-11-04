@@ -41,6 +41,12 @@
     "allow-read-snapshot",
     "allow-write-snapshot",
     "allow-clear-snapshot",
-    "allow-is-store-build"
+    "allow-is-store-build",
+    "allow-companion-set-enabled",
+    "allow-companion-show-main",
+    "allow-companion-ready",
+    "allow-companion-set-hitbox",
+    "allow-companion-set-dragging",
+    "allow-companion-state"
   ]
 }

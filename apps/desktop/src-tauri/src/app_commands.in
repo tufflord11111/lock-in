@@ -30,4 +30,10 @@
     "write_snapshot",
     "clear_snapshot",
     "is_store_build",
+    "companion_set_enabled",
+    "companion_show_main",
+    "companion_ready",
+    "companion_set_hitbox",
+    "companion_set_dragging",
+    "companion_state",
 ]
