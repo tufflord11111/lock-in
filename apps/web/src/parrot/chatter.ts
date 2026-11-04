@@ -3,6 +3,7 @@
  * clock tick, the local memory, and the DOM. Timings are local to this device:
  * nothing here goes to Firebase.
  */
+import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import type { Bird } from "./bird";
 import {
@@ -58,7 +59,7 @@ export type Chatter = {
   setWorld: (world: World) => void;
   sessionEnded: (reason: string, timestamp: number) => void;
   startRefused: () => void;
-  toggleMenu: () => void;
+  toggleMenu: (trigger: string) => void;
   rects: () => DOMRect[];
 };
 
@@ -179,11 +180,12 @@ export function createChatter(bird: Bird): Chatter {
     startRefused() {
       show(openAppBubble());
     },
-    toggleMenu() {
+    toggleMenu(trigger) {
       if (card) {
         closeCard();
         return;
       }
+      void invoke("companion_log_menu", { trigger }).catch(() => {});
       openCard(
         (el) => {
           const actions = document.createElement("div");

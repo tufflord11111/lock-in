@@ -47,6 +47,7 @@
     "allow-companion-ready",
     "allow-companion-set-hitbox",
     "allow-companion-set-dragging",
-    "allow-companion-state"
+    "allow-companion-state",
+    "allow-companion-log-menu"
   ]
 }

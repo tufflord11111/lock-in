@@ -30,7 +30,7 @@ export type Bird = {
 
 export function createBird(
   el: HTMLElement,
-  options: { sessionActive: boolean; onClick: () => void; extraRects: () => DOMRect[] },
+  options: { sessionActive: boolean; onClick: (trigger: string) => void; extraRects: () => DOMRect[] },
 ): Bird {
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let state = initialState(Date.now(), window.innerWidth, motion.matches, options.sessionActive, Math.random());
@@ -131,16 +131,20 @@ export function createBird(
     });
   });
 
-  const release = (clicked: boolean) => {
+  const release = (up: PointerEvent | null) => {
     if (!press) return;
     const { dragging, at } = press;
     press = null;
     invoke("companion_set_dragging", { dragging: false }).catch(() => {});
     if (dragging) dispatch({ type: "dragEnd" });
-    else if (clicked && Date.now() - at < CLICK_MAX_MS) options.onClick();
+    else if (up && Date.now() - at < CLICK_MAX_MS) {
+      options.onClick(
+        `pointerup type=${up.pointerType} trusted=${up.isTrusted} button=${up.button} held=${Date.now() - at}ms at=${Math.round(up.clientX)},${Math.round(up.clientY)}`,
+      );
+    }
   };
-  el.addEventListener("pointerup", () => release(true));
-  el.addEventListener("pointercancel", () => release(false));
+  el.addEventListener("pointerup", (e) => release(e));
+  el.addEventListener("pointercancel", () => release(null));
 
   // ── The world around it ────────────────────────────────────────────────
   motion.addEventListener("change", () => dispatch({ type: "reducedMotion", reduced: motion.matches }));

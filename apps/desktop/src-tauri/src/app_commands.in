@@ -36,4 +36,5 @@
     "companion_set_hitbox",
     "companion_set_dragging",
     "companion_state",
+    "companion_log_menu",
 ]

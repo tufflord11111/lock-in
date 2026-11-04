@@ -367,6 +367,25 @@ pub fn companion_set_dragging(dragging: bool, state: State<'_, CompanionState>) 
     Ok(())
 }
 
+/// One line per menu open with what triggered it, so a menu that opened by
+/// itself would show up. Local only. Pointer facts, nothing about other apps.
+#[tauri::command]
+pub fn companion_log_menu(trigger: String, app: AppHandle) -> Result<(), String> {
+    use std::io::Write;
+    let clean: String = trigger
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || " =.,-_".contains(*c))
+        .take(120)
+        .collect();
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("parrot-menu.log"))
+        .map_err(|e| e.to_string())?;
+    writeln!(file, "{} {}", crate::iso8601_utc(crate::now_millis()), clean).map_err(|e| e.to_string())
+}
+
 /// What the page reads at boot and on its slow backstop.
 #[tauri::command]
 pub fn companion_state(app: AppHandle, state: State<'_, CompanionState>) -> Result<World, String> {
@@ -419,6 +438,7 @@ mod tests {
         assert_eq!(
             granted,
             [
+                "allow-companion-log-menu",
                 "allow-companion-ready",
                 "allow-companion-set-dragging",
                 "allow-companion-set-hitbox",

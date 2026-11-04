@@ -23,7 +23,7 @@ async function boot() {
   let chatter: Chatter | null = null;
   const bird = createBird(el, {
     sessionActive: first?.session_active ?? false,
-    onClick: () => chatter?.toggleMenu(),
+    onClick: (trigger) => chatter?.toggleMenu(trigger),
     extraRects: () => chatter?.rects() ?? [],
   });
   chatter = createChatter(bird);
