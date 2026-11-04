@@ -1,3 +1,4 @@
+mod browsers;
 mod heartbeat;
 
 use std::collections::HashSet;
