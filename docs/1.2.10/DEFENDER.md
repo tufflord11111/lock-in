@@ -6,12 +6,11 @@ Written 4 Nov 2026 against `765e9b1`.
 aren't. Decisions: no signing for now, and direct-download publishing waits for Microsoft's
 verdict.
 
-**Correction, 4 Nov:** this doc said kills were in-process `TerminateProcess` calls. They
-aren't. `process.kill()` in sysinfo 0.30 runs a hidden `taskkill.exe /PID <pid> /F` for every
-process killed (`sysinfo-0.30.13/src/windows/process.rs:443`). So **1.2.10 still spawns hidden
-`taskkill`**, and it's the kill itself, not the stale check that was removed. The same call is
-what lockdown's force-close uses. Calling `OpenProcess` + `TerminateProcess` directly would
-remove it, with the same effect on the target. Not done: awaiting Cayden's decision.
+**Correction, 4 Nov:** this doc first said kills were in-process `TerminateProcess` calls. In
+every release up to 1.2.9 and the first 1.2.10 drafts they weren't: `process.kill()` in sysinfo
+0.30 ran a hidden `taskkill.exe /PID <pid> /F` for every process killed
+(`sysinfo-0.30.13/src/windows/process.rs:443`). **The flagged 1.2.9 did this.** 1.2.10 now calls
+`OpenProcess` + `TerminateProcess` directly, in the kill loop and lockdown's force-close.
 
 ## What happened
 
@@ -62,7 +61,8 @@ worse to a human reviewer at Microsoft, who is deciding this report right now.
 | Behaviour | Where | Likely weight | Why | Needed for blocking? |
 |---|---|---|---|---|
 | **Unsigned, low-prevalence exe** | Every release has a new hash and no signature | High | Reputation is the strongest benign signal there is, and this file has none | No |
-| **Hidden `taskkill.exe /PID n /F` for every kill** | Sniper every 2 s and lockdown's force-close, through sysinfo's `process.kill()` | High, and it's when this one fired | A process repeatedly spawning hidden `taskkill` against other programs looks like malware killing security tools. **Killing is the product, but spawning `taskkill` to do it isn't** | Killing yes; the spawn no |
+| **Hidden `taskkill.exe /PID n /F` for every kill** | Sniper every 2 s, through sysinfo's `process.kill()`. **Removed in 1.2.10**, which calls `TerminateProcess` directly | Was high, and it's when this one fired | A process repeatedly spawning hidden `taskkill` against other programs looks like malware killing security tools | Killing yes; the spawn no |
+| **`TerminateProcess` on other processes in a loop** | Still there: this is what blocking is | Unknown | Directly ending other programs is still a signal, just a quieter one | **Yes: keep** |
 | **Hidden `powershell.exe -Command`** | `get_running_apps`, `resolve_shortcut` (`lib.rs:1292`, `:1272`), with `CREATE_NO_WINDOW`, and `New-Object -COM WScript.Shell` | High | A hidden PowerShell with a COM object is a classic malware pattern | No: both are doable in-process |
 | **`rundll32.exe url.dll,FileProtocolHandler`** | `open_web_guard_store` fallback (`lib.rs:1939`), added in 1.2.9 | Medium to high | A listed "living off the land" technique. **I introduced this in 1.2.9** | No |
 | **`taskkill /?` at onboarding** | `check_sniper`. **Removed in 1.2.10** | Was medium | It tested nothing real | No |
