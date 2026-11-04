@@ -6,7 +6,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { deflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 
 const WEB = "apps/web";
 const manifest = JSON.parse(readFileSync(join(WEB, "src/parrot/sprites.manifest.json"), "utf8"));
@@ -52,7 +52,7 @@ const crc32 = (buf) => {
 };
 const chunk = (type, data) => {
   const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
-  const out = Buffer.alloc(8 + body.length + 4);
+  const out = Buffer.alloc(8 + body.length);
   out.writeUInt32BE(data.length, 0);
   body.copy(out, 4);
   out.writeUInt32BE(crc32(body), 4 + body.length);
@@ -72,6 +72,24 @@ function encodePng(width, height, rgba) {
     chunk("IDAT", deflateSync(raw, { level: 9 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+// Reads back what was written: every chunk's length and CRC, the size, the pixel data.
+function verifyPng(png, width, height) {
+  let at = 8;
+  const idat = [];
+  let last = "";
+  while (at < png.length) {
+    const length = png.readUInt32BE(at);
+    const body = png.subarray(at + 4, at + 8 + length);
+    if (crc32(body) !== png.readUInt32BE(at + 8 + length)) throw new Error("Bad PNG chunk CRC");
+    last = body.subarray(0, 4).toString("latin1");
+    if (last === "IDAT") idat.push(body.subarray(4));
+    at += 12 + length;
+  }
+  if (at !== png.length || last !== "IEND") throw new Error("Bad PNG chunk layout");
+  if (png.readUInt32BE(16) !== width || png.readUInt32BE(20) !== height) throw new Error("Bad PNG size");
+  if (inflateSync(Buffer.concat(idat)).length !== (width * 4 + 1) * height) throw new Error("Bad PNG pixel data");
 }
 
 for (const scale of manifest.scales) {
@@ -131,6 +149,7 @@ for (const scale of manifest.scales) {
   const path = join(WEB, "public", scale.file);
   mkdirSync(dirname(path), { recursive: true });
   const png = encodePng(width, height, rgba);
+  verifyPng(png, width, height);
   writeFileSync(path, png);
   console.log(`${path}  ${width}×${height}  ${(png.length / 1024).toFixed(0)} KB`);
 }
