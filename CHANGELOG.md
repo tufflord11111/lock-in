@@ -8,6 +8,7 @@
 - "Install Web Guard" now opens Chrome rather than your default browser.
 - Fixed: a blocklist term like "msedge" could also close Lock-In's own window, and apps using the same web component. It now closes Edge and nothing of Lock-In's.
 - The line under Hold to Start no longer says you can't stop a session early. Bail out ends it early, and voids the whole session.
+- Fixed: Web Guard blocked sites and showed LOCKED with no session running, once the app had been open for 6 hours that day. That was a leftover daily limit nothing showed or explained, and keeping Lock-In in the tray made it far easier to hit. Blocking now follows sessions only.
 - Chrome extension 1.2.5 tells Lock-In on the same PC that it's running and which browser it's in. That stays on your PC.
 
 ## [1.2.9] — 2026-11-03

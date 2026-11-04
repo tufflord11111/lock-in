@@ -3,6 +3,7 @@ import { getDatabase, ref, onValue, update, set, forceWebSockets } from "firebas
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extension";
 import { buildRules, sameRules } from "./dnrRules.js";
 import { browserFromBrands, BEAT_URL } from "./beat.js";
+import { isLocked } from "./lockState.js";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -56,7 +57,6 @@ let activeUid = null;
 // session's endTime passes, so a session whose end never reached Firebase
 // (offline, app closed) kept the extension blocking indefinitely (U6).
 let manualLock = false;
-let thresholdReached = false;
 let focusActive = false;
 // sessionState.endTime (epoch ms) of the current session, or null if none.
 let sessionEndTime = null;
@@ -85,7 +85,6 @@ const hydrating = (async () => {
       if (typeof g.focusActive === "boolean") focusActive = g.focusActive;
       if (typeof g.sessionEndTime === "number" || g.sessionEndTime === null) sessionEndTime = g.sessionEndTime;
       if (typeof g.manualLock === "boolean") manualLock = g.manualLock;
-      if (typeof g.thresholdReached === "boolean") thresholdReached = g.thresholdReached;
       if (typeof g.unlockExpiry === "number" || g.unlockExpiry === null) unlockExpiry = g.unlockExpiry;
       if (typeof g.uid === "string") storedUid = g.uid;
       console.log("[Lock-In] hydrated guard state from storage", {
@@ -114,7 +113,6 @@ function persistGuardState() {
     focusActive,
     sessionEndTime,
     manualLock,
-    thresholdReached,
     unlockExpiry,
     savedAt: Date.now(),
   };
@@ -172,21 +170,12 @@ function startLockInSession(uid) {
       heartbeatInterval = setInterval(pulseHeartbeat, 30000);
     }
 
-    const thresholdLimit = data.config?.thresholdLimit || 360;
-    const devices = data.devices || {};
-
-    let totalMinutesToday = 0;
-    Object.values(devices).forEach(device => {
-      totalMinutesToday += (device.minutesToday || 0);
-    });
-
     unlockExpiry =
       typeof data.emergencyUnlock?.expiry === "number" ? data.emergencyUnlock.expiry : null;
     manualLock = data.isLocked === true;
     focusActive = data.config?.focusActive === true;
     sessionEndTime =
       typeof data.sessionState?.endTime === "number" ? data.sessionState.endTime : null;
-    thresholdReached = totalMinutesToday >= thresholdLimit;
 
     // Build final dynamic blocklist:
     // DEFAULT_BLOCKS + customBlocks - removedDefaults
@@ -290,7 +279,6 @@ function stopLockInSession() {
   console.log("[Lock-In] Securing vault. Session stopped.");
   detachFirebase();
   manualLock = false;
-  thresholdReached = false;
   focusActive = false;
   sessionEndTime = null;
   unlockExpiry = null;
@@ -303,19 +291,8 @@ function stopLockInSession() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-/**
- * Whether session blocking applies right now.
- *
- * Expiry only cancels the focus-session term: a manual lock and the daily
- * threshold still lock after endTime. A session with no endTime keeps the old
- * behaviour and locks for as long as focusActive is true.
- */
 function isLockedNow() {
-  const now = Date.now();
-  if (unlockExpiry != null && now < unlockExpiry) return false;
-  const sessionLive =
-    focusActive && (sessionEndTime == null || now < sessionEndTime);
-  return manualLock || thresholdReached || sessionLive;
+  return isLocked({ manualLock, focusActive, sessionEndTime, unlockExpiry }, Date.now());
 }
 
 function pulseHeartbeat() {

@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth/web-extension";
+import { isLocked } from "./lockState.js";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -41,15 +42,8 @@ function showView(view) {
 
 // ─── First Paint ─────────────────────────────────────────────────────────────
 // From what the background saved, so the popup is never blank while the worker
-// wakes or Firebase can't be reached. updateUI() refines it. Mirrors isLockedNow.
+// wakes or Firebase can't be reached. updateUI() refines it.
 const PERSIST_KEY = "lockin_guard_state";
-
-function lockedFromSaved(g) {
-  const now = Date.now();
-  if (typeof g.unlockExpiry === "number" && now < g.unlockExpiry) return false;
-  const sessionLive = g.focusActive === true && (typeof g.sessionEndTime !== "number" || now < g.sessionEndTime);
-  return g.manualLock === true || g.thresholdReached === true || sessionLive;
-}
 
 function paintStatus(isLocked) {
   statusDiv.textContent = isLocked ? "LOCKED" : "UNLOCKED";
@@ -65,7 +59,7 @@ chrome.storage.local.get(PERSIST_KEY).then((stored) => {
   if (g && typeof g.uid === "string") {
     userInfoDiv.textContent = `ID: ${g.uid.substring(0, 8)}...`;
     showView('menu');
-    paintStatus(lockedFromSaved(g));
+    paintStatus(isLocked(g, Date.now()));
   } else {
     showView('login');
   }

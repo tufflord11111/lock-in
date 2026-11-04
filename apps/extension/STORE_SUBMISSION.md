@@ -58,6 +58,10 @@ For the reviewer's "what's new", and for your own record:
   windows, and which account it is signed in to. This goes to `127.0.0.1` only and
   never leaves the PC. No new permission.
 
+- **1.2.5** also removes a hidden daily limit: once the Lock-In app had been open for 6
+  hours in a day, the extension blocked sites with no session running. Nothing showed or
+  explained it. Blocking now follows sessions only.
+
 **Review:** a new permission plus `web_accessible_resources` means a full review.
 Plan on days. `declarativeNetRequestWithHostAccess` adds no install warning of
 its own, so existing users are not asked to re-approve on update. `block.html`
