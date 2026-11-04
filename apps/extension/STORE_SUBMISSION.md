@@ -1,4 +1,4 @@
-# Chrome Web Store submission — Lock-In Web Police 1.2.5
+# Chrome Web Store submission — Lock-In Web Guard 1.2.5
 
 Everything the developer dashboard asks for on this update, in one place.
 Paste each block into the matching field.
@@ -7,7 +7,7 @@ Paste each block into the matching field.
 
 | | |
 |---|---|
-| Item | Lock-In Web Police (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
+| Item | Lock-In Web Guard (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
 | Version | 1.2.5 |
 | Zip | `apps/extension/lock-in-extension-v1.2.5.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
 | SHA256 | `F0F6565B0024D2258FCD9FDF2A13C7B03B4D479AFD180169E85B38C52D7A6A23` (110,720 bytes, 2026-11-04) |
@@ -72,7 +72,7 @@ installed; low risk, and worth saying if asked.
 
 ### Single purpose
 
-> Lock-In Web Police blocks websites on the user's own blocklist during a Lock-In focus session. The session is started from the Lock-In desktop app or the Lock-In web app, and the extension enforces it in Chrome by redirecting blocked sites to a local block page. The session's end time is read from the user's own record and compared against the device clock, so blocking stops by itself the moment the session expires even if the browser never hears from the server again — nothing keeps a user locked out after their session is over.
+> Lock-In Web Guard blocks websites on the user's own blocklist during a Lock-In focus session. The session is started from the Lock-In desktop app or the Lock-In web app, and the extension enforces it in Chrome by redirecting blocked sites to a local block page. The session's end time is read from the user's own record and compared against the device clock, so blocking stops by itself the moment the session expires even if the browser never hears from the server again — nothing keeps a user locked out after their session is over.
 
 ### Permission justifications
 
@@ -151,7 +151,7 @@ Before submitting:
 
 Paste into the **Test instructions** field:
 
-> Lock-In Web Police is the browser companion to the Lock-In focus app. It blocks sites on the user's blocklist only while a focus session is running. Sessions are started from the Lock-In desktop app or the Lock-In web app; the extension enforces that state and does nothing on its own, by design. No desktop install is needed to test.
+> Lock-In Web Guard is the browser companion to the Lock-In focus app. It blocks sites on the user's blocklist only while a focus session is running. Sessions are started from the Lock-In desktop app or the Lock-In web app; the extension enforces that state and does nothing on its own, by design. No desktop install is needed to test.
 >
 > **Test account**
 > Email: `REPLACE_WITH_TEST_EMAIL`

@@ -673,7 +673,7 @@ fn lockdown_runner(
                 lockdown::Action::IncognitoGap { browser } => {
                     let name = browsers::name_of(browser);
                     let message = format!(
-                        "{name} can stay open, but its Incognito windows aren't blocked. To cover them, turn on \"Allow in Incognito\" for Lock-In Web Police in {name}'s extension settings."
+                        "{name} can stay open, but its Incognito windows aren't blocked. To cover them, turn on \"Allow in Incognito\" for Lock-In Web Guard in {name}'s extension settings."
                     );
                     log_ui_event(&app, "lockdown-incognito-gap");
                     deliver_warning(&app, "Incognito isn't covered", message);
