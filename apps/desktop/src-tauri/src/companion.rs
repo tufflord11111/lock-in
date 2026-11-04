@@ -13,15 +13,17 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder,
 };
-use windows::Win32::Foundation::RECT;
-use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::Shell::{
     SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetForegroundWindow, GetShellWindow, GetWindowRect, GetWindowThreadProcessId, IsZoomed,
+    GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowRect, GetWindowThreadProcessId,
+    IsZoomed, WindowFromPoint, GA_ROOT, SM_CMONITORS,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -54,36 +56,85 @@ fn is_fullscreen(window: ScreenRect, monitor: ScreenRect, zoomed: bool) -> bool 
     covers_monitor(window, monitor) && !(zoomed && window != monitor)
 }
 
-/// Whether the foreground window is full screen. Neither the desktop nor our own
-/// windows count; those are told apart by process id, and no name is read.
-fn foreground_is_fullscreen() -> bool {
+/// What full screen needs to know about a window. No title, no process name.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Seen<M> {
+    rect: ScreenRect,
+    zoomed: bool,
+    monitor: M,
+}
+
+/// Whether a full-screen window is on the bird's monitor. Windows reports a running
+/// game or presentation for the whole machine and doesn't say where, so that only
+/// decides it when there is one monitor. Otherwise the windows themselves do: the
+/// foreground one, and the one on top at the monitor's centre, which is still the
+/// slideshow while you work in presenter view on another monitor.
+fn bird_is_covered<M: PartialEq + Copy>(
+    system_says_full_screen: bool,
+    monitor_count: i32,
+    foreground: Option<Seen<M>>,
+    on_top_at_centre: Option<Seen<M>>,
+    bird_monitor: M,
+    bird_monitor_rect: ScreenRect,
+) -> bool {
+    if system_says_full_screen && monitor_count <= 1 {
+        return true;
+    }
+    [foreground, on_top_at_centre]
+        .into_iter()
+        .flatten()
+        .any(|w| w.monitor == bird_monitor && is_fullscreen(w.rect, bird_monitor_rect, w.zoomed))
+}
+
+/// Neither the desktop, nor our own windows, nor one Windows has cloaked (a suspended
+/// app, another virtual desktop) count; told apart by process id and flag.
+unsafe fn seen(window: HWND) -> Option<Seen<HMONITOR>> {
+    if window.is_invalid() {
+        return None;
+    }
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(window, Some(&mut pid));
+    let mut shell_pid = 0u32;
+    GetWindowThreadProcessId(GetShellWindow(), Some(&mut shell_pid));
+    if pid == std::process::id() || pid == shell_pid {
+        return None;
+    }
+    let mut cloaked = 0u32;
+    if DwmGetWindowAttribute(window, DWMWA_CLOAKED, &mut cloaked as *mut u32 as *mut _, size_of::<u32>() as u32).is_ok()
+        && cloaked != 0
+    {
+        return None;
+    }
+    let mut rect = RECT::default();
+    GetWindowRect(window, &mut rect).ok()?;
+    Some(Seen {
+        rect: rect.into(),
+        zoomed: IsZoomed(window).as_bool(),
+        monitor: MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST),
+    })
+}
+
+/// Whether something full screen is on the monitor this overlay is on.
+fn fullscreen_on_birds_monitor(overlay: &WebviewWindow) -> bool {
+    let Ok(overlay) = overlay.hwnd() else { return false };
     unsafe {
-        if let Ok(state) = SHQueryUserNotificationState() {
-            if state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE {
-                return true;
-            }
-        }
-        let foreground = GetForegroundWindow();
-        if foreground.is_invalid() {
-            return false;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(foreground, Some(&mut pid));
-        let mut shell_pid = 0u32;
-        GetWindowThreadProcessId(GetShellWindow(), Some(&mut shell_pid));
-        if pid == std::process::id() || pid == shell_pid {
-            return false;
-        }
-        let mut window = RECT::default();
-        if GetWindowRect(foreground, &mut window).is_err() {
-            return false;
-        }
-        let monitor = MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
+        let system_says_full_screen = SHQueryUserNotificationState()
+            .is_ok_and(|state| state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE);
+        let bird_monitor = MonitorFromWindow(HWND(overlay.0), MONITOR_DEFAULTTONEAREST);
         let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
-        if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+        if !GetMonitorInfoW(bird_monitor, &mut info).as_bool() {
             return false;
         }
-        is_fullscreen(window.into(), info.rcMonitor.into(), IsZoomed(foreground).as_bool())
+        let m = info.rcMonitor;
+        let centre = POINT { x: m.left + (m.right - m.left) / 2, y: m.top + (m.bottom - m.top) / 2 };
+        bird_is_covered(
+            system_says_full_screen,
+            GetSystemMetrics(SM_CMONITORS),
+            seen(GetForegroundWindow()),
+            seen(GetAncestor(WindowFromPoint(centre), GA_ROOT)),
+            bird_monitor,
+            m.into(),
+        )
     }
 }
 
@@ -266,7 +317,7 @@ fn run(app: AppHandle) {
             };
             // Hide at once; come back only after two clear polls, so alt-tab
             // doesn't flicker it.
-            let over_fullscreen = foreground_is_fullscreen();
+            let over_fullscreen = fullscreen_on_birds_monitor(&window);
             clear_polls = if over_fullscreen { 0 } else { clear_polls.saturating_add(1) };
             let (session_active, session_end_at) = session_read(&app, previous);
             let world = World {
@@ -498,7 +549,59 @@ mod tests {
         assert!(is_fullscreen(over, MONITOR, false));
     }
 
-        #[test]
+        const BIRD: u8 = 1;
+    const OTHER: u8 = 2;
+    const ON_BIRD: Seen<u8> = Seen { rect: MONITOR, zoomed: false, monitor: BIRD };
+    const ON_OTHER: Seen<u8> = Seen { rect: MONITOR, zoomed: false, monitor: OTHER };
+    const SMALL_ON_BIRD: Seen<u8> =
+        Seen { rect: ScreenRect { left: 100, top: 100, right: 900, bottom: 700 }, zoomed: false, monitor: BIRD };
+
+    fn covered(system: bool, count: i32, foreground: Option<Seen<u8>>, at_centre: Option<Seen<u8>>) -> bool {
+        bird_is_covered(system, count, foreground, at_centre, BIRD, MONITOR)
+    }
+
+    #[test]
+    fn full_screen_on_the_birds_monitor_hides_it() {
+        assert!(covered(false, 2, Some(ON_BIRD), Some(ON_BIRD)));
+    }
+
+    #[test]
+    fn full_screen_on_another_monitor_does_not() {
+        assert!(!covered(false, 2, Some(ON_OTHER), Some(SMALL_ON_BIRD)));
+        assert!(!covered(false, 2, Some(ON_OTHER), None));
+    }
+
+    #[test]
+    fn a_game_or_slideshow_on_another_monitor_does_not_with_focus_on_either() {
+        assert!(!covered(true, 2, Some(ON_OTHER), Some(SMALL_ON_BIRD)));
+        assert!(!covered(true, 2, Some(SMALL_ON_BIRD), Some(SMALL_ON_BIRD)));
+    }
+
+    #[test]
+    fn a_slideshow_here_stays_hidden_with_focus_on_the_other_monitor() {
+        assert!(covered(true, 2, Some(ON_OTHER), Some(ON_BIRD)));
+        assert!(covered(false, 2, Some(ON_OTHER), Some(ON_BIRD)));
+    }
+
+    #[test]
+    fn with_one_monitor_windows_saying_so_is_enough() {
+        assert!(covered(true, 1, None, None));
+        assert!(covered(true, 1, Some(SMALL_ON_BIRD), None));
+    }
+
+    #[test]
+    fn nothing_full_screen_leaves_it_visible() {
+        assert!(!covered(false, 1, Some(SMALL_ON_BIRD), Some(SMALL_ON_BIRD)));
+        assert!(!covered(false, 1, None, None));
+    }
+
+    #[test]
+    fn a_maximised_window_on_the_birds_monitor_leaves_it_visible() {
+        let maximised = Seen { rect: ScreenRect { left: -8, top: -8, right: 1928, bottom: 1088 }, zoomed: true, monitor: BIRD };
+        assert!(!covered(false, 2, Some(maximised), Some(maximised)));
+    }
+
+    #[test]
     fn exact_cover_counts() {
         assert!(covers_monitor(MONITOR, MONITOR));
     }
