@@ -12,8 +12,8 @@ fn main() {
   println!("cargo:rerun-if-changed=capabilities");
   println!("cargo:rerun-if-changed=src/app_commands.in");
   // Listing the commands here is what gates them: with an app manifest, a
-  // window can only call the commands its capability grants. Both capability
-  // files name "main" alone, so no other window can reach the enforcer.
+  // window can only call the commands its capability grants. "main" gets them all;
+  // "parrot" gets its own short list (parrot.json), which reaches no enforcer command.
   let commands: &'static [&'static str] = include!("src/app_commands.in");
   let manifest = tauri_build::AppManifest::new().commands(commands);
   tauri_build::try_build(
