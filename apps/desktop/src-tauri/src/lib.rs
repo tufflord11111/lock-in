@@ -980,46 +980,39 @@ fn sync_lock_state(
 }
 
 // ─── IPC Command: check_sniper ────────────────────────────────────────────────
-// Called during onboarding calibration to verify the sniper subsystem
-// can execute taskkill on this machine. Returns { ready, message }.
+// Called during onboarding calibration to verify the sniper subsystem can read
+// this machine's processes. Returns { ready, message }.
 #[derive(Clone, Serialize)]
 struct SniperStatus {
     ready: bool,
     message: String,
 }
 
-#[tauri::command]
-fn check_sniper() -> SniperStatus {
-    // Dry-run: query taskkill help output — zero side-effects, always succeeds
-    // if the Windows taskkill binary is available (it always is on Win10/11).
-    let result = std::process::Command::new("taskkill")
-        .arg("/?")
-        .creation_flags(0x08000000)
-        .output();
+/// Blocking works by reading the process table and killing from it, in-process,
+/// so that's what's checked: can we see processes, ourselves included.
+fn process_table_readable() -> bool {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessRefreshKind::new());
+    sys.process(sysinfo::Pid::from_u32(std::process::id())).is_some()
+}
 
-    match result {
-        Ok(out) if out.status.success() || !out.stdout.is_empty() => {
-            println!("[Calibration] ✅ Sniper subsystem verified — taskkill available.");
-            SniperStatus {
-                ready: true,
-                message: "Sniper subsystem online. Process termination active.".to_string(),
-            }
+fn sniper_status(readable: bool) -> SniperStatus {
+    if readable {
+        SniperStatus {
+            ready: true,
+            message: "Sniper subsystem online. Process termination active.".to_string(),
         }
-        Ok(_) => {
-            println!("[Calibration] ⚠ taskkill returned non-zero.");
-            SniperStatus {
-                ready: false,
-                message: "Sniper subsystem degraded — run as Administrator.".to_string(),
-            }
-        }
-        Err(e) => {
-            println!("[Calibration] ❌ taskkill not found: {}", e);
-            SniperStatus {
-                ready: false,
-                message: format!("Sniper offline: {}", e),
-            }
+    } else {
+        SniperStatus {
+            ready: false,
+            message: "Sniper subsystem degraded — run as Administrator.".to_string(),
         }
     }
+}
+
+#[tauri::command]
+fn check_sniper() -> SniperStatus {
+    sniper_status(process_table_readable())
 }
 
 /// Why a session with this deadline must not be armed, if it mustn't.
@@ -2462,7 +2455,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2570,6 +2563,21 @@ mod tests {
         assert!(targets_protected("ser", &system));
         assert!(targets_protected("explorer2", &system));
         assert!(!targets_protected("whatsapp", &system));
+    }
+
+    #[test]
+    fn the_check_really_reads_the_process_table() {
+        assert!(process_table_readable());
+    }
+
+    #[test]
+    fn calibration_says_the_same_things_it_always_did() {
+        let ok = sniper_status(true);
+        assert!(ok.ready);
+        assert_eq!(ok.message, "Sniper subsystem online. Process termination active.");
+        let bad = sniper_status(false);
+        assert!(!bad.ready);
+        assert_eq!(bad.message, "Sniper subsystem degraded — run as Administrator.");
     }
 
     #[test]
