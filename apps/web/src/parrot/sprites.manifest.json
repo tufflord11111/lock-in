@@ -1,0 +1,28 @@
+{
+  "columns": 12,
+  "displayCell": 96,
+  "scales": [
+    { "maxDpr": 1.25, "cell": 96, "sheet": { "width": 1152, "height": 1632 }, "file": "parrot/parrot-1x.png" },
+    { "maxDpr": 1.75, "cell": 144, "sheet": { "width": 1728, "height": 2448 }, "file": "parrot/parrot-1.5x.png" },
+    { "maxDpr": null, "cell": 192, "sheet": { "width": 2304, "height": 3264 }, "file": "parrot/parrot-2x.png" }
+  ],
+  "rows": [
+    { "state": "idle", "frames": 6, "fps": 6, "loop": true },
+    { "state": "idle_blink", "frames": 3, "fps": 12, "loop": false },
+    { "state": "idle_preen", "frames": 8, "fps": 8, "loop": false },
+    { "state": "walk", "frames": 8, "fps": 10, "loop": true },
+    { "state": "takeoff", "frames": 4, "fps": 12, "loop": false, "from": "v0.2" },
+    { "state": "fly", "frames": 6, "fps": 12, "loop": true, "from": "v0.2" },
+    { "state": "land", "frames": 4, "fps": 12, "loop": false, "from": "v0.2" },
+    { "state": "perch", "frames": 4, "fps": 4, "loop": true },
+    { "state": "sleep", "frames": 4, "fps": 2, "loop": true },
+    { "state": "talk", "frames": 6, "fps": 8, "loop": true },
+    { "state": "drag", "frames": 4, "fps": 8, "loop": true },
+    { "state": "wake", "frames": 5, "fps": 10, "loop": false },
+    { "state": "peck", "frames": 6, "fps": 10, "loop": false },
+    { "state": "happy", "frames": 8, "fps": 10, "loop": false },
+    { "state": "sad", "frames": 6, "fps": 6, "loop": true, "from": "v0.2" },
+    { "state": "yawn", "frames": 8, "fps": 8, "loop": false, "from": "v0.2" },
+    { "state": "droopy_idle", "frames": 6, "fps": 4, "loop": true, "from": "v0.2" }
+  ]
+}
