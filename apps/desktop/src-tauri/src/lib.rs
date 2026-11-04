@@ -23,8 +23,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread;
 use std::path::PathBuf;
 
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 /// Emitted as "enforcer-stood-down" on EVERY Rust focus_active true→false
 /// transition — emergency disarm, local or remote session end, deadline
 /// expiry, and the restore-time stand-downs — so the session UI follows Rust
@@ -1286,18 +1284,78 @@ fn resolve_shortcut(shortcut_path: String) -> Result<String, String> {
     }
 }
 
+/// A top-level window, as the picker needs to see it.
+struct TopWindow {
+    pid: u32,
+    visible: bool,
+    owned: bool,
+    titled: bool,
+}
+
+fn top_level_windows() -> Vec<TopWindow> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindow, GetWindowTextLengthW, GetWindowThreadProcessId, IsWindowVisible, GW_OWNER,
+    };
+    unsafe extern "system" fn add(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let found = unsafe { &mut *(lparam.0 as *mut Vec<TopWindow>) };
+        let mut pid = 0u32;
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+            found.push(TopWindow {
+                pid,
+                visible: IsWindowVisible(hwnd).as_bool(),
+                owned: GetWindow(hwnd, GW_OWNER).map_or(false, |owner| !owner.is_invalid()),
+                titled: GetWindowTextLengthW(hwnd) > 0,
+            });
+        }
+        BOOL(1)
+    }
+    let mut found = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(add), LPARAM(&mut found as *mut Vec<TopWindow> as isize));
+    }
+    found
+}
+
+/// Processes with a titled main window, by the rule Get-Process's MainWindowTitle
+/// uses: a process's main window is its first visible, unowned top-level window.
+fn pids_with_titled_main_window(windows: &[TopWindow]) -> HashSet<u32> {
+    let mut seen = HashSet::new();
+    let mut titled = HashSet::new();
+    for w in windows.iter().filter(|w| w.visible && !w.owned) {
+        if seen.insert(w.pid) && w.titled {
+            titled.insert(w.pid);
+        }
+    }
+    titled
+}
+
+/// Process names as the picker lists them.
+fn picker_names<I: IntoIterator<Item = String>>(names: I, own_stem: &str) -> Vec<String> {
+    let mut apps: Vec<String> = names
+        .into_iter()
+        .map(|name| {
+            let lowered = name.trim().to_lowercase();
+            lowered.strip_suffix(".exe").unwrap_or(&lowered).to_string()
+        })
+        .filter(|line| {
+            !line.is_empty()
+                && *line != own_stem
+                && line != "lock-in"
+                && line != "cmd"
+                && line != "powershell"
+        })
+        .map(|name| format!("{}.exe", name))
+        .collect();
+    apps.sort();
+    apps.dedup();
+    apps
+}
+
 #[tauri::command]
 fn get_running_apps() -> Result<Vec<String>, String> {
-    let output = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "Get-Process | Where-Object { $_.MainWindowTitle } | Select-Object -ExpandProperty Name"
-        ])
-        .creation_flags(0x08000000)
-        .output()
-        .map_err(|e| e.to_string())?;
-
     // Lock-In must never appear in its own picker. The literal "lockin" that
     // used to be filtered here matched NEITHER build — the dev and direct-download
     // binary is app.exe and the Store's is Lock-In.exe (process name "lock-in").
@@ -1308,23 +1366,15 @@ fn get_running_apps() -> Result<Vec<String>, String> {
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()))
         .unwrap_or_default();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut apps: Vec<String> = stdout
-        .lines()
-        .map(|line| line.trim().to_lowercase())
-        .filter(|line| {
-            !line.is_empty()
-                && *line != own_stem
-                && line != "lock-in"
-                && line != "cmd"
-                && line != "powershell"
-        })
-        .map(|name| format!("{}.exe", name))
-        .collect();
-    
-    apps.sort();
-    apps.dedup();
-    Ok(apps)
+    let titled = pids_with_titled_main_window(&top_level_windows());
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessRefreshKind::new());
+    let names = sys
+        .processes()
+        .iter()
+        .filter(|(pid, _)| titled.contains(&pid.as_u32()))
+        .map(|(_, process)| process.name().to_string());
+    Ok(picker_names(names, &own_stem))
 }
 
 #[tauri::command]
@@ -2461,7 +2511,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2569,6 +2619,42 @@ mod tests {
         assert!(targets_protected("ser", &system));
         assert!(targets_protected("explorer2", &system));
         assert!(!targets_protected("whatsapp", &system));
+    }
+
+    fn win(pid: u32, visible: bool, owned: bool, titled: bool) -> TopWindow {
+        TopWindow { pid, visible, owned, titled }
+    }
+
+    #[test]
+    fn the_picker_uses_the_same_main_window_rule_as_get_process() {
+        let got = pids_with_titled_main_window(&[
+            win(1, true, false, true),  // an ordinary app
+            win(2, false, false, true), // hidden: not a main window
+            win(3, true, true, true),   // owned, like a dialog: not a main window
+            win(4, true, false, false), // main window has no title
+            win(4, true, false, true),  // and a later one doesn't change that
+            win(5, false, false, true), // skipped
+            win(5, true, false, true),  // so this is its main window
+        ]);
+        assert_eq!(got, std::collections::HashSet::from([1, 5]));
+    }
+
+    #[test]
+    fn the_picker_lists_names_as_it_always_did() {
+        let got = picker_names(
+            ["Spotify.exe", "spotify.exe", "Discord.exe", "app.exe", "Lock-In.exe", "cmd.exe", "powershell.exe", "  "]
+                .map(String::from),
+            "app",
+        );
+        assert_eq!(got, vec!["discord.exe", "spotify.exe"]);
+    }
+
+    #[test]
+    fn nothing_shells_out_to_these_any_more() {
+        let src = include_str!("lib.rs");
+        for name in ["powershell", "rundll32", "taskkill"] {
+            assert!(!src.contains(&format!("Command::new(\"{}", name)), "{}", name);
+        }
     }
 
     /// A real .lnk on disk, written through the same COM interfaces.
