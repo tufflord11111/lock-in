@@ -1854,10 +1854,35 @@ fn reject_pending_exe(app_state: State<AppState>) -> Result<String, String> {
     }
 }
 
-/// Open the extension's store page in the default browser. The URL is fixed
-/// here, so this can't be used to open anything else.
+/// Where Chrome installs, machine-wide then per-user, in the order to try.
+fn chrome_candidates(program_files: &[Option<PathBuf>], local_app_data: Option<PathBuf>) -> Vec<PathBuf> {
+    let tail = ["Google", "Chrome", "Application", "chrome.exe"];
+    program_files
+        .iter()
+        .flatten()
+        .chain(local_app_data.iter())
+        .map(|root| tail.iter().fold(root.clone(), |path, part| path.join(part)))
+        .collect()
+}
+
+/// Open the extension's store page in Chrome, where Web Guard goes, not whatever
+/// the default browser is. With no Chrome here, the default browser is the only
+/// way left to reach the page. The URL is fixed here, so this can't be used to
+/// open anything else.
 #[tauri::command]
 fn open_web_guard_store() -> Result<(), String> {
+    let candidates = chrome_candidates(
+        &[std::env::var_os("ProgramFiles").map(PathBuf::from), std::env::var_os("ProgramFiles(x86)").map(PathBuf::from)],
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+    );
+    if let Some(chrome) = candidates.iter().find(|p| p.is_file()) {
+        return std::process::Command::new(chrome)
+            .arg(WEB_GUARD_STORE_URL)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+    println!("[WebGuard] no chrome.exe found — opening the store page in the default browser");
     std::process::Command::new("rundll32.exe")
         .args(["url.dll,FileProtocolHandler", WEB_GUARD_STORE_URL])
         .creation_flags(0x08000000)
@@ -2367,7 +2392,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{arm_refusal, awake_in_gap, close_hides, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{arm_refusal, awake_in_gap, chrome_candidates, close_hides, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2429,6 +2454,21 @@ mod tests {
         assert!(targets_protected("ser", &system));
         assert!(targets_protected("explorer2", &system));
         assert!(!targets_protected("whatsapp", &system));
+    }
+
+    #[test]
+    fn chrome_is_looked_for_machine_wide_then_per_user() {
+        let got = chrome_candidates(
+            &[Some("C:\\PF".into()), None],
+            Some("C:\\Local".into()),
+        );
+        assert_eq!(
+            got,
+            vec![
+                std::path::PathBuf::from("C:\\PF\\Google\\Chrome\\Application\\chrome.exe"),
+                std::path::PathBuf::from("C:\\Local\\Google\\Chrome\\Application\\chrome.exe"),
+            ]
+        );
     }
 
     #[test]
