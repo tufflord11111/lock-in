@@ -10,9 +10,25 @@ report (57797388-…) is pending.
 
 The quarantined copy is at `.defender-submit/app.exe`: SHA-256
 `D7BB2F405BAD4E4AC362C12379AD4CAA9702D4B23A9CCB7DDA965B46E0667001`, version 1.2.9,
-**not signed**, ProductName `Lock-In`, CompanyName `lockin`. I couldn't read Defender's
-own detection record: `Get-MpThreatDetection` didn't return within 60 s here. So the
-timing above is your report, not something I confirmed.
+**not signed**, ProductName `Lock-In`, CompanyName `lockin`.
+
+Defender's own record (`Get-MpThreatDetection`, `Get-MpThreat`) on this PC:
+
+| Time (4 Nov) | Process | Source type | Resources |
+|---|---|---|---|
+| **13:11:18** | `…\AppData\Local\Lock-In\app.exe` itself | 3 | The file, the running process, the Start menu shortcut, the Uninstall key |
+| 13:11:42 | `ChromaTune.exe` (Acer's display tool) | 3 | The file only |
+| 13:25:19 | `explorer.exe` | 3 | The file only |
+
+Threat `Trojan:Win32/Bearfoos.A!ml`, severity 5, all actions successful. Source type 3 is, as
+I understand Microsoft's numbering, real-time protection. So:
+
+- The first hit names the **running process**, which fits your report that it fired during
+  use, not at install or download. The record doesn't say it fired because of a kill.
+- The later two are other programs touching the file. They're consequences, not new evidence.
+- **Remediation reached beyond the exe:** the resources include the Start menu shortcut and the
+  Uninstall key. A quarantined user may be left with no shortcut and no clean uninstall entry,
+  as well as no enforcement. Worth checking on this PC.
 
 **What's known and what isn't.** `!ml` means machine learning contributed to the
 verdict. Microsoft doesn't publish the features behind it, and nothing here can show
