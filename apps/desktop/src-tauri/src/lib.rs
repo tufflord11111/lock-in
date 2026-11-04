@@ -4,6 +4,7 @@ mod lockdown;
 mod notify;
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State, Emitter};
 use tauri::menu::{Menu, MenuItem};
@@ -117,6 +118,9 @@ struct LockProfile {
     /// The operator chose "Start and close other browsers" for this session.
     #[serde(default)]
     browser_lockdown: bool,
+    /// This session blocks websites: losing Web Guard mid-session matters.
+    #[serde(default)]
+    session_blocks_sites: bool,
     /// Finished sessions whose history entry hasn't reached Firebase. Only the
     /// signed-in webview can write it, so what's owed outlives the process and
     /// waits here until the webview confirms the write.
@@ -165,8 +169,9 @@ impl LockProfile {
         self.last_clock_check = Some(now);
     }
 
-    fn start_session(&mut self, now: u64, end_time: Option<u64>, objective: Option<String>, uid: Option<String>, browser_lockdown: bool) {
+    fn start_session(&mut self, now: u64, end_time: Option<u64>, objective: Option<String>, uid: Option<String>, browser_lockdown: bool, blocks_sites: bool) {
         self.browser_lockdown = browser_lockdown;
+        self.session_blocks_sites = blocks_sites;
         self.session_end_time = end_time;
         self.session_awake_ms = 0;
         self.session_objective = objective;
@@ -200,6 +205,7 @@ impl LockProfile {
         self.bailout_deadline = None;
         self.session_awake_ms = 0;
         self.browser_lockdown = false;
+        self.session_blocks_sites = false;
     }
 
     fn ack_record(&mut self, ended_at: u64) -> bool {
@@ -437,6 +443,8 @@ struct AppState {
     /// The other kind of install is also on this PC. See other_install_present.
     other_install: bool,
     beats: Arc<heartbeat::BeatStore>,
+    /// The webview's reachability probe. False until it first reports.
+    online: Arc<AtomicBool>,
     /// False when the heartbeat port couldn't be opened, so no beat can arrive.
     heartbeat_listening: bool,
 }
@@ -541,14 +549,25 @@ fn deliver_warning(app: &tauri::AppHandle, title: &str, message: String) {
 
 /// Run lockdown for as long as the app runs. Only looks at processes during a
 /// session that uses it, so the rest of the time this is one lock a second.
-fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beats: Arc<heartbeat::BeatStore>) {
+fn lockdown_runner(
+    app: tauri::AppHandle,
+    profile: Arc<Mutex<LockProfile>>,
+    beats: Arc<heartbeat::BeatStore>,
+    online: Arc<AtomicBool>,
+) {
     let mut sys = System::new();
     let mut tracker = lockdown::Tracker::default();
     let mut session_key = None;
     loop {
         thread::sleep(std::time::Duration::from_secs(1));
-        let (active, end, uid) = match profile.lock() {
-            Ok(p) => (p.focus_active && p.browser_lockdown, p.session_end_time, p.session_uid.clone()),
+        let (active, in_lockdown, blocks_sites, end, uid) = match profile.lock() {
+            Ok(p) => (
+                p.focus_active && (p.browser_lockdown || p.session_blocks_sites),
+                p.browser_lockdown,
+                p.session_blocks_sites,
+                p.session_end_time,
+                p.session_uid.clone(),
+            ),
             Err(_) => continue,
         };
         if session_key != end || !active {
@@ -564,6 +583,9 @@ fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beat
         let incognito_off = |b: &str| beats.latest(b, uid.as_deref()).map_or(false, |beat| !beat.incognito_allowed);
         let tick = lockdown::Tick {
             now: now_millis(),
+            lockdown: in_lockdown,
+            blocks_sites,
+            online: online.load(Ordering::Relaxed),
             running: &ids,
             last_beat: &last_beat,
             incognito_off: &incognito_off,
@@ -571,11 +593,13 @@ fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beat
         };
         for action in tracker.tick(&tick) {
             match action {
-                lockdown::Action::Warn { browser } => {
-                    let message = format!(
-                        "Closing {name} in 10 seconds. Save anything you've typed. Lock-In can't block sites in it during this session.",
-                        name = browsers::name_of(browser)
-                    );
+                lockdown::Action::Warn { browser, lost_web_guard } => {
+                    let name = browsers::name_of(browser);
+                    let message = if lost_web_guard {
+                        format!("Web Guard stopped answering in {name}. Closing it in 10 seconds, and it stays closed until the session ends. Save anything you've typed.")
+                    } else {
+                        format!("Closing {name} in 10 seconds. Save anything you've typed. Lock-In can't block sites in it during this session.")
+                    };
                     log_ui_event(&app, "lockdown-warned");
                     deliver_warning(&app, "Lock-In is closing a browser", message);
                 }
@@ -664,6 +688,7 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     // session on its first tick. bailout_used_date stays: one per day.
     profile.bailout_deadline = None;
     profile.browser_lockdown = false;
+    profile.session_blocks_sites = false;
     profile.disarm_latch = true;
     (cleared_session, cleared_permanent)
 }
@@ -1000,6 +1025,7 @@ fn update_enforcement(
     objective: Option<String>,
     uid: Option<String>,
     lockdown: Option<bool>,
+    blocks_sites: Option<bool>,
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
@@ -1058,7 +1084,7 @@ fn update_enforcement(
                 // do nothing. The passed `blocked_list` is ignored for arming.
                 profile.exe_blacklist = profile.exe_approved.clone();
                 // Deadline so a session persisted across a restart still ends.
-                profile.start_session(now, end_time, objective, uid, lockdown.unwrap_or(false));
+                profile.start_session(now, end_time, objective, uid, lockdown.unwrap_or(false), blocks_sites.unwrap_or(false));
                 println!(
                     "🔒 ENFORCER ARMED: Active = {}, remote = {}, approved targets = {:?}, end_time = {:?}",
                     is_active, remote, profile.exe_blacklist, end_time
@@ -1627,6 +1653,12 @@ fn set_close_to_tray(enabled: bool, app_state: State<AppState>) -> Result<bool, 
     Ok(enabled)
 }
 
+// ─── IPC Command: lockdown_set_online ────────────────────────────────────────
+#[tauri::command]
+fn lockdown_set_online(online: bool, app_state: State<AppState>) {
+    app_state.online.store(online, Ordering::Relaxed);
+}
+
 // ─── IPC Command: ack_session_record ─────────────────────────────────────────
 // Firebase acknowledged this session's history entry, so nothing is owed.
 #[tauri::command]
@@ -1940,6 +1972,7 @@ pub fn run() {
         session_objective: None,
         session_uid: None,
         browser_lockdown: false,
+        session_blocks_sites: false,
         pending_records: Vec::new(),
         last_clock_check: None,
     }));
@@ -1979,7 +2012,7 @@ pub fn run() {
         })
         // Every one is also listed in app_commands.in, and only a window whose
         // capability grants it can call it: "main" alone (see build.rs).
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -2002,6 +2035,7 @@ pub fn run() {
 
             // ── Web Guard heartbeat ────────────────────────────────────────
             let beats = Arc::new(heartbeat::BeatStore::default());
+            let online = Arc::new(AtomicBool::new(false));
             let heartbeat_listening = match heartbeat::bind() {
                 Ok(listener) => {
                     let allowed = heartbeat::allowed_extension_ids(dev_extension_id(&handle));
@@ -2021,12 +2055,13 @@ pub fn run() {
                 persist_error,
                 other_install: detect_other_install(),
                 beats: Arc::clone(&beats),
+                online: Arc::clone(&online),
                 heartbeat_listening,
             });
 
             let lockdown_app = handle.clone();
             let lockdown_profile = Arc::clone(&profile_for_setup);
-            thread::spawn(move || lockdown_runner(lockdown_app, lockdown_profile, beats));
+            thread::spawn(move || lockdown_runner(lockdown_app, lockdown_profile, beats, online));
 
             // ── Tray ───────────────────────────────────────────────────────
             // Driven from Rust only, so no capability is needed for it.
@@ -2344,7 +2379,7 @@ mod tests {
     fn started(end: u64) -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
         p.focus_active = true;
-        p.start_session(0, Some(end), Some("Write".to_string()), Some("uid1".to_string()), false);
+        p.start_session(0, Some(end), Some("Write".to_string()), Some("uid1".to_string()), false, false);
         p
     }
 

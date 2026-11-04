@@ -34,6 +34,7 @@
     "allow-is-dev-mode",
     "allow-arm-bailout",
     "allow-ack-session-record",
+    "allow-lockdown-set-online",
     "allow-set-close-to-tray",
     "allow-open-web-guard-store",
     "allow-read-snapshot",

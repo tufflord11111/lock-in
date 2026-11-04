@@ -511,6 +511,9 @@ function AppInner() {
   // Unreachable, the heartbeat can't be read, so a quiet extension proves
   // nothing. The extension blocks offline from its own saved state, and an
   // offline session starts as usual.
+  useEffect(() => {
+    invoke("lockdown_set_online", { online: reachable }).catch(() => {});
+  }, [reachable]);
   const [pendingStart, setPendingStart] = useState<{ minutes: number; label: string } | null>(null);
   const gatedStartSession = useCallback(
     (minutes: number, label: string) => {
@@ -518,7 +521,7 @@ function AppInner() {
         setPendingStart({ minutes, label });
         return;
       }
-      startSession(minutes, label);
+      startSession(minutes, label, { blocksSites: sessionSites.length > 0 });
     },
     [reachable, sessionSites, extensionQuietNow, startSession]
   );

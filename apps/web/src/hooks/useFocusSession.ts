@@ -476,7 +476,7 @@ export function useFocusSession(
   }, [clearTimer, secondsRemaining]);
 
   const startSession = useCallback(
-    (minutes: number, label: string, options: { appsOnly?: boolean; lockdown?: boolean } = {}) => {
+    (minutes: number, label: string, options: { appsOnly?: boolean; lockdown?: boolean; blocksSites?: boolean } = {}) => {
       if (!userId) return;
       if (options.appsOnly) logUiEvent("start-apps-only", userId);
       clearTimer();
@@ -544,6 +544,7 @@ export function useFocusSession(
         objective: label.trim(),
         uid: userId,
         lockdown: options.lockdown === true,
+        blocksSites: options.blocksSites === true && !options.appsOnly,
       })
         .then((res) => console.log("RUST RESPONSE:", res))
         .catch((err) =>
