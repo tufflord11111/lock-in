@@ -1,4 +1,4 @@
-# Chrome Web Store submission — Lock-In Web Police 1.2.4
+# Chrome Web Store submission — Lock-In Web Police 1.2.5
 
 Everything the developer dashboard asks for on this update, in one place.
 Paste each block into the matching field.
@@ -8,8 +8,8 @@ Paste each block into the matching field.
 | | |
 |---|---|
 | Item | Lock-In Web Police (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
-| Version | 1.2.4 |
-| Zip | `apps/extension/lock-in-extension-v1.2.4.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
+| Version | 1.2.5 |
+| Zip | `apps/extension/lock-in-extension-v1.2.5.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
 | SHA256 | `A9F29E7A61892D8D217DC97773E15598651C83C113FED76836B58A75F58E3B6E` (110,463 bytes, 2026-11-03) |
 | Permissions | `storage`, `webNavigation`, `alarms`, `declarativeNetRequestWithHostAccess` |
 | Host permissions | `<all_urls>` |
@@ -53,6 +53,11 @@ For the reviewer's "what's new", and for your own record:
   alarm, so blocking stops on time offline. The popup paints from saved state. A
   dead unlock message handler is gone.
 
+- **1.2.5** — every 30 s the extension tells the Lock-In desktop app on the same PC
+  that it is running, which browser it is in, whether it is allowed in private
+  windows, and which account it is signed in to. This goes to `127.0.0.1` only and
+  never leaves the PC. No new permission.
+
 **Review:** a new permission plus `web_accessible_resources` means a full review.
 Plan on days. `declarativeNetRequestWithHostAccess` adds no install warning of
 its own, so existing users are not asked to re-approve on update. `block.html`
@@ -85,7 +90,7 @@ installed; low risk, and worth saying if asked.
 
 **Host permission `<all_urls>`**
 
-> The blocklist is defined entirely by the user, so the extension cannot know in advance which sites it must check. It compares the hostname of pages the user opens against that personal list, and on a match during an active session redirects the tab to a local block page. The same host access lets it connect to the user's Lock-In account (Firebase) to read that blocklist and the session state. The extension has no content scripts and does not request the scripting permission, so it never reads page content, the DOM, cookies or form data. No browsing data is transmitted or stored off the device.
+> The blocklist is defined entirely by the user, so the extension cannot know in advance which sites it must check. The same access lets it tell the Lock-In desktop app on the user's own PC, at 127.0.0.1 only, that it is running; that local message names the browser and the signed-in account and carries no browsing data. It compares the hostname of pages the user opens against that personal list, and on a match during an active session redirects the tab to a local block page. The same host access lets it connect to the user's Lock-In account (Firebase) to read that blocklist and the session state. The extension has no content scripts and does not request the scripting permission, so it never reads page content, the DOM, cookies or form data. No browsing data is transmitted or stored off the device.
 
 ### Remote code
 

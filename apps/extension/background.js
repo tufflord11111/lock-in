@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, update, set, forceWebSockets } from "firebase/database";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extension";
 import { buildRules, sameRules } from "./dnrRules.js";
+import { browserFromBrands, BEAT_URL } from "./beat.js";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -327,6 +328,21 @@ function pulseHeartbeat() {
   }).catch(err => console.error("[Heartbeat Error]:", err));
 }
 
+// Tell the desktop app on this PC we're here and which browser this is. Local
+// only, so it works offline. No app listening just means this fails quietly.
+// Signed out there's no uid, which tells the app this copy isn't enforcing.
+async function beatToDesktop() {
+  await hydrating;
+  const uid = activeUid || storedUid || null;
+  const incognitoAllowed = await chrome.extension.isAllowedIncognitoAccess();
+  const browser = browserFromBrands(navigator.userAgentData?.brands, typeof navigator.brave !== "undefined");
+  fetch(BEAT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ browser, version: chrome.runtime.getManifest().version, incognitoAllowed, uid }),
+  }).catch(() => {});
+}
+
 // Open-tab upload (F5) has been removed entirely: nothing enumerates tabs or
 // writes users/{uid}/openTabs, the desktop no longer asks for it, and the
 // rules reject any openTabs write from older builds.
@@ -381,8 +397,14 @@ function applyRules() {
   return rulesQueue;
 }
 
-chrome.runtime.onStartup.addListener(() => applyRules());
-chrome.runtime.onInstalled.addListener(() => applyRules());
+chrome.runtime.onStartup.addListener(() => {
+  applyRules();
+  beatToDesktop();
+});
+chrome.runtime.onInstalled.addListener(() => {
+  applyRules();
+  beatToDesktop();
+});
 
 function isDomainBlocked(url, blockList) {
   try {
@@ -453,6 +475,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     updateBadge();
     applyRules();
   });
+  if (alarm.name === "keepAlive") beatToDesktop();
   if (alarm.name === "keepAlive" && activeUid) {
     // Keep-alive read against this user's own node — global_session is locked
     // in the rules and would return permission_denied.
