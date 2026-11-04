@@ -1,3 +1,5 @@
+mod heartbeat;
+
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, State, Emitter};
@@ -426,6 +428,19 @@ struct AppState {
     persist_error: Option<String>,
     /// The other kind of install is also on this PC. See other_install_present.
     other_install: bool,
+    beats: Arc<heartbeat::BeatStore>,
+    /// False when the heartbeat port couldn't be opened, so no beat can arrive.
+    heartbeat_listening: bool,
+}
+
+/// An extra accepted extension id, for an unpacked test copy of Web Guard. Read
+/// from DEV_EXTENSION_ID beside DEV_MODE, and only when DEV_MODE exists.
+fn dev_extension_id(app: &tauri::AppHandle) -> Option<String> {
+    if !is_dev_mode(app.clone()) {
+        return None;
+    }
+    let dir = app.path().app_data_dir().ok()?;
+    std::fs::read_to_string(dir.join("DEV_EXTENSION_ID")).ok()
 }
 
 /// True when the Store package and a direct-download install are both here.
@@ -1839,11 +1854,28 @@ pub fn run() {
                 restore_profile(&profile_for_setup, path, &handle);
             }
 
+            // ── Web Guard heartbeat ────────────────────────────────────────
+            let beats = Arc::new(heartbeat::BeatStore::default());
+            let heartbeat_listening = match heartbeat::bind() {
+                Ok(listener) => {
+                    let allowed = heartbeat::allowed_extension_ids(dev_extension_id(&handle));
+                    let served = Arc::clone(&beats);
+                    thread::spawn(move || heartbeat::serve(listener, allowed, served, now_millis));
+                    true
+                }
+                Err(e) => {
+                    println!("[Heartbeat] could not listen on 127.0.0.1:{}: {}", heartbeat::PORT, e);
+                    false
+                }
+            };
+
             app.manage(AppState {
                 profile: Arc::clone(&profile_for_setup),
                 state_path: state_path.clone(),
                 persist_error,
                 other_install: detect_other_install(),
+                beats,
+                heartbeat_listening,
             });
 
             // ── Tray ───────────────────────────────────────────────────────
