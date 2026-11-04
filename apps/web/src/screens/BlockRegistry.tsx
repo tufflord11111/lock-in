@@ -11,6 +11,7 @@ import { guardWrite, reportWriteFailure } from "../writeFailures";
 import { logUiEvent } from "../uiEventLog";
 import { getDeviceId } from "../deviceId";
 import { DeleteAccountButton } from "../components/DeleteAccountButton";
+import { CompanionSettings } from "../components/CompanionSettings";
 import { AppearancePicker } from "../theme/AppearancePicker";
 import { useCopy } from "../theme/copy";
 
@@ -612,6 +613,8 @@ export function BlockRegistry({
             </button>
           </div>
         </section>
+
+        <CompanionSettings userId={userId} />
 
         {/* ACCOUNT DELETION (F6) */}
         <DeleteAccountButton userId={userId} />

@@ -7,7 +7,7 @@ import { ref, onValue, update } from "firebase/database";
 import { BottomNav, type AppTab } from "./components/BottomNav";
 import { X } from "lucide-react";
 import { useFocusSession } from "./hooks/useFocusSession";
-import { useCompanionStart } from "./hooks/useCompanion";
+import { useCompanionSettings, useCompanionStart } from "./hooks/useCompanion";
 import { useOmniSync } from "./hooks/useOmniSync";
 import { usePresence } from "./hooks/usePresence";
 import { PerformanceLog as Analytics } from "./screens/PerformanceLog";
@@ -550,6 +550,8 @@ function AppInner() {
     },
     [reachable, sessionSites, extensionQuietNow, startSession, user?.uid]
   );
+
+  useCompanionSettings(user && emailVerified ? user.uid : undefined);
 
   // The bird's Start 25. It ends up in the same place as the dashboard's button.
   useCompanionStart({
