@@ -1,6 +1,10 @@
 # Defender false positive — what likely trips it, and what to change
 
-Written 4 Nov 2026 against `765e9b1`. **Doc only: nothing here is implemented.**
+Written 4 Nov 2026 against `765e9b1`.
+
+**Status:** items 1–3 are done in 1.2.10: no PowerShell, `rundll32` or `taskkill`. Items 4–7
+aren't. Decisions: no signing for now, and direct-download publishing waits for Microsoft's
+verdict.
 
 ## What happened
 
@@ -143,15 +147,11 @@ once the report comes back, and not before:
 
 Don't tell people to add an exclusion as the first answer.
 
-## Decisions for Cayden
+## Decisions (Cayden, 4 Nov)
 
-1. Do items 1–3 and 6–7 for 1.2.10, or leave 1.2.10 as it is and do them in 1.2.11? They're
-   low risk, but they touch the block picker and the shortcut path, so they'd need a retest.
-   **Recommendation: 1.2.11, unless 1.2.10 gets flagged too.** Submit 1.2.10 either way.
-2. Signing: OV certificate, Artifact Signing if you qualify, or Store-first with an unsigned
-   download?
-3. Whether to hold publishing 1.2.10 until report 57797388 comes back. 1.2.10 adds more of the
-   same behaviour, so a verdict on 1.2.9 is useful evidence.
+1. Items 1–3 done now in 1.2.10. Items 6–7 not requested.
+2. No signing for now.
+3. Direct-download publishing waits for Microsoft's verdict.
 
 ## Sources
 
