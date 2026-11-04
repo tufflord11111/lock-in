@@ -561,10 +561,12 @@ fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beat
         let running = running_browsers(&mut sys);
         let ids: Vec<&'static str> = running.keys().copied().collect();
         let last_beat = |b: &str| beats.latest(b, uid.as_deref()).map(|beat| beat.at);
+        let incognito_off = |b: &str| beats.latest(b, uid.as_deref()).map_or(false, |beat| !beat.incognito_allowed);
         let tick = lockdown::Tick {
             now: now_millis(),
             running: &ids,
             last_beat: &last_beat,
+            incognito_off: &incognito_off,
             fresh_ms: heartbeat::FRESH_MS,
         };
         for action in tracker.tick(&tick) {
@@ -576,6 +578,14 @@ fn lockdown_runner(app: tauri::AppHandle, profile: Arc<Mutex<LockProfile>>, beat
                     );
                     log_ui_event(&app, "lockdown-warned");
                     deliver_warning(&app, "Lock-In is closing a browser", message);
+                }
+                lockdown::Action::IncognitoGap { browser } => {
+                    let name = browsers::name_of(browser);
+                    let message = format!(
+                        "{name} can stay open, but its Incognito windows aren't blocked. To cover them, turn on \"Allow in Incognito\" for Lock-In Web Police in {name}'s extension settings."
+                    );
+                    log_ui_event(&app, "lockdown-incognito-gap");
+                    deliver_warning(&app, "Incognito isn't covered", message);
                 }
                 lockdown::Action::SoftClose { browser } => {
                     if let Some(pids) = running.get(browser) {
@@ -1476,6 +1486,7 @@ const UI_EVENTS: &[&str] = &[
     "start-apps-only",
     "lockdown-warned",
     "lockdown-closed",
+    "lockdown-incognito-gap",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
