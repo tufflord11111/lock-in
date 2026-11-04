@@ -35,6 +35,9 @@ enforcer_state.json.tmp
 # MSIX packaging. dist/ is already covered above; these are the signing key
 # and the package output, neither of which belongs in the repo.
 devcert.pfx
+# Flagged samples uploaded to Microsoft: never commit.
+.defender-submit/
+
 *.pfx
 *.cer
 *.msix
