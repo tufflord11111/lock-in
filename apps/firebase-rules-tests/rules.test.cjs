@@ -196,6 +196,30 @@ async function check(name, expect, fn) {
     await check(`config/baselineHoursLost ${hours} is accepted`, "pass",
       () => set(ref(alice, "users/alice/config/baselineHoursLost"), hours));
   }
+  // ── Parrot companion settings ─────────────────────────────────────────────
+  const companion = "users/alice/config/companion";
+  for (const [key, value] of [
+    ["enabled", true], ["enabled", false], ["nudgeAfterMin", 30], ["nudgeAfterMin", 240],
+    ["quietStart", "22:00"], ["quietEnd", "07:30"], ["v", 1],
+  ]) {
+    await check(`config/companion/${key} ${JSON.stringify(value)} is accepted`, "pass",
+      () => set(ref(alice, `${companion}/${key}`), value));
+  }
+  await check("config/companion accepts the whole object in one set", "pass",
+    () => set(ref(alice, companion), { enabled: true, nudgeAfterMin: 30, quietStart: "22:00", quietEnd: "08:00", v: 1 }));
+  for (const [key, value] of [
+    ["nudgeAfterMin", 29], ["nudgeAfterMin", 241], ["nudgeAfterMin", "45"],
+    ["quietStart", "24:00"], ["quietStart", "7:30"], ["quietEnd", "22:00x"],
+    ["enabled", "yes"], ["v", 2], ["foo", 1],
+  ]) {
+    await check(`config/companion/${key} ${JSON.stringify(value)} is rejected`, "fail",
+      () => set(ref(alice, `${companion}/${key}`), value));
+  }
+  await check("another user can't write config/companion", "fail",
+    () => set(ref(bob, `${companion}/enabled`), false));
+  await check("anon can't write config/companion", "fail",
+    () => set(ref(env.unauthenticatedContext().database(), `${companion}/enabled`), false));
+
   await check("config/baselineHoursLost 25 is rejected", "fail",
     () => set(ref(alice, "users/alice/config/baselineHoursLost"), 25));
   await check("config/baselineHoursLost -1 is rejected", "fail",
