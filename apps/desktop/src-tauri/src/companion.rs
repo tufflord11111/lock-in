@@ -46,10 +46,16 @@ fn covers_monitor(window: ScreenRect, monitor: ScreenRect) -> bool {
         && window.bottom >= monitor.bottom
 }
 
-/// Whether the foreground window is full screen. A maximised window isn't: with
-/// an auto-hide taskbar its frame overhangs the monitor by a few pixels. Neither
-/// is the desktop, nor our own windows; those are told apart by process id, and
-/// no name is read.
+/// Full screen, not merely large. A maximised window's frame overhangs the monitor
+/// by a few pixels, which with an auto-hide taskbar means it covers every side too;
+/// a full-screen one fits exactly, even if (like a browser on F11) it stays flagged
+/// as maximised. A borderless game can overhang and is still full screen.
+fn is_fullscreen(window: ScreenRect, monitor: ScreenRect, zoomed: bool) -> bool {
+    covers_monitor(window, monitor) && !(zoomed && window != monitor)
+}
+
+/// Whether the foreground window is full screen. Neither the desktop nor our own
+/// windows count; those are told apart by process id, and no name is read.
 fn foreground_is_fullscreen() -> bool {
     unsafe {
         if let Ok(state) = SHQueryUserNotificationState() {
@@ -58,7 +64,7 @@ fn foreground_is_fullscreen() -> bool {
             }
         }
         let foreground = GetForegroundWindow();
-        if foreground.is_invalid() || IsZoomed(foreground).as_bool() {
+        if foreground.is_invalid() {
             return false;
         }
         let mut pid = 0u32;
@@ -77,7 +83,7 @@ fn foreground_is_fullscreen() -> bool {
         if !GetMonitorInfoW(monitor, &mut info).as_bool() {
             return false;
         }
-        covers_monitor(window.into(), info.rcMonitor.into())
+        is_fullscreen(window.into(), info.rcMonitor.into(), IsZoomed(foreground).as_bool())
     }
 }
 
@@ -459,6 +465,34 @@ mod tests {
     const MONITOR: ScreenRect = ScreenRect { left: 0, top: 0, right: 1920, bottom: 1080 };
 
     #[test]
+    fn a_maximised_window_is_not_full_screen() {
+        // Measured: Edge maximised with an auto-hide taskbar.
+        let r = ScreenRect { left: -13, top: -13, right: 2893, bottom: 1813 };
+        let monitor = ScreenRect { left: 0, top: 0, right: 2880, bottom: 1800 };
+        assert!(covers_monitor(r, monitor));
+        assert!(!is_fullscreen(r, monitor, true));
+    }
+
+    #[test]
+    fn maximised_above_a_normal_taskbar_is_not_full_screen() {
+        let r = ScreenRect { left: -8, top: -8, right: 1928, bottom: 1040 };
+        assert!(!is_fullscreen(r, MONITOR, true));
+    }
+
+    #[test]
+    fn f11_is_full_screen_though_flagged_maximised() {
+        // Measured: Edge on F11 keeps WS_MAXIMIZE and fits the monitor exactly.
+        assert!(is_fullscreen(MONITOR, MONITOR, true));
+    }
+
+    #[test]
+    fn a_borderless_window_is_full_screen_with_or_without_overhang() {
+        let over = ScreenRect { left: -8, top: -8, right: 1928, bottom: 1088 };
+        assert!(is_fullscreen(MONITOR, MONITOR, false));
+        assert!(is_fullscreen(over, MONITOR, false));
+    }
+
+        #[test]
     fn exact_cover_counts() {
         assert!(covers_monitor(MONITOR, MONITOR));
     }
