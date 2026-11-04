@@ -10,7 +10,7 @@ Paste each block into the matching field.
 | Item | Lock-In Web Guard (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
 | Version | 1.2.5 |
 | Zip | `apps/extension/lock-in-extension-v1.2.5.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
-| SHA256 | `F0F6565B0024D2258FCD9FDF2A13C7B03B4D479AFD180169E85B38C52D7A6A23` (110,720 bytes, 2026-11-04) |
+| SHA256 | `B03254E289543F7B5912C8924A9F0FA0F848E28FD906C75CA74AC11466B5DF82` (110,610 bytes, 2026-11-04) |
 | Permissions | `storage`, `webNavigation`, `alarms`, `declarativeNetRequestWithHostAccess` |
 | Host permissions | `<all_urls>` |
 
