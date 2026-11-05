@@ -23,7 +23,7 @@
         "minHeight": 640,
         "resizable": true,
         "visible": false,
-        "focus": true,
+        "focus": false,
         "center": true
       }
     ]

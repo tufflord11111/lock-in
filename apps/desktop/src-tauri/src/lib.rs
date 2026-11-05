@@ -2565,6 +2565,20 @@ mod tests {
         assert_eq!(handler, listed);
     }
 
+    /// A window created with focus takes the foreground even while hidden: a --silently
+    /// launch would pull the user out of whatever they are doing. The boot thread and
+    /// show_main_window focus it when it is actually shown.
+    #[test]
+    fn main_is_created_without_focus() {
+        // The Store build's config only overlays this one, so it inherits the window.
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let main = &conf["app"]["windows"][0];
+        assert_eq!(main["visible"], false);
+        assert_eq!(main["focus"], false);
+        let store: serde_json::Value = serde_json::from_str(include_str!("../tauri.store.conf.json")).unwrap();
+        assert!(store["app"]["windows"].is_null());
+    }
+
     #[test]
     fn only_main_is_granted_commands_in_both_builds() {
         for raw in [
