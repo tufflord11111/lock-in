@@ -128,6 +128,7 @@ export function createBird(
       type: "dragMove",
       x: e.clientX - press.grabX,
       lift: window.innerHeight - (e.clientY - press.grabY) - DISPLAY_CELL,
+      maxLift: window.innerHeight - DISPLAY_CELL,
     });
   });
 

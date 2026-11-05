@@ -39,7 +39,7 @@ export type BirdEvent =
   | { type: "talkStart" }
   | { type: "talkEnd" }
   | { type: "dragStart" }
-  | { type: "dragMove"; x: number; lift: number }
+  | { type: "dragMove"; x: number; lift: number; maxLift: number }
   | { type: "dragEnd" };
 
 /** The art's stride: 12 px per 8-frame, 10 fps cycle. Faster and the feet slide. */
@@ -52,6 +52,17 @@ export const PERCH_MAX_MS = 120_000;
 
 export const maxX = (width: number) => Math.max(0, width - DISPLAY_CELL);
 export const restingX = (width: number) => Math.round(maxX(width) * 0.85);
+
+/** How often a walk heads for an edge. Uniform targets alone almost never reach one. */
+export const EDGE_WALK_CHANCE = 0.3;
+
+/** Where a walk ends: either edge some of the time, else anywhere between. */
+export function walkTarget(rand: number, width: number): number {
+  const edge = EDGE_WALK_CHANCE / 2;
+  if (rand < edge) return 0;
+  if (rand >= 1 - edge) return maxX(width);
+  return Math.round(rand * maxX(width));
+}
 
 const between = (rand: number, min: number, max: number) => min + rand * (max - min);
 
@@ -94,7 +105,7 @@ const settle = (s: BirdState, now: number, rand: number): BirdState =>
   s.sessionActive ? { ...s, mode: "sleep", enteredAt: now, happyAfterWake: false } : enterIdle(s, now, rand);
 
 function startWalk(s: BirdState, now: number, rand: number): BirdState {
-  const targetX = Math.round(rand * maxX(s.width));
+  const targetX = walkTarget(rand, s.width);
   if (Math.abs(targetX - s.x) < DISPLAY_CELL / 2) return enterIdle(s, now, rand);
   return { ...s, mode: "walk", enteredAt: now, fromX: s.x, targetX, facing: targetX > s.x ? 1 : -1 };
 }
@@ -179,7 +190,7 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
       return { ...s, mode: "drag", enteredAt: now };
     case "dragMove":
       if (s.mode !== "drag") return s;
-      return { ...s, x: Math.min(Math.max(0, event.x), maxX(s.width)), lift: Math.max(0, event.lift) };
+      return { ...s, x: Math.min(Math.max(0, event.x), maxX(s.width)), lift: Math.min(Math.max(0, event.lift), Math.max(0, event.maxLift)) };
     case "dragEnd":
       if (s.mode !== "drag") return s;
       if (s.reducedMotion || s.lift === 0) return settle({ ...s, lift: 0 }, now, rand);

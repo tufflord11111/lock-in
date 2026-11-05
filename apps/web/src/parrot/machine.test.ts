@@ -8,6 +8,7 @@ import {
   initialState,
   isStill,
   maxX,
+  walkTarget,
   reduce,
   restingX,
   spriteState,
@@ -119,7 +120,7 @@ describe("sessions", () => {
 
   it("a drop during a session lands asleep", () => {
     let s = go(start(), { type: "dragStart" });
-    s = go(s, { type: "dragMove", x: 300, lift: 60 });
+    s = go(s, { type: "dragMove", x: 300, lift: 60, maxLift: 800 });
     s = go(s, { type: "session", active: true });
     expect(s.mode).toBe("drag");
     s = go(s, { type: "dragEnd" });
@@ -144,9 +145,9 @@ describe("talk", () => {
 describe("drag and fall", () => {
   it("is clamped to the overlay and falls to the bottom edge from the clock", () => {
     let s = go(start(), { type: "dragStart" });
-    s = go(s, { type: "dragMove", x: 99_999, lift: 300 });
+    s = go(s, { type: "dragMove", x: 99_999, lift: 300, maxLift: 800 });
     expect(s.x).toBe(maxX(WIDTH));
-    s = go(s, { type: "dragMove", x: -50, lift: 300 });
+    s = go(s, { type: "dragMove", x: -50, lift: 300, maxLift: 800 });
     expect(s.x).toBe(0);
     s = go(s, { type: "dragEnd" }, T0);
     expect(s.mode).toBe("fall");
@@ -182,7 +183,7 @@ describe("reduced motion", () => {
     expect(restingX(WIDTH)).toBe(Math.round((WIDTH - 96) * 0.85));
     expect(tick(s, T0 + 10_000_000, 0.1)).toBe(s);
     s = go(s, { type: "dragStart" });
-    s = go(s, { type: "dragMove", x: 50, lift: 200 });
+    s = go(s, { type: "dragMove", x: 50, lift: 200, maxLift: 800 });
     s = go(s, { type: "dragEnd" });
     expect(s.mode).toBe("idle");
     expect(s.lift).toBe(0);
@@ -232,5 +233,36 @@ describe("what the loop needs", () => {
     const s = go(start(), { type: "hidden", hidden: true });
     expect(s.hidden).toBe(true);
     expect(s.mode).toBe("idle");
+  });
+});
+
+describe("walks and drags stay on the screen and reach its edges", () => {
+  it("a walk can end exactly on either edge", () => {
+    expect(walkTarget(0, WIDTH)).toBe(0);
+    expect(walkTarget(0.14, WIDTH)).toBe(0);
+    expect(walkTarget(0.86, WIDTH)).toBe(maxX(WIDTH));
+    expect(walkTarget(0.999, WIDTH)).toBe(maxX(WIDTH));
+  });
+
+  it("between the edge bands, a walk ends somewhere in between", () => {
+    const t = walkTarget(0.5, WIDTH);
+    expect(t).toBeGreaterThan(0);
+    expect(t).toBeLessThan(maxX(WIDTH));
+  });
+
+  it("both edges turn up within a modest number of walks", () => {
+    let seed = 1;
+    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const targets = Array.from({ length: 40 }, () => walkTarget(rand(), WIDTH));
+    expect(targets).toContain(0);
+    expect(targets).toContain(maxX(WIDTH));
+  });
+
+  it("dragging past the top keeps the whole bird on the screen", () => {
+    let s = go(start(), { type: "dragStart" });
+    s = go(s, { type: "dragMove", x: 100, lift: 99_999, maxLift: 804 });
+    expect(s.lift).toBe(804);
+    s = go(s, { type: "dragMove", x: 100, lift: -50, maxLift: 804 });
+    expect(s.lift).toBe(0);
   });
 });
