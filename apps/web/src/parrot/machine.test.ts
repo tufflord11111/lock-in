@@ -5,6 +5,7 @@ import {
   STILL_STEP_MS,
   WALK_PX_PER_S,
   frameIndex,
+  holdsOneFrame,
   initialState,
   isStill,
   maxX,
@@ -218,10 +219,11 @@ describe("what the loop needs", () => {
 
   it("still modes change frame at most once a second", () => {
     expect(STILL_STEP_MS).toBeGreaterThanOrEqual(1000);
-    const s = { ...start(), mode: "sleep" } as BirdState;
+    const s = { ...start(), mode: "perch" } as BirdState;
+    const frames = rowOf("perch").frames;
     expect(frameIndex(s, T0 + 999, byRow)).toBe(0);
     expect(frameIndex(s, T0 + 1000, byRow)).toBe(1);
-    expect(frameIndex(s, T0 + 4000, byRow)).toBe(0);
+    expect(frameIndex(s, T0 + frames * 1000, byRow)).toBe(0);
   });
 
   it("moving modes follow the row's own fps", () => {
@@ -264,5 +266,20 @@ describe("walks and drags stay on the screen and reach its edges", () => {
     expect(s.lift).toBe(804);
     s = go(s, { type: "dragMove", x: 100, lift: -50, maxLift: 804 });
     expect(s.lift).toBe(0);
+  });
+});
+
+describe("asleep, nothing redraws", () => {
+  it("holds one frame however long it sleeps, with motion allowed", () => {
+    const asleep = initialState(T0, WIDTH, false, true, 0);
+    expect(holdsOneFrame(asleep)).toBe(true);
+    for (const later of [0, 1_000, 2_000, 60_000]) {
+      expect(frameIndex(asleep, T0 + later, byRow)).toBe(0);
+    }
+  });
+
+  it("an awake still bird keeps stepping", () => {
+    const idle = initialState(T0, WIDTH, false, false, 0);
+    expect(holdsOneFrame(idle)).toBe(false);
   });
 });

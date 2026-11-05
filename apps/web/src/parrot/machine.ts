@@ -207,11 +207,14 @@ export const STILL_STEP_MS = 1_000;
 const STILL: readonly Mode[] = ["idle", "perch", "sleep"];
 export const isStill = (s: BirdState): boolean => STILL.includes(s.mode);
 
+/** Asleep it holds one frame and asks for no redraw at all: each one recomposites the whole overlay. */
+export const holdsOneFrame = (s: BirdState): boolean => s.reducedMotion || s.mode === "sleep";
+
 /** The frame to show. Still modes step slowly from the clock; reduced motion holds frame 0. */
 export function frameIndex(s: BirdState, now: number, frameAt: (state: string, elapsedMs: number) => number): number {
   const state = spriteState(s);
   const elapsed = now - s.enteredAt;
   if (!isStill(s)) return frameAt(state, elapsed);
-  if (s.reducedMotion) return 0;
+  if (holdsOneFrame(s)) return 0;
   return Math.floor(elapsed / STILL_STEP_MS) % rowOf(state).frames;
 }

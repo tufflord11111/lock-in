@@ -8,6 +8,7 @@ import { COLUMNS, DISPLAY_CELL, SHEET_ROWS, cellOffset, createLoop, frameAt, row
 import {
   STILL_STEP_MS,
   frameIndex,
+  holdsOneFrame,
   initialState,
   isStill,
   reduce,
@@ -88,8 +89,8 @@ export function createBird(
       let plan: LoopPlan;
       if (state.hidden) plan = { kind: "stop" };
       else if (!isStill(state)) plan = { kind: "frames" };
-      // Reduced motion: one pose, and nothing to do until something happens.
-      else if (state.reducedMotion) plan = { kind: "stop" };
+      // Asleep or reduced motion: one pose, and nothing to do until something happens.
+      else if (holdsOneFrame(state)) plan = { kind: "stop" };
       else plan = { kind: "wait", ms: STILL_STEP_MS - ((now - state.enteredAt) % STILL_STEP_MS) };
       sendHitboxes(now, plan.kind !== "frames");
       lastPlan = plan.kind;
