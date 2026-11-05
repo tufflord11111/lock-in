@@ -5,7 +5,7 @@
 //! WebView2's own child windows. The session state comes from the enforcer's existing
 //! profile, read and never written.
 
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,15 +21,15 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::SystemInformation::GetTickCount;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SHQueryUserNotificationState, SetWindowSubclass, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetTopWindow, GetWindow,
-    GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
-    KillTimer, PostMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, GW_HWNDNEXT,
+    EnumChildWindows, GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW,
+    GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
+    KillTimer, PostMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE,
     MA_NOACTIVATE, SM_CMONITORS, STYLESTRUCT, SWP_NOACTIVATE, WINDOWPOS, WM_ACTIVATE, WM_APP, WM_MOUSEACTIVATE,
     WM_NCDESTROY, WM_STYLECHANGING, WM_TIMER, WM_WINDOWPOSCHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
@@ -308,7 +308,11 @@ fn overlay_ex_style(ex: u32) -> u32 {
 const SUBCLASS_ID: usize = 1;
 const GIVE_FOCUS_BACK: u32 = WM_APP + 1;
 const GIVE_BACK_TIMER: usize = 1;
+/// The page normally says when the interaction ended. Regardless, after this long.
+const GIVE_BACK_FALLBACK_MS: u32 = 1_500;
 static FOCUS_CAME_FROM: AtomicIsize = AtomicIsize::new(0);
+static AWAITING_GIVE_BACK: AtomicBool = AtomicBool::new(false);
+static DRAGGING: AtomicBool = AtomicBool::new(false);
 
 /// Runs before tao's own window procedure. Setting the style once wouldn't last: tao
 /// rewrites all of it whenever click-through toggles. It also shows and restores with
@@ -325,19 +329,32 @@ unsafe extern "system" fn never_activate(
         WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
         // Windows still activates it after a click, with main in front: WebView2's input
         // windows belong to the browser process, whose input queue is attached to this
-        // thread, and nothing here can stop that. So the focus goes straight back. Posted,
-        // because this is mid-activation.
+        // thread, and nothing here can stop that. Giving the focus back during the press
+        // would cancel the webview's pointer capture: a drag stops dead and a button never
+        // gets its click. So it waits for the page to say the interaction ended.
         WM_ACTIVATE if wparam.0 & 0xFFFF != 0 => {
-            let _ = PostMessageW(Some(window), GIVE_FOCUS_BACK, WPARAM(lparam.0 as usize), LPARAM(0));
+            if !AWAITING_GIVE_BACK.swap(true, Ordering::Relaxed) {
+                let other = LAST_OTHER_FOREGROUND.load(Ordering::Relaxed);
+                FOCUS_CAME_FROM.store(focus_source(lparam.0, other), Ordering::Relaxed);
+            }
+            let _ = SetTimer(Some(window), GIVE_BACK_TIMER, GIVE_BACK_FALLBACK_MS, None);
+        }
+        // Someone else took it: it isn't ours to give back any more.
+        WM_ACTIVATE => {
+            AWAITING_GIVE_BACK.store(false, Ordering::Relaxed);
+            let _ = KillTimer(Some(window), GIVE_BACK_TIMER);
         }
         GIVE_FOCUS_BACK => {
-            FOCUS_CAME_FROM.store(wparam.0 as isize, Ordering::Relaxed);
-            give_focus_back_after_the_press(window);
+            give_focus_back(window);
             return LRESULT(0);
         }
         WM_TIMER if wparam.0 == GIVE_BACK_TIMER => {
-            let _ = KillTimer(Some(window), GIVE_BACK_TIMER);
-            give_focus_back_after_the_press(window);
+            // A long drag outlasts the fallback. The page's own word, not the mouse's state.
+            if DRAGGING.load(Ordering::Relaxed) {
+                let _ = SetTimer(Some(window), GIVE_BACK_TIMER, GIVE_BACK_FALLBACK_MS, None);
+            } else {
+                give_focus_back(window);
+            }
             return LRESULT(0);
         }
         WM_STYLECHANGING if wparam.0 as i32 == GWL_EXSTYLE.0 => {
@@ -445,8 +462,7 @@ unsafe fn window_can_take_focus(window: HWND) -> bool {
     )
 }
 
-/// The last window outside this app to hold the foreground, noted on every poll. When
-/// main hides, the window Windows names as the previous one is often this overlay or main.
+/// The last window outside this app to hold the foreground, noted on every poll.
 static LAST_OTHER_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
 
 fn note_other_foreground() {
@@ -463,33 +479,41 @@ fn note_other_foreground() {
     }
 }
 
-/// Giving it back during a press would cancel the webview's pointer capture: a drag stops
-/// dead and a button never gets its click. So it waits for the release.
-unsafe fn give_focus_back_after_the_press(overlay: HWND) {
-    if GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0 {
-        let _ = SetTimer(Some(overlay), GIVE_BACK_TIMER, 30, None);
-        return;
+/// Who was in front right before the overlay activated. WM_ACTIVATE names the window
+/// only if it is on this thread (main); for any other app it says nothing, and the
+/// last poll stands in.
+fn focus_source(named_by_windows: isize, last_other_foreground: isize) -> isize {
+    if named_by_windows != 0 {
+        named_by_windows
+    } else {
+        last_other_foreground
     }
-    give_focus_back(overlay, HWND(FOCUS_CAME_FROM.load(Ordering::Relaxed) as *mut _));
 }
 
-/// Gives the focus to the window it came from if that can still take it, then to the last
-/// window outside this app, then to the topmost one that can and will. Windows would
-/// otherwise give it back to this overlay.
-unsafe fn give_focus_back(overlay: HWND, previous: HWND) {
-    let accepted = |window: HWND| SetForegroundWindow(window).as_bool() && GetForegroundWindow() == window;
-    let other = HWND(LAST_OTHER_FOREGROUND.load(Ordering::Relaxed) as *mut _);
-    for window in [previous, other] {
-        if !window.is_invalid() && window != overlay && window_can_take_focus(window) && accepted(window) {
-            return;
-        }
+/// Back to the window it came from, and no other. If that one is gone, nothing.
+unsafe fn give_focus_back(overlay: HWND) {
+    let _ = KillTimer(Some(overlay), GIVE_BACK_TIMER);
+    if !AWAITING_GIVE_BACK.swap(false, Ordering::Relaxed) {
+        return;
     }
-    let mut next = GetTopWindow(None).ok();
-    while let Some(window) = next {
-        if window != overlay && window_can_take_focus(window) && accepted(window) {
+    let window = HWND(FOCUS_CAME_FROM.load(Ordering::Relaxed) as *mut _);
+    if !window.is_invalid() && window != overlay && window_can_take_focus(window) {
+        let _ = SetForegroundWindow(window);
+    }
+}
+
+/// Main is about to hide, and Windows would hand the focus to whichever window of this
+/// thread was active before it, which can be the overlay. Before it goes, the focus goes
+/// back to the app the user came from, if that is still there. Only if main has it.
+pub fn main_is_hiding(main: isize) {
+    unsafe {
+        if GetForegroundWindow().0 as isize != main {
             return;
         }
-        next = GetWindow(window, GW_HWNDNEXT).ok();
+        let window = HWND(LAST_OTHER_FOREGROUND.load(Ordering::Relaxed) as *mut _);
+        if !window.is_invalid() && window_can_take_focus(window) {
+            let _ = SetForegroundWindow(window);
+        }
     }
 }
 
@@ -672,8 +696,21 @@ pub fn companion_set_hitbox(boxes: Vec<Hitbox>, state: State<'_, CompanionState>
 /// Pins the overlay clickable, or a fast drag outruns the 10 Hz hit-test.
 #[tauri::command]
 pub fn companion_set_dragging(dragging: bool, state: State<'_, CompanionState>) -> Result<(), String> {
+    DRAGGING.store(dragging, Ordering::Relaxed);
     state.shared.lock().map_err(|e| e.to_string())?.dragging = dragging;
     Ok(())
+}
+
+/// The page's word that a press on the overlay is over: pointer up or cancelled, a drag
+/// ended, or a menu or bubble action done. Carries nothing, and does nothing unless the
+/// overlay is holding the focus.
+#[tauri::command]
+pub fn companion_interaction_ended(app: AppHandle) {
+    let Some(window) = app.get_webview_window(LABEL) else { return };
+    let Ok(hwnd) = window.hwnd() else { return };
+    unsafe {
+        let _ = PostMessageW(Some(HWND(hwnd.0)), GIVE_FOCUS_BACK, WPARAM(0), LPARAM(0));
+    }
 }
 
 /// One line per menu open with what triggered it, so a menu that opened by
@@ -767,6 +804,7 @@ mod tests {
         assert_eq!(
             granted,
             [
+                "allow-companion-interaction-ended",
                 "allow-companion-log-menu",
                 "allow-companion-ready",
                 "allow-companion-set-dragging",

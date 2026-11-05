@@ -58,6 +58,14 @@ async function boot() {
     invoke<NativeWorld>("companion_state").then(applyWorld).catch(() => {});
   }, BACKSTOP_MS);
 
+  // Rust gives the focus back when a press is over, if the overlay took it. In the next
+  // task, so a button's click, which follows pointerup, runs first.
+  const pressEnded = () => {
+    window.setTimeout(() => void invoke("companion_interaction_ended").catch(() => {}), 0);
+  };
+  window.addEventListener("pointerup", pressEnded, true);
+  window.addEventListener("pointercancel", pressEnded, true);
+
   // Main answers with the settings. Until then the bird stays silent.
   await emitTo("main", "companion:hello");
 
