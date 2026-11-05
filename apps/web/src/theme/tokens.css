@@ -637,3 +637,9 @@
   --line-rgb: 255 255 255;
   --ink-muted: rgb(255 255 255 / 0.75);
 }
+
+html[data-unfocused] *,
+html[data-unfocused] *::before,
+html[data-unfocused] *::after {
+  animation-play-state: paused !important;
+}

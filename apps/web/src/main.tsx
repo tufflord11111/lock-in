@@ -17,6 +17,14 @@ if (window.location.pathname.endsWith("parrot.html")) {
   throw new Error("The app loaded in the parrot page");
 }
 
+// A hidden window still reports itself visible, so CSS animations keep drawing. The
+// session label's pulse alone cost 1.3% of total CPU in the GPU process with main in
+// the tray. They pause whenever this window doesn't have the focus.
+const noteFocus = () => document.documentElement.toggleAttribute("data-unfocused", !document.hasFocus());
+window.addEventListener("focus", noteFocus);
+window.addEventListener("blur", noteFocus);
+noteFocus();
+
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("Root element #root not found");
