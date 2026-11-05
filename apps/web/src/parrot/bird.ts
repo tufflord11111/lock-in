@@ -6,11 +6,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { COLUMNS, DISPLAY_CELL, SHEET_ROWS, cellOffset, createLoop, frameAt, rowOf, scaleFor, type LoopPlan } from "./animator";
 import {
-  STILL_STEP_MS,
   frameIndex,
-  holdsOneFrame,
   initialState,
   isStill,
+  loopPlan,
   reduce,
   spriteState,
   type BirdEvent,
@@ -19,8 +18,8 @@ import {
 
 const CLICK_MAX_MS = 200;
 const CLICK_MAX_PX = 4;
-/** Rust hit-tests at 10 Hz, so a fresher rectangle than this would go unused. */
-const HITBOX_EVERY_MS = 100;
+/** Well inside Rust's slack around the hitbox at walking speed; a drag is pinned clickable. */
+const HITBOX_EVERY_MS = 200;
 
 export type Bird = {
   dispatch: (event: BirdEvent) => void;
@@ -86,13 +85,8 @@ export function createBird(
       const now = Date.now();
       state = reduce(state, { type: "tick" }, now, Math.random());
       draw(now);
-      let plan: LoopPlan;
-      if (state.hidden) plan = { kind: "stop" };
-      else if (!isStill(state)) plan = { kind: "frames" };
-      // Asleep or reduced motion: one pose, and nothing to do until something happens.
-      else if (holdsOneFrame(state)) plan = { kind: "stop" };
-      else plan = { kind: "wait", ms: STILL_STEP_MS - ((now - state.enteredAt) % STILL_STEP_MS) };
-      sendHitboxes(now, plan.kind !== "frames");
+      const plan = loopPlan(state, now);
+      sendHitboxes(now, isStill(state));
       lastPlan = plan.kind;
       return plan;
     },

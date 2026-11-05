@@ -3,7 +3,7 @@
  * time and randomness arrive as arguments. Coordinates are CSS px: x is the
  * cell's left edge, lift is the height of the feet above the bottom edge.
  */
-import { DISPLAY_CELL, playedOnce, rowOf } from "./animator";
+import { DISPLAY_CELL, playedOnce, rowOf, type LoopPlan } from "./animator";
 
 export type Mode = "idle" | "walk" | "peck" | "perch" | "sleep" | "wake" | "happy" | "talk" | "drag" | "fall";
 
@@ -209,6 +209,17 @@ export const isStill = (s: BirdState): boolean => STILL.includes(s.mode);
 
 /** Asleep it holds one frame and asks for no redraw at all: each one recomposites the whole overlay. */
 export const holdsOneFrame = (s: BirdState): boolean => s.reducedMotion || s.mode === "sleep";
+
+/** Walking draws on a timer at this rate: rAF would wake the page at the display's rate. */
+export const WALK_STEP_MS = 1000 / 15;
+
+/** What the animation loop does next. */
+export function loopPlan(s: BirdState, now: number): LoopPlan {
+  if (s.hidden || holdsOneFrame(s)) return { kind: "stop" };
+  if (s.mode === "walk") return { kind: "wait", ms: WALK_STEP_MS };
+  if (!isStill(s)) return { kind: "frames" };
+  return { kind: "wait", ms: STILL_STEP_MS - ((now - s.enteredAt) % STILL_STEP_MS) };
+}
 
 /** The frame to show. Still modes step slowly from the clock; reduced motion holds frame 0. */
 export function frameIndex(s: BirdState, now: number, frameAt: (state: string, elapsedMs: number) => number): number {

@@ -8,6 +8,7 @@ import {
   holdsOneFrame,
   initialState,
   isStill,
+  loopPlan,
   maxX,
   walkTarget,
   reduce,
@@ -281,5 +282,27 @@ describe("asleep, nothing redraws", () => {
   it("an awake still bird keeps stepping", () => {
     const idle = initialState(T0, WIDTH, false, false, 0);
     expect(holdsOneFrame(idle)).toBe(false);
+  });
+});
+
+describe("what the loop plans", () => {
+  it("stops asleep and while hidden", () => {
+    expect(loopPlan(initialState(T0, WIDTH, false, true, 0), T0).kind).toBe("stop");
+    expect(loopPlan({ ...start(), hidden: true }, T0).kind).toBe("stop");
+  });
+
+  it("walks on a timer, never rAF", () => {
+    const walking = { ...start(), mode: "walk" } as BirdState;
+    expect(loopPlan(walking, T0)).toEqual({ kind: "wait", ms: 1000 / 15 });
+  });
+
+  it("uses rAF only for what must follow closely", () => {
+    expect(loopPlan({ ...start(), mode: "drag" } as BirdState, T0).kind).toBe("frames");
+    expect(loopPlan({ ...start(), mode: "fall" } as BirdState, T0).kind).toBe("frames");
+  });
+
+  it("steps an awake still bird once a second", () => {
+    const idle = { ...start(), mode: "idle", enteredAt: T0 } as BirdState;
+    expect(loopPlan(idle, T0 + 250)).toEqual({ kind: "wait", ms: 750 });
   });
 });
