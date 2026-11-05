@@ -1,9 +1,11 @@
 //! The parrot overlay's native side.
 //!
-//! Read-only geometry and timestamps only: no hooks, no other process touched,
-//! no window titles or process names read. The session state comes from the
-//! enforcer's existing profile, read and never written.
+//! Read-only geometry and timestamps only: no hooks, no window titles or process names
+//! read. The one thing it writes outside this process is the no-activate style on
+//! WebView2's own child windows. The session state comes from the enforcer's existing
+//! profile, read and never written.
 
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -14,20 +16,22 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder, Wry,
 };
+use windows::core::BOOL;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::SystemInformation::GetTickCount;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, LASTINPUTINFO, VK_LBUTTON};
 use windows::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SHQueryUserNotificationState, SetWindowSubclass, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
-    GetWindowThreadProcessId, IsZoomed, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, MA_NOACTIVATE,
-    SM_CMONITORS, STYLESTRUCT, SWP_NOACTIVATE, WINDOWPOS, WM_MOUSEACTIVATE, WM_NCDESTROY, WM_STYLECHANGING,
-    WM_WINDOWPOSCHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    EnumChildWindows, GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetTopWindow, GetWindow,
+    GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
+    KillTimer, PostMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, GW_HWNDNEXT,
+    MA_NOACTIVATE, SM_CMONITORS, STYLESTRUCT, SWP_NOACTIVATE, WINDOWPOS, WM_ACTIVATE, WM_APP, WM_MOUSEACTIVATE,
+    WM_NCDESTROY, WM_STYLECHANGING, WM_TIMER, WM_WINDOWPOSCHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -291,6 +295,9 @@ fn overlay_ex_style(ex: u32) -> u32 {
 }
 
 const SUBCLASS_ID: usize = 1;
+const GIVE_FOCUS_BACK: u32 = WM_APP + 1;
+const GIVE_BACK_TIMER: usize = 1;
+static FOCUS_CAME_FROM: AtomicIsize = AtomicIsize::new(0);
 
 /// Runs before tao's own window procedure. Setting the style once wouldn't last: tao
 /// rewrites all of it whenever click-through toggles. It also shows and restores with
@@ -305,6 +312,23 @@ unsafe extern "system" fn never_activate(
 ) -> LRESULT {
     match message {
         WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
+        // Windows still activates it after a click, with main in front: WebView2's input
+        // windows belong to the browser process, whose input queue is attached to this
+        // thread, and nothing here can stop that. So the focus goes straight back. Posted,
+        // because this is mid-activation.
+        WM_ACTIVATE if wparam.0 & 0xFFFF != 0 => {
+            let _ = PostMessageW(Some(window), GIVE_FOCUS_BACK, WPARAM(lparam.0 as usize), LPARAM(0));
+        }
+        GIVE_FOCUS_BACK => {
+            FOCUS_CAME_FROM.store(wparam.0 as isize, Ordering::Relaxed);
+            give_focus_back_after_the_press(window);
+            return LRESULT(0);
+        }
+        WM_TIMER if wparam.0 == GIVE_BACK_TIMER => {
+            let _ = KillTimer(Some(window), GIVE_BACK_TIMER);
+            give_focus_back_after_the_press(window);
+            return LRESULT(0);
+        }
         WM_STYLECHANGING if wparam.0 as i32 == GWL_EXSTYLE.0 => {
             let change = &mut *(lparam.0 as *mut STYLESTRUCT);
             change.styleNew = overlay_ex_style(change.styleNew);
@@ -333,6 +357,129 @@ fn keep_from_activating(window: &WebviewWindow) -> tauri::Result<()> {
             SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
         }
     })
+}
+
+/// WebView2's child windows stand between the click and the overlay, so the overlay's
+/// own WM_MOUSEACTIVATE answer never gets a say: measured, it isn't even called, and the
+/// root comes up WA_CLICKACTIVE. With the no-activate style on the children that stops.
+/// The ones in the browser process can't be subclassed, so they only get the style. Only
+/// this overlay's descendants.
+unsafe extern "system" fn child_never_activates(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    match message {
+        WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
+        WM_NCDESTROY => {
+            let _ = RemoveWindowSubclass(window, Some(child_never_activates), SUBCLASS_ID);
+        }
+        _ => {}
+    }
+    DefSubclassProc(window, message, wparam, lparam)
+}
+
+unsafe extern "system" fn harden_child(child: HWND, _: LPARAM) -> BOOL {
+    let ex = GetWindowLongPtrW(child, GWL_EXSTYLE);
+    if ex & WS_EX_NOACTIVATE.0 as isize == 0 {
+        SetWindowLongPtrW(child, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE.0 as isize);
+    }
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(child, Some(&mut pid));
+    if pid == std::process::id() {
+        let _ = SetWindowSubclass(child, Some(child_never_activates), SUBCLASS_ID, 0);
+    }
+    BOOL(1)
+}
+
+/// The children exist only once the webview does, so this runs when the page says it
+/// has painted. Must run on the thread that owns the overlay.
+fn keep_children_from_activating(window: &WebviewWindow) {
+    let overlay = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let Ok(hwnd) = overlay.hwnd() else { return };
+        unsafe {
+            let _ = EnumChildWindows(Some(HWND(hwnd.0)), Some(harden_child), LPARAM(0));
+        }
+    });
+}
+
+/// Whether a window can sensibly be handed the focus. Pure, so it can be tested.
+fn can_take_focus(visible: bool, minimized: bool, cloaked: bool, has_size: bool, has_title: bool, ex_style: u32) -> bool {
+    visible
+        && !minimized
+        && !cloaked
+        && has_size
+        && has_title
+        && ex_style & WS_EX_NOACTIVATE.0 == 0
+        && (ex_style & WS_EX_TOOLWINDOW.0 == 0 || ex_style & WS_EX_APPWINDOW.0 != 0)
+}
+
+unsafe fn window_can_take_focus(window: HWND) -> bool {
+    let mut cloaked = 0u32;
+    let is_cloaked = DwmGetWindowAttribute(window, DWMWA_CLOAKED, &mut cloaked as *mut u32 as *mut _, size_of::<u32>() as u32).is_ok()
+        && cloaked != 0;
+    let mut rect = RECT::default();
+    let has_size = GetWindowRect(window, &mut rect).is_ok() && rect.right > rect.left && rect.bottom > rect.top;
+    can_take_focus(
+        IsWindowVisible(window).as_bool(),
+        IsIconic(window).as_bool(),
+        is_cloaked,
+        has_size,
+        GetWindowTextLengthW(window) > 0,
+        GetWindowLongPtrW(window, GWL_EXSTYLE) as u32,
+    )
+}
+
+/// The last window outside this app to hold the foreground, noted on every poll. When
+/// main hides, the window Windows names as the previous one is often this overlay or main.
+static LAST_OTHER_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
+
+fn note_other_foreground() {
+    unsafe {
+        let window = GetForegroundWindow();
+        if window.is_invalid() {
+            return;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(window, Some(&mut pid));
+        if pid != std::process::id() {
+            LAST_OTHER_FOREGROUND.store(window.0 as isize, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Giving it back during a press would cancel the webview's pointer capture: a drag stops
+/// dead and a button never gets its click. So it waits for the release.
+unsafe fn give_focus_back_after_the_press(overlay: HWND) {
+    if GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0 {
+        let _ = SetTimer(Some(overlay), GIVE_BACK_TIMER, 30, None);
+        return;
+    }
+    give_focus_back(overlay, HWND(FOCUS_CAME_FROM.load(Ordering::Relaxed) as *mut _));
+}
+
+/// Gives the focus to the window it came from if that can still take it, then to the last
+/// window outside this app, then to the topmost one that can and will. Windows would
+/// otherwise give it back to this overlay.
+unsafe fn give_focus_back(overlay: HWND, previous: HWND) {
+    let accepted = |window: HWND| SetForegroundWindow(window).as_bool() && GetForegroundWindow() == window;
+    let other = HWND(LAST_OTHER_FOREGROUND.load(Ordering::Relaxed) as *mut _);
+    for window in [previous, other] {
+        if !window.is_invalid() && window != overlay && window_can_take_focus(window) && accepted(window) {
+            return;
+        }
+    }
+    let mut next = GetTopWindow(None).ok();
+    while let Some(window) = next {
+        if window != overlay && window_can_take_focus(window) && accepted(window) {
+            return;
+        }
+        next = GetWindow(window, GW_HWNDNEXT).ok();
+    }
 }
 
 fn build_overlay(app: &AppHandle) -> tauri::Result<()> {
@@ -401,6 +548,7 @@ fn run(app: AppHandle) {
             };
             // Hide at once; come back only after two clear polls, so alt-tab
             // doesn't flicker it.
+            note_other_foreground();
             let over_fullscreen = fullscreen_on_birds_monitor(&window);
             clear_polls = if over_fullscreen { 0 } else { clear_polls.saturating_add(1) };
             let (session_active, session_end_at) = session_read(&app, previous);
@@ -494,8 +642,11 @@ pub fn companion_show_main(app: AppHandle) {
 
 /// The page has painted its first frame.
 #[tauri::command]
-pub fn companion_ready(state: State<'_, CompanionState>) -> Result<(), String> {
+pub fn companion_ready(app: AppHandle, state: State<'_, CompanionState>) -> Result<(), String> {
     state.shared.lock().map_err(|e| e.to_string())?.page_ready = true;
+    if let Some(window) = app.get_webview_window(LABEL) {
+        keep_children_from_activating(&window);
+    }
     Ok(())
 }
 
