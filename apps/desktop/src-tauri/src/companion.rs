@@ -31,7 +31,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
     KillTimer, PostMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, GW_HWNDNEXT,
     MA_NOACTIVATE, SM_CMONITORS, STYLESTRUCT, SWP_NOACTIVATE, WINDOWPOS, WM_ACTIVATE, WM_APP, WM_MOUSEACTIVATE,
-    WM_NCDESTROY, WM_STYLECHANGING, WM_TIMER, WM_WINDOWPOSCHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WM_NCDESTROY, WM_STYLECHANGING, WM_TIMER, WM_WINDOWPOSCHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -94,8 +94,16 @@ fn bird_is_covered<M: PartialEq + Copy>(
         .any(|w| w.monitor == bird_monitor && is_fullscreen(w.rect, bird_monitor_rect, w.zoomed))
 }
 
+/// A click-through or never-activated window sits over the screen without being what's
+/// on it: a glow, a capture frame, an indicator. Measured: Claude's overlay is exactly
+/// screen-sized and not maximised, like an F11 window, and only these bits differ.
+fn is_passive_overlay(ex_style: u32) -> bool {
+    ex_style & (WS_EX_TRANSPARENT.0 | WS_EX_NOACTIVATE.0) != 0
+}
+
 /// Neither the desktop, nor our own windows, nor one Windows has cloaked (a suspended
-/// app, another virtual desktop) count; told apart by process id and flag.
+/// app, another virtual desktop), nor a passive overlay count; told apart by process id
+/// and flag.
 unsafe fn seen(window: HWND) -> Option<Seen<HMONITOR>> {
     if window.is_invalid() {
         return None;
@@ -105,6 +113,9 @@ unsafe fn seen(window: HWND) -> Option<Seen<HMONITOR>> {
     let mut shell_pid = 0u32;
     GetWindowThreadProcessId(GetShellWindow(), Some(&mut shell_pid));
     if pid == std::process::id() || pid == shell_pid {
+        return None;
+    }
+    if is_passive_overlay(GetWindowLongPtrW(window, GWL_EXSTYLE) as u32) {
         return None;
     }
     let mut cloaked = 0u32;
@@ -855,6 +866,37 @@ mod tests {
     fn a_maximised_window_on_the_birds_monitor_leaves_it_visible() {
         let maximised = Seen { rect: ScreenRect { left: -8, top: -8, right: 1928, bottom: 1088 }, zoomed: true, monitor: BIRD };
         assert!(!covered(false, 2, Some(maximised), Some(maximised)));
+    }
+
+    /// Measured on a 2880x1800 screen: (ex style, rect, maximised).
+    const SCREEN: ScreenRect = ScreenRect { left: 0, top: 0, right: 2880, bottom: 1800 };
+    const OVERHANG: ScreenRect = ScreenRect { left: -13, top: -13, right: 2893, bottom: 1813 };
+
+    #[test]
+    fn claudes_screen_sized_overlay_is_not_full_screen() {
+        assert!(is_passive_overlay(0x0828_0028));
+        // The geometry alone says full screen, which is the bug the style check fixes.
+        assert!(is_fullscreen(SCREEN, SCREEN, false));
+    }
+
+    #[test]
+    fn claudes_maximised_window_is_not_full_screen() {
+        assert!(!is_passive_overlay(0x0028_0108));
+        assert!(!is_fullscreen(OVERHANG, SCREEN, true));
+    }
+
+    #[test]
+    fn a_maximised_browser_is_not_full_screen() {
+        assert!(!is_passive_overlay(0x0020_0100));
+        assert!(!is_fullscreen(OVERHANG, SCREEN, true));
+    }
+
+    #[test]
+    fn a_browser_in_full_screen_and_a_slideshow_still_are() {
+        for ex in [0x0020_0000, 0x0000_0000] {
+            assert!(!is_passive_overlay(ex));
+            assert!(is_fullscreen(SCREEN, SCREEN, false));
+        }
     }
 
     #[test]
