@@ -14,17 +14,20 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder, Wry,
 };
-use windows::Win32::Foundation::{HWND, POINT, RECT};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::Shell::{
-    SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+    DefSubclassProc, RemoveWindowSubclass, SHQueryUserNotificationState, SetWindowSubclass, QUNS_PRESENTATION_MODE,
+    QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowRect, GetWindowThreadProcessId,
-    IsZoomed, WindowFromPoint, GA_ROOT, SM_CMONITORS,
+    GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
+    GetWindowThreadProcessId, IsZoomed, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, MA_NOACTIVATE,
+    SM_CMONITORS, STYLESTRUCT, SWP_NOACTIVATE, WINDOWPOS, WM_MOUSEACTIVATE, WM_NCDESTROY, WM_STYLECHANGING,
+    WM_WINDOWPOSCHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -280,6 +283,58 @@ fn apply_fit(window: &WebviewWindow, fit: Fit) {
     let _ = window.set_size(PhysicalSize::new(fit.width, fit.height));
 }
 
+/// The overlay's extended style, whatever else is being set: never activated, and a
+/// tool window, so Windows has no reason to hand it the focus when another window
+/// closes. APPWINDOW would ask for the opposite.
+fn overlay_ex_style(ex: u32) -> u32 {
+    (ex | WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) & !WS_EX_APPWINDOW.0
+}
+
+const SUBCLASS_ID: usize = 1;
+
+/// Runs before tao's own window procedure. Setting the style once wouldn't last: tao
+/// rewrites all of it whenever click-through toggles. It also shows and restores with
+/// calls that activate, and a click on the webview asks to activate too.
+unsafe extern "system" fn never_activate(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    match message {
+        WM_MOUSEACTIVATE => return LRESULT(MA_NOACTIVATE as isize),
+        WM_STYLECHANGING if wparam.0 as i32 == GWL_EXSTYLE.0 => {
+            let change = &mut *(lparam.0 as *mut STYLESTRUCT);
+            change.styleNew = overlay_ex_style(change.styleNew);
+        }
+        WM_WINDOWPOSCHANGING => {
+            let position = &mut *(lparam.0 as *mut WINDOWPOS);
+            position.flags |= SWP_NOACTIVATE;
+        }
+        WM_NCDESTROY => {
+            let _ = RemoveWindowSubclass(window, Some(never_activate), SUBCLASS_ID);
+        }
+        _ => {}
+    }
+    DefSubclassProc(window, message, wparam, lparam)
+}
+
+/// Must run on the thread that owns the window. Only ever our own overlay.
+fn keep_from_activating(window: &WebviewWindow) -> tauri::Result<()> {
+    let overlay = window.clone();
+    window.run_on_main_thread(move || {
+        let Ok(hwnd) = overlay.hwnd() else { return };
+        let hwnd = HWND(hwnd.0);
+        unsafe {
+            let _ = SetWindowSubclass(hwnd, Some(never_activate), SUBCLASS_ID, 0);
+            // Goes through the subclass, which corrects it.
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, GetWindowLongPtrW(hwnd, GWL_EXSTYLE));
+        }
+    })
+}
+
 fn build_overlay(app: &AppHandle) -> tauri::Result<()> {
     let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("parrot.html".into()))
         .title("Lock-In parrot")
@@ -294,6 +349,7 @@ fn build_overlay(app: &AppHandle) -> tauri::Result<()> {
         .visible(false)
         .devtools(false)
         .build()?;
+    keep_from_activating(&window)?;
     window.set_ignore_cursor_events(true)?;
     if let Some(fit) = primary_fit(app) {
         apply_fit(&window, fit);
@@ -517,6 +573,23 @@ mod tests {
         let fit = overlay_fit(monitor, monitor);
         assert_eq!(fit, Fit { x: 0, y: 1, width: 1920, height: 1079 });
         assert_eq!(fit.y + fit.height as i32, 1080);
+    }
+
+    #[test]
+    fn the_overlay_style_can_never_be_activated_or_ask_for_the_taskbar() {
+        // Measured: what tao sets, with click-through on.
+        let ex = overlay_ex_style(0x080C_0138);
+        assert_eq!(ex & WS_EX_NOACTIVATE.0, WS_EX_NOACTIVATE.0);
+        assert_eq!(ex & WS_EX_TOOLWINDOW.0, WS_EX_TOOLWINDOW.0);
+        assert_eq!(ex & WS_EX_APPWINDOW.0, 0);
+        // Everything else tao set is left alone: transparent, layered, topmost.
+        assert_eq!(ex, 0x0808_01B8);
+    }
+
+    #[test]
+    fn the_overlay_style_survives_tao_rewriting_it() {
+        assert_eq!(overlay_ex_style(0), WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0);
+        assert_eq!(overlay_ex_style(overlay_ex_style(0x080C_0138)), overlay_ex_style(0x080C_0138));
     }
 
     #[test]
