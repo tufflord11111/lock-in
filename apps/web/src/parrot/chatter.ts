@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import type { Bird } from "./bird";
+import { cardAnchor } from "./layout";
 import {
   DEFAULT_SETTINGS,
   nextBubble,
@@ -88,10 +89,9 @@ export function createChatter(bird: Bird): Chatter {
     card = el;
     bird.dispatch({ type: "talkStart" });
     // Above the bird, kept on the overlay.
-    const { x, lift, width } = bird.state();
-    const left = Math.min(Math.max(CARD_GAP, x + 48 - el.offsetWidth / 2), width - el.offsetWidth - CARD_GAP);
+    const { left, bottom } = cardAnchor(bird.state(), el.offsetWidth, CARD_GAP);
     el.style.left = `${left}px`;
-    el.style.bottom = `${lift + 96 + CARD_GAP}px`;
+    el.style.bottom = `${bottom}px`;
     bird.refreshHitboxes();
     cardTimer = window.setTimeout(closeCard, lifetimeMs);
   };

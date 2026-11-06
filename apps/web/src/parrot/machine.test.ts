@@ -306,3 +306,34 @@ describe("what the loop plans", () => {
     expect(loopPlan(idle, T0 + 250)).toEqual({ kind: "wait", ms: 750 });
   });
 });
+
+describe("a cell that isn't square", () => {
+  const WIDE = { width: 128, height: 80 };
+  const wide = (over: Partial<BirdState> = {}): BirdState => ({ ...initialState(T0, WIDTH, false, false, 0, WIDE), ...over });
+
+  it("rests, walks and stops by the cell's width, never its height", () => {
+    expect(maxX(WIDTH, WIDE)).toBe(WIDTH - 128);
+    expect(restingX(WIDTH, WIDE)).toBe(Math.round((WIDTH - 128) * 0.85));
+    expect(wide().x).toBe(restingX(WIDTH, WIDE));
+    expect(walkTarget(0.999, WIDTH, WIDE)).toBe(WIDTH - 128);
+    expect(walkTarget(0.5, WIDTH, WIDE)).toBeLessThanOrEqual(WIDTH - 128);
+  });
+
+  it("walks to the right edge and stands flush with it", () => {
+    let s = tick(wide({ nextAt: T0 }), T0, 0.999 / 2);
+    expect(s.mode).toBe("walk");
+    expect(s.targetX).toBe(WIDTH - 128);
+    s = tick(s, T0 + 1_000_000);
+    expect(s.x).toBe(WIDTH - 128);
+    expect(s.mode).toBe("idle");
+  });
+
+  it("clamps a drag by the cell's width, and keeps the cell on a resize", () => {
+    let s = go(wide(), { type: "dragStart" });
+    s = go(s, { type: "dragMove", x: 99_999, lift: 10, maxLift: 800 });
+    expect(s.x).toBe(WIDTH - 128);
+    s = go(s, { type: "resize", width: 500 });
+    expect(s.x).toBe(500 - 128);
+    expect(s.cell).toEqual(WIDE);
+  });
+});

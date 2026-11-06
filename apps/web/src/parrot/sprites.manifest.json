@@ -1,10 +1,10 @@
 {
   "columns": 12,
-  "displayCell": 96,
+  "displayCell": { "width": 96, "height": 96 },
   "scales": [
-    { "maxDpr": 1.25, "cell": 96, "sheet": { "width": 1152, "height": 1632 }, "file": "parrot/parrot-1x.png" },
-    { "maxDpr": 1.75, "cell": 144, "sheet": { "width": 1728, "height": 2448 }, "file": "parrot/parrot-1.5x.png" },
-    { "maxDpr": null, "cell": 192, "sheet": { "width": 2304, "height": 3264 }, "file": "parrot/parrot-2x.png" }
+    { "maxDpr": 1.25, "cell": { "width": 96, "height": 96 }, "sheet": { "width": 1152, "height": 1632 }, "file": "parrot/parrot-1x.png" },
+    { "maxDpr": 1.75, "cell": { "width": 144, "height": 144 }, "sheet": { "width": 1728, "height": 2448 }, "file": "parrot/parrot-1.5x.png" },
+    { "maxDpr": null, "cell": { "width": 192, "height": 192 }, "sheet": { "width": 2304, "height": 3264 }, "file": "parrot/parrot-2x.png" }
   ],
   "rows": [
     { "state": "idle", "frames": 6, "fps": 6, "loop": true },

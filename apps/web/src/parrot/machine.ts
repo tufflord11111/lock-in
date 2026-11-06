@@ -1,9 +1,10 @@
 /**
  * The bird's state machine. A pure reducer: no DOM, no timers, no Math.random;
  * time and randomness arrive as arguments. Coordinates are CSS px: x is the
- * cell's left edge, lift is the height of the feet above the bottom edge.
+ * cell's left edge, lift is the height of the feet above the bottom edge. The
+ * cell is the bird's box in CSS px; it need not be square.
  */
-import { DISPLAY_CELL, playedOnce, rowOf, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, playedOnce, rowOf, type Cell, type LoopPlan } from "./animator";
 
 export type Mode = "idle" | "walk" | "peck" | "perch" | "sleep" | "wake" | "happy" | "talk" | "drag" | "fall";
 
@@ -19,7 +20,10 @@ export type BirdState = {
   fromX: number;
   fromLift: number;
   facing: 1 | -1;
+  /** The window's width in CSS px. */
   width: number;
+  /** The bird's box in CSS px, from the manifest. */
+  cell: Cell;
   /** Over a full-screen app: the window is hidden and nothing needs drawing. */
   hidden: boolean;
   reducedMotion: boolean;
@@ -50,18 +54,18 @@ export const IDLE_MAX_MS = 20_000;
 export const PERCH_MIN_MS = 30_000;
 export const PERCH_MAX_MS = 120_000;
 
-export const maxX = (width: number) => Math.max(0, width - DISPLAY_CELL);
-export const restingX = (width: number) => Math.round(maxX(width) * 0.85);
+export const maxX = (width: number, cell: Cell = DISPLAY_CELL) => Math.max(0, width - cell.width);
+export const restingX = (width: number, cell: Cell = DISPLAY_CELL) => Math.round(maxX(width, cell) * 0.85);
 
 /** How often a walk heads for an edge. Uniform targets alone almost never reach one. */
 export const EDGE_WALK_CHANCE = 0.3;
 
 /** Where a walk ends: either edge some of the time, else anywhere between. */
-export function walkTarget(rand: number, width: number): number {
+export function walkTarget(rand: number, width: number, cell: Cell = DISPLAY_CELL): number {
   const edge = EDGE_WALK_CHANCE / 2;
   if (rand < edge) return 0;
-  if (rand >= 1 - edge) return maxX(width);
-  return Math.round(rand * maxX(width));
+  if (rand >= 1 - edge) return maxX(width, cell);
+  return Math.round(rand * maxX(width, cell));
 }
 
 const between = (rand: number, min: number, max: number) => min + rand * (max - min);
@@ -72,8 +76,9 @@ export function initialState(
   reducedMotion: boolean,
   sessionActive: boolean,
   rand: number,
+  cell: Cell = DISPLAY_CELL,
 ): BirdState {
-  const x = restingX(width);
+  const x = restingX(width, cell);
   return {
     mode: sessionActive ? "sleep" : "idle",
     enteredAt: now,
@@ -85,6 +90,7 @@ export function initialState(
     fromLift: 0,
     facing: 1,
     width,
+    cell,
     hidden: false,
     reducedMotion,
     sessionActive,
@@ -105,8 +111,8 @@ const settle = (s: BirdState, now: number, rand: number): BirdState =>
   s.sessionActive ? { ...s, mode: "sleep", enteredAt: now, happyAfterWake: false } : enterIdle(s, now, rand);
 
 function startWalk(s: BirdState, now: number, rand: number): BirdState {
-  const targetX = walkTarget(rand, s.width);
-  if (Math.abs(targetX - s.x) < DISPLAY_CELL / 2) return enterIdle(s, now, rand);
+  const targetX = walkTarget(rand, s.width, s.cell);
+  if (Math.abs(targetX - s.x) < s.cell.width / 2) return enterIdle(s, now, rand);
   return { ...s, mode: "walk", enteredAt: now, fromX: s.x, targetX, facing: targetX > s.x ? 1 : -1 };
 }
 
@@ -154,8 +160,8 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
     case "tick":
       return tick(s, now, rand);
     case "resize": {
-      if (s.reducedMotion) return { ...s, width: event.width, x: restingX(event.width) };
-      const resized = { ...s, width: event.width, x: Math.min(s.x, maxX(event.width)) };
+      if (s.reducedMotion) return { ...s, width: event.width, x: restingX(event.width, s.cell) };
+      const resized = { ...s, width: event.width, x: Math.min(s.x, maxX(event.width, s.cell)) };
       // A walk's end point may now be off the screen.
       return s.mode === "walk" ? enterIdle(resized, now, rand) : resized;
     }
@@ -180,7 +186,7 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
     case "reducedMotion":
       if (event.reduced === s.reducedMotion) return s;
       if (!event.reduced) return { ...s, reducedMotion: false, nextAt: now + between(rand, IDLE_MIN_MS, IDLE_MAX_MS) };
-      return settle({ ...s, reducedMotion: true, x: restingX(s.width), lift: 0 }, now, rand);
+      return settle({ ...s, reducedMotion: true, x: restingX(s.width, s.cell), lift: 0 }, now, rand);
     case "talkStart":
       if (s.mode === "drag" || s.mode === "sleep" || s.mode === "fall") return s;
       return { ...s, mode: "talk", enteredAt: now };
@@ -190,7 +196,11 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
       return { ...s, mode: "drag", enteredAt: now };
     case "dragMove":
       if (s.mode !== "drag") return s;
-      return { ...s, x: Math.min(Math.max(0, event.x), maxX(s.width)), lift: Math.min(Math.max(0, event.lift), Math.max(0, event.maxLift)) };
+      return {
+        ...s,
+        x: Math.min(Math.max(0, event.x), maxX(s.width, s.cell)),
+        lift: Math.min(Math.max(0, event.lift), Math.max(0, event.maxLift)),
+      };
     case "dragEnd":
       if (s.mode !== "drag") return s;
       if (s.reducedMotion || s.lift === 0) return settle({ ...s, lift: 0 }, now, rand);

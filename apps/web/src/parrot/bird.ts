@@ -1,10 +1,11 @@
 /**
- * The bird on screen: one 96 px element moved by transform, never a full-page
- * canvas, so only its own small rectangle repaints. Owns the one animation loop,
- * the drag and the hitboxes.
+ * The bird on screen: one cell-sized element moved by transform, never a
+ * full-page canvas, so only its own small rectangle repaints. Owns the one
+ * animation loop, the drag and the hitboxes.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { COLUMNS, DISPLAY_CELL, SHEET_ROWS, cellOffset, createLoop, frameAt, rowOf, scaleFor, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, cellOffset, createLoop, frameAt, rowOf, scaleFor, sheetSize, type LoopPlan } from "./animator";
+import { birdBox, dragPosition, physicalBox } from "./layout";
 import {
   frameIndex,
   initialState,
@@ -33,7 +34,9 @@ export function createBird(
   options: { sessionActive: boolean; onClick: (trigger: string) => void; extraRects: () => DOMRect[] },
 ): Bird {
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  let state = initialState(Date.now(), window.innerWidth, motion.matches, options.sessionActive, Math.random());
+  let state = initialState(Date.now(), window.innerWidth, motion.matches, options.sessionActive, Math.random(), DISPLAY_CELL);
+  el.style.width = `${DISPLAY_CELL.width}px`;
+  el.style.height = `${DISPLAY_CELL.height}px`;
   let lastPlan: LoopPlan["kind"] = "stop";
   let drawn = "";
   let sheet = "";
@@ -45,17 +48,17 @@ export function createBird(
     if (file === sheet) return;
     sheet = file;
     el.style.backgroundImage = `url("${import.meta.env.BASE_URL}${file}")`;
-    el.style.backgroundSize = `${COLUMNS * DISPLAY_CELL}px ${SHEET_ROWS * DISPLAY_CELL}px`;
+    const size = sheetSize(DISPLAY_CELL);
+    el.style.backgroundSize = `${size.width}px ${size.height}px`;
   };
 
   const sendHitboxes = (now: number, force: boolean) => {
     if (!force && now - sentAt < HITBOX_EVERY_MS) return;
     const dpr = window.devicePixelRatio;
-    const top = window.innerHeight - DISPLAY_CELL - state.lift;
     const boxes = [
-      { x: state.x * dpr, y: top * dpr, w: DISPLAY_CELL * dpr, h: DISPLAY_CELL * dpr },
-      ...options.extraRects().map((r) => ({ x: r.x * dpr, y: r.y * dpr, w: r.width * dpr, h: r.height * dpr })),
-    ].map((b) => ({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) }));
+      birdBox(state, window.innerHeight),
+      ...options.extraRects().map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height })),
+    ].map((b) => physicalBox(b, dpr));
     const key = JSON.stringify(boxes);
     if (key === sentBoxes) return;
     sentBoxes = key;
@@ -121,9 +124,7 @@ export function createBird(
     }
     dispatch({
       type: "dragMove",
-      x: e.clientX - press.grabX,
-      lift: window.innerHeight - (e.clientY - press.grabY) - DISPLAY_CELL,
-      maxLift: window.innerHeight - DISPLAY_CELL,
+      ...dragPosition({ x: e.clientX, y: e.clientY }, { x: press.grabX, y: press.grabY }, window.innerHeight, state.cell),
     });
   });
 

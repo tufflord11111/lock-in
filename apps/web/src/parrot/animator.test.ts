@@ -3,12 +3,15 @@ import {
   COLUMNS,
   DISPLAY_CELL,
   ROWS,
+  SCALES,
   cellOffset,
   createLoop,
   frameAt,
   playedOnce,
   rowOf,
   scaleFor,
+  sheetSize,
+  type Cell,
   type LoopHost,
   type LoopPlan,
 } from "./animator";
@@ -23,15 +26,19 @@ describe("the manifest", () => {
     expect(ROWS.reduce((n, r) => n + r.frames, 0)).toBe(96);
   });
 
-  it("sizes every sheet as 12 columns by 17 rows of its cell", () => {
-    expect(manifest.scales.map((s) => [s.cell, s.sheet.width, s.sheet.height])).toEqual([
-      [96, 1152, 1632],
-      [144, 1728, 2448],
-      [192, 2304, 3264],
+  it("sizes every sheet as 12 columns by 17 rows of its cell, width and height apart", () => {
+    expect(manifest.scales.map((s) => [s.cell.width, s.cell.height, s.sheet.width, s.sheet.height])).toEqual([
+      [96, 96, 1152, 1632],
+      [144, 144, 1728, 2448],
+      [192, 192, 2304, 3264],
     ]);
-    for (const s of manifest.scales) {
-      expect(s.sheet.width).toBe(COLUMNS * s.cell);
-      expect(s.sheet.height).toBe(ROWS.length * s.cell);
+    for (const s of SCALES) expect(s.sheet).toEqual(sheetSize(s.cell));
+  });
+
+  it("scales every sheet's cell from the display cell by one factor, so the art keeps its shape", () => {
+    for (const s of SCALES) {
+      const factor = s.cell.width / DISPLAY_CELL.width;
+      expect(s.cell.height).toBe(DISPLAY_CELL.height * factor);
     }
   });
 
@@ -65,16 +72,23 @@ describe("frames", () => {
 
   it("are found by column and row on the sheet", () => {
     expect(cellOffset("idle", 0)).toEqual({ x: -0, y: -0 });
-    expect(cellOffset("walk", 2)).toEqual({ x: -2 * DISPLAY_CELL, y: -3 * DISPLAY_CELL });
+    expect(cellOffset("walk", 2)).toEqual({ x: -2 * DISPLAY_CELL.width, y: -3 * DISPLAY_CELL.height });
+  });
+
+  it("step by the cell's width across and its height down, on a cell that isn't square", () => {
+    const wide: Cell = { width: 128, height: 80 };
+    expect(cellOffset("walk", 2, wide)).toEqual({ x: -256, y: -240 });
+    expect(cellOffset("droopy_idle", 5, wide)).toEqual({ x: -640, y: -16 * 80 });
+    expect(sheetSize(wide)).toEqual({ width: 12 * 128, height: 17 * 80 });
   });
 
   it("use the sheet the display needs", () => {
-    expect(scaleFor(1).cell).toBe(96);
-    expect(scaleFor(1.25).cell).toBe(96);
-    expect(scaleFor(1.5).cell).toBe(144);
-    expect(scaleFor(1.75).cell).toBe(144);
-    expect(scaleFor(2).cell).toBe(192);
-    expect(scaleFor(3).cell).toBe(192);
+    expect(scaleFor(1).cell.width).toBe(96);
+    expect(scaleFor(1.25).cell.width).toBe(96);
+    expect(scaleFor(1.5).cell.width).toBe(144);
+    expect(scaleFor(1.75).cell.width).toBe(144);
+    expect(scaleFor(2).cell.width).toBe(192);
+    expect(scaleFor(3).cell.width).toBe(192);
   });
 
   it("throws on a row the manifest doesn't have", () => {

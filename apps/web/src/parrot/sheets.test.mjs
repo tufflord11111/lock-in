@@ -82,8 +82,8 @@ function decode(png) {
 /** How many pixels in one cell aren't fully transparent. */
 function opaqueIn(sheet, cell, column, row) {
   let count = 0;
-  for (let y = row * cell; y < (row + 1) * cell; y++) {
-    for (let x = column * cell; x < (column + 1) * cell; x++) {
+  for (let y = row * cell.height; y < (row + 1) * cell.height; y++) {
+    for (let x = column * cell.width; x < (column + 1) * cell.width; x++) {
       if (sheet.pixels[(y * sheet.width + x) * 4 + 3] !== 0) count++;
     }
   }

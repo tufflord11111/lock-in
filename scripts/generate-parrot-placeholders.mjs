@@ -2,7 +2,8 @@
 /**
  * Writes the placeholder parrot sheets the manifest describes: a coloured shape,
  * the row label and the frame number in every used cell, transparent elsewhere.
- * Real art replaces the PNGs at the same paths; no code changes. No dependencies.
+ * Cells are whatever width and height the manifest gives each scale. Real art
+ * replaces the PNGs at the same paths; no code changes. No dependencies.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -94,6 +95,7 @@ function verifyPng(png, width, height) {
 
 for (const scale of manifest.scales) {
   const { width, height } = scale.sheet;
+  const cell = scale.cell;
   const rgba = Buffer.alloc(width * height * 4);
   const put = (x, y, [r, g, b]) => {
     if (x < 0 || y < 0 || x >= width || y >= height) return;
@@ -103,7 +105,10 @@ for (const scale of manifest.scales) {
     rgba[i + 2] = b;
     rgba[i + 3] = 255;
   };
-  const u = scale.cell / 96;
+  // Line widths and text scale with the cell's width; the body fills the cell
+  // by proportion, so a wide or tall cell gets a wide or tall placeholder.
+  const u = cell.width / manifest.displayCell.width;
+  const px = (fraction, of) => Math.round(fraction * of);
   const text = (s, x, y, size, colour) => {
     [...s.toUpperCase()].forEach((ch, n) => {
       const glyph = GLYPHS[ch];
@@ -121,16 +126,16 @@ for (const scale of manifest.scales) {
   manifest.rows.forEach((row, r) => {
     const colour = hsl((r * 360) / manifest.rows.length, 0.62, 0.42);
     for (let f = 0; f < row.frames; f++) {
-      const ox = f * scale.cell;
-      const oy = r * scale.cell;
+      const ox = f * cell.width;
+      const oy = r * cell.height;
       // Rounded body, feet 4 px (at 1×) above the cell's bottom edge, so the
       // pivot matches the art spec. A small per-frame bob makes playback visible.
       const bob = Math.round(Math.sin((f / row.frames) * Math.PI * 2) * 2 * u);
-      const left = Math.round(14 * u);
-      const right = Math.round(82 * u);
-      const top = Math.round(20 * u) + bob;
-      const bottom = Math.round(92 * u);
-      const radius = Math.round(14 * u);
+      const left = px(14 / 96, cell.width);
+      const right = px(82 / 96, cell.width);
+      const top = px(20 / 96, cell.height) + bob;
+      const bottom = cell.height - Math.round(4 * u);
+      const radius = Math.min(px(14 / 96, cell.width), px(14 / 96, cell.height));
       const border = Math.max(1, Math.round(u));
       for (let y = top; y < bottom; y++) {
         for (let x = left; x < right; x++) {
@@ -142,7 +147,7 @@ for (const scale of manifest.scales) {
         }
       }
       text(row.state.slice(0, 9), ox + left + Math.round(4 * u), oy + top + Math.round(10 * u), Math.max(1, Math.round(u)), [255, 255, 255]);
-      text(String(f), ox + Math.round(40 * u), oy + top + Math.round(28 * u), Math.round(3 * u), [255, 255, 255]);
+      text(String(f), ox + px(40 / 96, cell.width), oy + top + Math.round(28 * u), Math.round(3 * u), [255, 255, 255]);
     }
   });
 

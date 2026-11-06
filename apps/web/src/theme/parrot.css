@@ -16,12 +16,11 @@ body {
   color: #2b3a55;
 }
 
+/* Its width and height come from the sprite manifest, set by bird.ts. */
 #bird {
   position: fixed;
   left: 0;
   bottom: 0;
-  width: 96px;
-  height: 96px;
   background-repeat: no-repeat;
   will-change: transform;
   touch-action: none;
