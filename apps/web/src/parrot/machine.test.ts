@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameAt, rowOf } from "./animator";
+import { DISPLAY_CELL, frameAt, rowOf } from "./animator";
 import {
   FALL_PX_PER_S,
   STILL_STEP_MS,
@@ -182,7 +182,7 @@ describe("reduced motion", () => {
   it("never walks, sits at 85 %, and drops at once", () => {
     let s = initialState(T0, WIDTH, true, false, 0);
     expect(s.x).toBe(restingX(WIDTH));
-    expect(restingX(WIDTH)).toBe(Math.round((WIDTH - 96) * 0.85));
+    expect(restingX(WIDTH)).toBe(Math.round((WIDTH - DISPLAY_CELL.width) * 0.85));
     expect(tick(s, T0 + 10_000_000, 0.1)).toBe(s);
     s = go(s, { type: "dragStart" });
     s = go(s, { type: "dragMove", x: 50, lift: 200, maxLift: 800 });

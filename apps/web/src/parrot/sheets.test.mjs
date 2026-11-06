@@ -68,7 +68,8 @@ describe.each(manifest.scales.filter((s) => s.rowFiles))("$rowFiles", (scale) =>
 
 describe("the decoder itself", () => {
   it("refuses the bug that hid the bird: stray bytes after a chunk", () => {
-    const good = readFileSync(publicDir + manifest.scales[0].file);
+    const first = manifest.scales[0];
+    const good = readFileSync(publicDir + (first.file ?? first.rowFiles.replace("{state}", manifest.rows[0].state)));
     const firstChunkEnd = 8 + 12 + good.readUInt32BE(8);
     const bad = Buffer.concat([good.subarray(0, firstChunkEnd), Buffer.alloc(4), good.subarray(firstChunkEnd)]);
     expect(() => decodePng(bad)).toThrow();

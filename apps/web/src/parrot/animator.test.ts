@@ -31,19 +31,15 @@ describe("the manifest", () => {
   });
 
   it("sizes every sheet as 12 columns by 17 rows of its cell, width and height apart", () => {
-    expect(manifest.scales.map((s) => [s.cell.width, s.cell.height, s.sheet.width, s.sheet.height])).toEqual([
-      [96, 96, 1152, 1632],
-      [144, 144, 1728, 2448],
-      [192, 192, 2304, 3264],
-    ]);
+    expect(COLUMNS).toBe(12);
+    expect(ROWS.length).toBe(17);
     for (const s of SCALES) expect(s.sheet).toEqual(sheetSize(s.cell));
   });
 
-  it("scales every sheet's cell from the display cell by one factor, so the art keeps its shape", () => {
-    for (const s of SCALES) {
-      const factor = s.cell.width / DISPLAY_CELL.width;
-      expect(s.cell.height).toBe(DISPLAY_CELL.height * factor);
-    }
+  it("has 1x, 1.5x and 2x sheets, each the display cell scaled by one factor, so the art keeps its shape", () => {
+    expect(SCALES.map((s) => s.cell.width / DISPLAY_CELL.width)).toEqual([1, 1.5, 2]);
+    expect(SCALES.map((s) => s.cell.height / DISPLAY_CELL.height)).toEqual([1, 1.5, 2]);
+    expect(SCALES.map((s) => s.maxDpr)).toEqual([1.25, 1.75, null]);
   });
 
   it("never asks for more than 30 fps, or more frames than there are columns", () => {
@@ -111,12 +107,13 @@ describe("frames", () => {
   });
 
   it("use the sheet the display needs", () => {
-    expect(scaleFor(1).cell.width).toBe(96);
-    expect(scaleFor(1.25).cell.width).toBe(96);
-    expect(scaleFor(1.5).cell.width).toBe(144);
-    expect(scaleFor(1.75).cell.width).toBe(144);
-    expect(scaleFor(2).cell.width).toBe(192);
-    expect(scaleFor(3).cell.width).toBe(192);
+    const [one, onePointFive, two] = SCALES;
+    expect(scaleFor(1)).toBe(one);
+    expect(scaleFor(1.25)).toBe(one);
+    expect(scaleFor(1.5)).toBe(onePointFive);
+    expect(scaleFor(1.75)).toBe(onePointFive);
+    expect(scaleFor(2)).toBe(two);
+    expect(scaleFor(3)).toBe(two);
   });
 
   it("throws on a row the manifest doesn't have", () => {
