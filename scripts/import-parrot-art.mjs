@@ -83,14 +83,14 @@ if (rows.some((r) => r.frames > current.columns)) throw new Error(`a row has mor
 
 // Static props: anything branch@*.png, copied as-is with its scale in the name.
 const props = [];
-for (const file of readdirSync(dir).filter((f) => /^branch@.*\.png$/.test(f)).sort()) {
+const propScale = (file) => Number(/@([\d.]+)x\.png$/.exec(file)?.[1] ?? 1);
+for (const file of readdirSync(dir).filter((f) => /^branch@.*\.png$/.test(f)).sort((a, b) => propScale(a) - propScale(b))) {
   const png = readFileSync(join(dir, file));
   const image = decodePng(png);
   const out = `parrot/props/${file.replace("@", "-")}`;
   mkdirSync(join(PUBLIC, "parrot/props"), { recursive: true });
   copyFileSync(join(dir, file), join(PUBLIC, out));
-  const match = /@([\d.]+)x\.png$/.exec(file);
-  props.push({ name: "branch", scale: match ? Number(match[1]) : 1, file: out, width: image.width, height: image.height });
+  props.push({ name: "branch", scale: propScale(file), file: out, width: image.width, height: image.height });
   console.log(`prop ${file}: ${image.width}x${image.height} -> ${out}`);
 }
 if (props.length === 0 && existsSync(join(PUBLIC, "parrot/props"))) rmSync(join(PUBLIC, "parrot/props"), { recursive: true, force: true });
