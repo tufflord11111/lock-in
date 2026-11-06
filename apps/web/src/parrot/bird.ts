@@ -6,6 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { DISPLAY_CELL, createLoop, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
 import { birdBox, dragPosition, physicalBox } from "./layout";
+import { createSheetSwap } from "./sheetSwap";
 import {
   frameIndex,
   initialState,
@@ -45,37 +46,27 @@ export function createBird(
   let sentAt = 0;
 
   // ── The sheet, or the row of it, behind the element ────────────────────
-  // The image is swapped only once it is decoded, so a row the page has not
-  // shown yet never leaves the element blank: the old frame holds for the few
-  // ms the decode takes. Each image is decoded once; the webview keeps the
-  // bitmaps of the rows it has shown and may drop the ones it has not for a while.
-  let shownFile = "";
-  let wantedFile = "";
-  const decoded = new Map<string, Promise<void>>();
-  let resolveReady: () => void = () => {};
-  const ready = new Promise<void>((resolve) => (resolveReady = resolve));
-
-  const decode = (file: string): Promise<void> => {
-    let p = decoded.get(file);
-    if (!p) {
+  // The webview keeps the bitmaps of the rows it has shown and may drop the
+  // ones it has not shown for a while; sheetSwap.ts does the sequencing.
+  const sheet = createSheetSwap(
+    (file) => {
       const img = new Image();
       img.src = `${import.meta.env.BASE_URL}${file}`;
-      // A failed decode still swaps: a broken image is a bug to see, not a frozen bird.
-      p = img.decode().catch(() => {});
-      decoded.set(file, p);
-    }
-    return p;
-  };
-
-  const show = (file: string, size: { width: number; height: number }, position: { x: number; y: number }) => {
-    if (file !== shownFile) {
-      shownFile = file;
-      el.style.backgroundImage = `url("${import.meta.env.BASE_URL}${file}")`;
-      el.style.backgroundSize = `${size.width}px ${size.height}px`;
-      resolveReady();
-    }
-    el.style.backgroundPosition = `${position.x}px ${position.y}px`;
-  };
+      return img.decode();
+    },
+    (source) => {
+      if (source.file !== sheet.shown()) {
+        el.style.backgroundImage = `url("${import.meta.env.BASE_URL}${source.file}")`;
+        el.style.backgroundSize = `${source.size.width}px ${source.size.height}px`;
+      }
+      el.style.backgroundPosition = `${source.position.x}px ${source.position.y}px`;
+    },
+    // The frame may have moved on during the decode: draw the current one.
+    () => {
+      drawn = "";
+      draw(Date.now());
+    },
+  );
 
   const sendHitboxes = (now: number, force: boolean) => {
     if (!force && now - sentAt < HITBOX_EVERY_MS) return;
@@ -99,17 +90,7 @@ export function createBird(
     if (key === drawn) return;
     drawn = key;
     el.style.transform = `translate3d(${state.x}px, ${-state.lift}px, 0) scaleX(${state.facing})`;
-    if (source.file === shownFile) {
-      show(source.file, source.size, source.position);
-      return;
-    }
-    wantedFile = source.file;
-    void decode(source.file).then(() => {
-      // Superseded by a later row, or already shown by one: nothing to do.
-      if (wantedFile !== source.file || shownFile === source.file) return;
-      drawn = "";
-      draw(Date.now());
-    });
+    sheet.show(source);
   };
 
   const loop = createLoop(
@@ -193,6 +174,6 @@ export function createBird(
     dispatch,
     state: () => state,
     refreshHitboxes: () => sendHitboxes(Date.now(), true),
-    ready: () => ready,
+    ready: () => sheet.ready,
   };
 }
