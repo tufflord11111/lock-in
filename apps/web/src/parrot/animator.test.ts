@@ -6,14 +6,18 @@ import {
   SCALES,
   cellOffset,
   createLoop,
+  decodedBytes,
   frameAt,
+  frameSource,
   playedOnce,
   rowOf,
   scaleFor,
   sheetSize,
+  ROW_FILES_OVER_BYTES,
   type Cell,
   type LoopHost,
   type LoopPlan,
+  type SheetScale,
 } from "./animator";
 import manifest from "./sprites.manifest.json";
 
@@ -80,6 +84,30 @@ describe("frames", () => {
     expect(cellOffset("walk", 2, wide)).toEqual({ x: -256, y: -240 });
     expect(cellOffset("droopy_idle", 5, wide)).toEqual({ x: -640, y: -16 * 80 });
     expect(sheetSize(wide)).toEqual({ width: 12 * 128, height: 17 * 80 });
+  });
+
+  it("come from a whole sheet by column and row, or from a row file by column alone", () => {
+    const whole: SheetScale = { maxDpr: null, cell: { width: 192, height: 160 }, sheet: { width: 2304, height: 2720 }, file: "parrot/parrot-2x.png" };
+    const rows: SheetScale = { ...whole, file: undefined, rowFiles: "parrot/parrot-2x/{state}.png" };
+    expect(frameSource(whole, "walk", 2)).toEqual({
+      file: "parrot/parrot-2x.png",
+      size: sheetSize(DISPLAY_CELL),
+      position: { x: -2 * DISPLAY_CELL.width, y: -3 * DISPLAY_CELL.height },
+    });
+    expect(frameSource(rows, "walk", 2)).toEqual({
+      file: "parrot/parrot-2x/walk.png",
+      size: { width: 8 * DISPLAY_CELL.width, height: DISPLAY_CELL.height },
+      position: { x: -2 * DISPLAY_CELL.width, y: 0 },
+    });
+    expect(() => frameSource({ ...whole, file: undefined }, "walk", 0)).toThrow();
+  });
+
+  it("ship any sheet over 16 MiB decoded as row files", () => {
+    expect(ROW_FILES_OVER_BYTES).toBe(16 * 1024 * 1024);
+    expect(decodedBytes({ width: 2304, height: 3264 })).toBe(30_081_024);
+    for (const s of SCALES) {
+      if (decodedBytes(s.sheet) > ROW_FILES_OVER_BYTES) expect(s.rowFiles, `${s.file} is too big for one image`).toBeTruthy();
+    }
   });
 
   it("use the sheet the display needs", () => {

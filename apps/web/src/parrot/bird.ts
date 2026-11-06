@@ -4,7 +4,7 @@
  * animation loop, the drag and the hitboxes.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { DISPLAY_CELL, cellOffset, createLoop, frameAt, rowOf, scaleFor, sheetSize, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, createLoop, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
 import { birdBox, dragPosition, physicalBox } from "./layout";
 import {
   frameIndex,
@@ -27,6 +27,8 @@ export type Bird = {
   state: () => BirdState;
   /** Call when something else that takes clicks appears, moves or goes. */
   refreshHitboxes: () => void;
+  /** Resolves once the first frame's image is decoded and on the element. */
+  ready: () => Promise<void>;
 };
 
 export function createBird(
@@ -39,17 +41,40 @@ export function createBird(
   el.style.height = `${DISPLAY_CELL.height}px`;
   let lastPlan: LoopPlan["kind"] = "stop";
   let drawn = "";
-  let sheet = "";
   let sentBoxes = "";
   let sentAt = 0;
 
-  const useSheet = () => {
-    const file = scaleFor(window.devicePixelRatio).file;
-    if (file === sheet) return;
-    sheet = file;
-    el.style.backgroundImage = `url("${import.meta.env.BASE_URL}${file}")`;
-    const size = sheetSize(DISPLAY_CELL);
-    el.style.backgroundSize = `${size.width}px ${size.height}px`;
+  // ── The sheet, or the row of it, behind the element ────────────────────
+  // The image is swapped only once it is decoded, so a row the page has not
+  // shown yet never leaves the element blank: the old frame holds for the few
+  // ms the decode takes. Each image is decoded once; the webview keeps the
+  // bitmaps of the rows it has shown and may drop the ones it has not for a while.
+  let shownFile = "";
+  let wantedFile = "";
+  const decoded = new Map<string, Promise<void>>();
+  let resolveReady: () => void = () => {};
+  const ready = new Promise<void>((resolve) => (resolveReady = resolve));
+
+  const decode = (file: string): Promise<void> => {
+    let p = decoded.get(file);
+    if (!p) {
+      const img = new Image();
+      img.src = `${import.meta.env.BASE_URL}${file}`;
+      // A failed decode still swaps: a broken image is a bug to see, not a frozen bird.
+      p = img.decode().catch(() => {});
+      decoded.set(file, p);
+    }
+    return p;
+  };
+
+  const show = (file: string, size: { width: number; height: number }, position: { x: number; y: number }) => {
+    if (file !== shownFile) {
+      shownFile = file;
+      el.style.backgroundImage = `url("${import.meta.env.BASE_URL}${file}")`;
+      el.style.backgroundSize = `${size.width}px ${size.height}px`;
+      resolveReady();
+    }
+    el.style.backgroundPosition = `${position.x}px ${position.y}px`;
   };
 
   const sendHitboxes = (now: number, force: boolean) => {
@@ -69,12 +94,22 @@ export function createBird(
   const draw = (now: number) => {
     const name = spriteState(state);
     const frame = frameIndex(state, now, (s, elapsed) => frameAt(rowOf(s), elapsed));
-    const key = `${name}:${frame}:${state.x}:${state.lift}:${state.facing}`;
+    const source = frameSource(scaleFor(window.devicePixelRatio), name, frame);
+    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${state.facing}`;
     if (key === drawn) return;
     drawn = key;
-    const cell = cellOffset(name, frame);
-    el.style.backgroundPosition = `${cell.x}px ${cell.y}px`;
     el.style.transform = `translate3d(${state.x}px, ${-state.lift}px, 0) scaleX(${state.facing})`;
+    if (source.file === shownFile) {
+      show(source.file, source.size, source.position);
+      return;
+    }
+    wantedFile = source.file;
+    void decode(source.file).then(() => {
+      // Superseded by a later row, or already shown by one: nothing to do.
+      if (wantedFile !== source.file || shownFile === source.file) return;
+      drawn = "";
+      draw(Date.now());
+    });
   };
 
   const loop = createLoop(
@@ -145,18 +180,19 @@ export function createBird(
 
   // ── The world around it ────────────────────────────────────────────────
   motion.addEventListener("change", () => dispatch({ type: "reducedMotion", reduced: motion.matches }));
+  // A DPI change resizes the window too, so the sheet follows through draw().
   window.addEventListener("resize", () => {
-    useSheet();
+    drawn = "";
     dispatch({ type: "resize", width: window.innerWidth });
     sendHitboxes(Date.now(), true);
   });
 
-  useSheet();
   loop.poke();
 
   return {
     dispatch,
     state: () => state,
     refreshHitboxes: () => sendHitboxes(Date.now(), true),
+    ready: () => ready,
   };
 }

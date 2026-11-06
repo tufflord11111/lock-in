@@ -2,12 +2,13 @@
 /**
  * Writes the placeholder parrot sheets the manifest describes: a coloured shape,
  * the row label and the frame number in every used cell, transparent elsewhere.
- * Cells are whatever width and height the manifest gives each scale. Real art
- * replaces the PNGs at the same paths; no code changes. No dependencies.
+ * Cells are whatever width and height the manifest gives each scale, and a
+ * scale with rowFiles gets one strip per row. Real art goes through
+ * import-parrot-art.mjs instead. No dependencies.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { deflateSync, inflateSync } from "node:zlib";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeScale } from "./parrot-png.mjs";
 
 const WEB = "apps/web";
 const manifest = JSON.parse(readFileSync(join(WEB, "src/parrot/sprites.manifest.json"), "utf8"));
@@ -40,58 +41,6 @@ const hsl = (h, s, l) => {
   };
   return [f(0), f(8), f(4)];
 };
-
-const CRC = new Uint32Array(256).map((_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
-});
-const crc32 = (buf) => {
-  let c = 0xffffffff;
-  for (const b of buf) c = CRC[(c ^ b) & 255] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-};
-const chunk = (type, data) => {
-  const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
-  const out = Buffer.alloc(8 + body.length);
-  out.writeUInt32BE(data.length, 0);
-  body.copy(out, 4);
-  out.writeUInt32BE(crc32(body), 4 + body.length);
-  return out;
-};
-function encodePng(width, height, rgba) {
-  const raw = Buffer.alloc((width * 4 + 1) * height);
-  for (let y = 0; y < height; y++) rgba.copy(raw, y * (width * 4 + 1) + 1, y * width * 4, (y + 1) * width * 4);
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 6;
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw, { level: 9 })),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
-
-// Reads back what was written: every chunk's length and CRC, the size, the pixel data.
-function verifyPng(png, width, height) {
-  let at = 8;
-  const idat = [];
-  let last = "";
-  while (at < png.length) {
-    const length = png.readUInt32BE(at);
-    const body = png.subarray(at + 4, at + 8 + length);
-    if (crc32(body) !== png.readUInt32BE(at + 8 + length)) throw new Error("Bad PNG chunk CRC");
-    last = body.subarray(0, 4).toString("latin1");
-    if (last === "IDAT") idat.push(body.subarray(4));
-    at += 12 + length;
-  }
-  if (at !== png.length || last !== "IEND") throw new Error("Bad PNG chunk layout");
-  if (png.readUInt32BE(16) !== width || png.readUInt32BE(20) !== height) throw new Error("Bad PNG size");
-  if (inflateSync(Buffer.concat(idat)).length !== (width * 4 + 1) * height) throw new Error("Bad PNG pixel data");
-}
 
 for (const scale of manifest.scales) {
   const { width, height } = scale.sheet;
@@ -151,10 +100,7 @@ for (const scale of manifest.scales) {
     }
   });
 
-  const path = join(WEB, "public", scale.file);
-  mkdirSync(dirname(path), { recursive: true });
-  const png = encodePng(width, height, rgba);
-  verifyPng(png, width, height);
-  writeFileSync(path, png);
-  console.log(`${path}  ${width}×${height}  ${(png.length / 1024).toFixed(0)} KB`);
+  for (const out of writeScale(join(WEB, "public"), scale, manifest.rows, manifest.columns, rgba)) {
+    console.log(`${out.path}  ${out.width}x${out.height}  ${(out.bytes / 1024).toFixed(0)} KB`);
+  }
 }

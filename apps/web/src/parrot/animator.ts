@@ -15,12 +15,22 @@ export type SpriteRow = {
 /** One frame's box on a sheet, in that sheet's px. Width and height are independent. */
 export type Cell = { width: number; height: number };
 
+/**
+ * One sheet per display scale. Either one PNG of the whole sheet (`file`), or
+ * one PNG per row (`rowFiles`, with `{state}` for the row's name), each cropped
+ * to that row's frames, so the page decodes only the rows it shows.
+ */
 export type SheetScale = {
   maxDpr: number | null;
   cell: Cell;
   sheet: { width: number; height: number };
-  file: string;
+  file?: string;
+  rowFiles?: string;
 };
+
+/** A whole sheet that would decode to more than this must ship as row files. */
+export const ROW_FILES_OVER_BYTES = 16 * 1024 * 1024;
+export const decodedBytes = (size: { width: number; height: number }) => size.width * size.height * 4;
 
 export const ROWS: SpriteRow[] = manifest.rows;
 export const COLUMNS = manifest.columns;
@@ -51,9 +61,30 @@ export function scaleFor(dpr: number): SheetScale {
   return SCALES.find((s) => s.maxDpr !== null && dpr <= s.maxDpr) ?? SCALES[SCALES.length - 1];
 }
 
-/** background-position for a frame, in the cell's units (CSS px for DISPLAY_CELL). */
+/** background-position for a frame on a whole sheet, in the cell's units (CSS px for DISPLAY_CELL). */
 export function cellOffset(state: string, frame: number, cell: Cell = DISPLAY_CELL): { x: number; y: number } {
   return { x: -frame * cell.width, y: -ROWS.indexOf(rowOf(state)) * cell.height };
+}
+
+/** The image behind the bird for one frame, and how to place it, in CSS px. */
+export type FrameSource = {
+  file: string;
+  /** background-size: the image's size in CSS px, so one sheet px is 1/scale CSS px. */
+  size: { width: number; height: number };
+  /** background-position. */
+  position: { x: number; y: number };
+};
+
+export function frameSource(scale: SheetScale, state: string, frame: number): FrameSource {
+  if (scale.rowFiles) {
+    return {
+      file: scale.rowFiles.replace("{state}", state),
+      size: { width: rowOf(state).frames * DISPLAY_CELL.width, height: DISPLAY_CELL.height },
+      position: { x: -frame * DISPLAY_CELL.width, y: 0 },
+    };
+  }
+  if (!scale.file) throw new Error("A sheet scale needs file or rowFiles");
+  return { file: scale.file, size: sheetSize(DISPLAY_CELL), position: cellOffset(state, frame) };
 }
 
 export const FRAME_BUDGET_MS = 1000 / 30;

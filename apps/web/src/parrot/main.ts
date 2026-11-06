@@ -70,10 +70,8 @@ async function boot() {
   await emitTo("main", "companion:hello");
 
   bird.refreshHitboxes();
-  // A hidden webview may never fire rAF, so wait for the sheet, not for a frame.
-  const sheet = new Image();
-  sheet.src = getComputedStyle(el).backgroundImage.slice(5, -2);
-  await sheet.decode().catch(() => {});
+  // A hidden webview may never fire rAF, so wait for the first image, not for a frame.
+  await bird.ready();
   await invoke("companion_ready").catch(() => {});
 }
 
