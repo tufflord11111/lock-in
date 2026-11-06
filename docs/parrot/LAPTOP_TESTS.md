@@ -34,8 +34,8 @@ carry on.
      other browsers" / "Start and leave them open").
    - After you answer, the session runs and the bird sleeps. The dashboard shows 25
      minutes. No duration other than 25 is offered by the bird.
-   - End it with End task from the dashboard. Do not use Bail out on an account you
-     care about. The bird wakes and says "Back to it whenever.", with no hop.
+   - End it with Bail out (test account only) from the dashboard. Bail out is limited
+     to once a day. The bird wakes and says "Back to it whenever.", with no hop.
 
 3. **Start 25 with nothing to ask.** Remove the site block, hide main to the tray, and
    click Start 25 again.
@@ -49,7 +49,9 @@ carry on.
 
 5. **Start 25 on a nudge bubble.** Wait for a nudge ("Lock in! Lock in!" or "What are
    we working on?") and click Start 25.
-   - The bubble closes and a 25-minute session starts. End it with End task.
+   - The bubble closes and a 25-minute session starts. End it with Bail out (test
+     account only). Bail out is limited to once a day, so if test 2 used it today, run
+     this one on another day.
 
 6. **Not now.** On the next nudge, click Not now.
    - The bubble closes. No other bubble for at least 30 minutes.
@@ -217,3 +219,17 @@ carry on.
       must not. If your typing goes nowhere until you click, the overlay took focus:
       write that down. It showed up once in a measurement run on the desktop PC and
       could not be reproduced there.
+
+## Launching and the main window
+
+41. **Normal launch.** Quit Lock-In, then open it from the Start menu or its shortcut.
+    - The main window comes to the front with focus, and you can type in it straight
+      away.
+    - Launch it again while it is running. The existing window comes forward with
+      focus.
+
+42. **Main animations.** Click away from the main window, then click back on it.
+    - Its animations resume and nothing looks frozen.
+
+43. **Autostart (silent launch), if enabled.** Sign out of Windows and sign back in.
+    - Lock-In starts without stealing focus, and the bird appears.
