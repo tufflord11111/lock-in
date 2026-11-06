@@ -2232,9 +2232,6 @@ pub fn run() {
                     .unwrap_or(true);
                 if hide {
                     api.prevent_close();
-                    if let Ok(hwnd) = window.hwnd() {
-                        companion::main_is_hiding(hwnd.0 as isize);
-                    }
                     let _ = window.hide();
                     println!("[Tray] window closed — hidden, still running");
                 }

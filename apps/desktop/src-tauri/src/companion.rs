@@ -21,15 +21,15 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::SystemInformation::GetTickCount;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, IsWindowEnabled, LASTINPUTINFO};
 use windows::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SHQueryUserNotificationState, SetWindowSubclass, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumChildWindows, GetAncestor, GetForegroundWindow, GetShellWindow, GetSystemMetrics, GetWindowLongPtrW,
-    GetWindowRect, GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, IsZoomed,
-    KillTimer, PostMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE,
+    GetWindow, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
+    KillTimer, PostMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW, WindowFromPoint, GA_ROOT, GWL_EXSTYLE, GW_HWNDNEXT,
     MA_NOACTIVATE, SM_CMONITORS, STYLESTRUCT, SWP_NOACTIVATE, WINDOWPOS, WM_ACTIVATE, WM_APP, WM_MOUSEACTIVATE,
     WM_NCDESTROY, WM_STYLECHANGING, WM_TIMER, WM_WINDOWPOSCHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
@@ -333,9 +333,9 @@ unsafe extern "system" fn never_activate(
         // would cancel the webview's pointer capture: a drag stops dead and a button never
         // gets its click. So it waits for the page to say the interaction ended.
         WM_ACTIVATE if wparam.0 & 0xFFFF != 0 => {
+            // lParam is the window being deactivated, captured now. It can be null.
             if !AWAITING_GIVE_BACK.swap(true, Ordering::Relaxed) {
-                let other = LAST_OTHER_FOREGROUND.load(Ordering::Relaxed);
-                FOCUS_CAME_FROM.store(focus_source(lparam.0, other), Ordering::Relaxed);
+                FOCUS_CAME_FROM.store(lparam.0, Ordering::Relaxed);
             }
             let _ = SetTimer(Some(window), GIVE_BACK_TIMER, GIVE_BACK_FALLBACK_MS, None);
         }
@@ -435,85 +435,63 @@ fn keep_children_from_activating(window: &WebviewWindow) {
     });
 }
 
-/// Whether a window can sensibly be handed the focus. Pure, so it can be tested.
-fn can_take_focus(visible: bool, minimized: bool, cloaked: bool, has_size: bool, has_title: bool, ex_style: u32) -> bool {
+/// Whether a window can take the focus back: what Windows itself looks for when the
+/// active window closes. Pure, so it can be tested.
+fn can_take_focus(visible: bool, minimized: bool, cloaked: bool, enabled: bool, ex_style: u32) -> bool {
     visible
         && !minimized
         && !cloaked
-        && has_size
-        && has_title
+        && enabled
         && ex_style & WS_EX_NOACTIVATE.0 == 0
-        && (ex_style & WS_EX_TOOLWINDOW.0 == 0 || ex_style & WS_EX_APPWINDOW.0 != 0)
+        && ex_style & WS_EX_TOOLWINDOW.0 == 0
 }
 
 unsafe fn window_can_take_focus(window: HWND) -> bool {
+    if window.is_invalid() || !IsWindow(Some(window)).as_bool() {
+        return false;
+    }
     let mut cloaked = 0u32;
     let is_cloaked = DwmGetWindowAttribute(window, DWMWA_CLOAKED, &mut cloaked as *mut u32 as *mut _, size_of::<u32>() as u32).is_ok()
         && cloaked != 0;
-    let mut rect = RECT::default();
-    let has_size = GetWindowRect(window, &mut rect).is_ok() && rect.right > rect.left && rect.bottom > rect.top;
     can_take_focus(
         IsWindowVisible(window).as_bool(),
         IsIconic(window).as_bool(),
         is_cloaked,
-        has_size,
-        GetWindowTextLengthW(window) > 0,
+        IsWindowEnabled(window).as_bool(),
         GetWindowLongPtrW(window, GWL_EXSTYLE) as u32,
     )
 }
 
-/// The last window outside this app to hold the foreground, noted on every poll.
-static LAST_OTHER_FOREGROUND: AtomicIsize = AtomicIsize::new(0);
-
-fn note_other_foreground() {
-    unsafe {
-        let window = GetForegroundWindow();
-        if window.is_invalid() {
-            return;
-        }
-        let mut pid = 0u32;
-        GetWindowThreadProcessId(window, Some(&mut pid));
-        if pid != std::process::id() {
-            LAST_OTHER_FOREGROUND.store(window.0 as isize, Ordering::Relaxed);
-        }
-    }
+unsafe fn is_ours(window: HWND) -> bool {
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(window, Some(&mut pid));
+    pid == std::process::id()
 }
 
-/// Who was in front right before the overlay activated. WM_ACTIVATE names the window
-/// only if it is on this thread (main); for any other app it says nothing, and the
-/// last poll stands in.
-fn focus_source(named_by_windows: isize, last_other_foreground: isize) -> isize {
-    if named_by_windows != 0 {
-        named_by_windows
-    } else {
-        last_other_foreground
+/// The next window down from the overlay that could take the focus and isn't this
+/// app's, as Windows would pick when the active window closes.
+unsafe fn next_down(overlay: HWND) -> Option<HWND> {
+    let mut next = GetWindow(overlay, GW_HWNDNEXT).ok();
+    while let Some(window) = next {
+        if !is_ours(window) && window_can_take_focus(window) {
+            return Some(window);
+        }
+        next = GetWindow(window, GW_HWNDNEXT).ok();
     }
+    None
 }
 
-/// Back to the window it came from, and no other. If that one is gone, nothing.
+/// Back to the window WM_ACTIVATE named when the overlay took the focus. If Windows named
+/// none, or it has gone, hidden, minimised or been cloaked since, the next one down.
 unsafe fn give_focus_back(overlay: HWND) {
     let _ = KillTimer(Some(overlay), GIVE_BACK_TIMER);
     if !AWAITING_GIVE_BACK.swap(false, Ordering::Relaxed) {
         return;
     }
-    let window = HWND(FOCUS_CAME_FROM.load(Ordering::Relaxed) as *mut _);
-    if !window.is_invalid() && window != overlay && window_can_take_focus(window) {
+    let previous = HWND(FOCUS_CAME_FROM.load(Ordering::Relaxed) as *mut _);
+    let target = if previous != overlay && window_can_take_focus(previous) { Some(previous) } else { next_down(overlay) };
+    if let Some(window) = target {
         let _ = SetForegroundWindow(window);
-    }
-}
-
-/// Main is about to hide, and Windows would hand the focus to whichever window of this
-/// thread was active before it, which can be the overlay. Before it goes, the focus goes
-/// back to the app the user came from, if that is still there. Only if main has it.
-pub fn main_is_hiding(main: isize) {
-    unsafe {
-        if GetForegroundWindow().0 as isize != main {
-            return;
-        }
-        let window = HWND(LAST_OTHER_FOREGROUND.load(Ordering::Relaxed) as *mut _);
-        if !window.is_invalid() && window_can_take_focus(window) {
-            let _ = SetForegroundWindow(window);
-        }
     }
 }
 
@@ -583,7 +561,6 @@ fn run(app: AppHandle) {
             };
             // Hide at once; come back only after two clear polls, so alt-tab
             // doesn't flicker it.
-            note_other_foreground();
             let over_fullscreen = fullscreen_on_birds_monitor(&window);
             clear_polls = if over_fullscreen { 0 } else { clear_polls.saturating_add(1) };
             let (session_active, session_end_at) = session_read(&app, previous);
@@ -783,6 +760,18 @@ mod tests {
         assert_eq!(ex & WS_EX_APPWINDOW.0, 0);
         // Everything else tao set is left alone: transparent, layered, topmost.
         assert_eq!(ex, 0x0808_01B8);
+    }
+
+    #[test]
+    fn focus_only_goes_back_to_a_window_that_can_take_it() {
+        let normal = 0x0000_0100;
+        assert!(can_take_focus(true, false, false, true, normal));
+        assert!(!can_take_focus(false, false, false, true, normal), "hidden");
+        assert!(!can_take_focus(true, true, false, true, normal), "minimised");
+        assert!(!can_take_focus(true, false, true, true, normal), "cloaked");
+        assert!(!can_take_focus(true, false, false, false, normal), "disabled");
+        assert!(!can_take_focus(true, false, false, true, WS_EX_TOOLWINDOW.0), "tool window");
+        assert!(!can_take_focus(true, false, false, true, WS_EX_NOACTIVATE.0), "never activated");
     }
 
     #[test]
