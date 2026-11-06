@@ -338,6 +338,11 @@ unsafe extern "system" fn never_activate(
                 FOCUS_CAME_FROM.store(lparam.0, Ordering::Relaxed);
             }
             let _ = SetTimer(Some(window), GIVE_BACK_TIMER, GIVE_BACK_FALLBACK_MS, None);
+            // A named window that can no longer take focus was just hidden or closed, and
+            // Windows handed activation to us. Nobody is pressing the bird, so don't wait.
+            if lparam.0 != 0 && !window_can_take_focus(HWND(lparam.0 as *mut _)) {
+                let _ = PostMessageW(Some(window), GIVE_FOCUS_BACK, WPARAM(0), LPARAM(0));
+            }
         }
         // Someone else took it: it isn't ours to give back any more.
         WM_ACTIVATE => {
