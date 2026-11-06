@@ -38,6 +38,27 @@ describe("the sheet swap", () => {
     expect(ready).toBe(true);
   });
 
+  it("marks the row shown when its decode completes, so the redraw it asks for does not request it again", async () => {
+    // The bug this guards: the decode callback redrew without applying, the
+    // redraw saw the row as not shown, requested the same decode, and so on
+    // forever, with the element never getting an image.
+    const d = fakeDecoder();
+    const apply = vi.fn();
+    let swap: ReturnType<typeof createSheetSwap>;
+    const redraw = vi.fn(() => swap.show(frame("idle.png")));
+    swap = createSheetSwap(d.decode, apply, redraw);
+    swap.show(frame("idle.png"));
+    d.resolve("idle.png");
+    await flush();
+    await flush();
+    expect(swap.shown()).toBe("idle.png");
+    expect(redraw).toHaveBeenCalledTimes(1);
+    expect(d.decode).toHaveBeenCalledTimes(1);
+    // Once from the swap itself, once from the redraw, both for the shown row.
+    expect(apply.mock.calls.map((c) => c[0].file)).toEqual(["idle.png", "idle.png"]);
+    await expect(swap.ready).resolves.toBeUndefined();
+  });
+
   it("moves the frame at once while the image is up, and decodes each file once", async () => {
     const d = fakeDecoder();
     const apply = vi.fn();
