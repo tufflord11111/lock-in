@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { birdBox, cardAnchor, dragPosition, physicalBox } from "./layout";
+import { birdBox, cardAnchor, dragPosition, grabOffset, physicalBox } from "./layout";
+import { initialState, reduce } from "./machine";
 
 const SQUARE = { width: 96, height: 96 };
 const WIDE = { width: 128, height: 80 };
@@ -38,5 +39,57 @@ describe("a card over the bird", () => {
   it("stays on the overlay at either edge", () => {
     expect(cardAnchor({ x: 0, lift: 0, width: 1000, cell: WIDE }, 224, 8).left).toBe(8);
     expect(cardAnchor({ x: 1000 - 128, lift: 0, width: 1000, cell: WIDE }, 224, 8).left).toBe(1000 - 224 - 8);
+  });
+});
+
+describe("the grab point stays under the cursor, at every display scale", () => {
+  const CELL = { width: 168, height: 152 };
+  // An overlay the size of this laptop's work area, in physical px.
+  const PHYS_W = 2880;
+  const PHYS_H = 1752;
+
+  describe.each([1, 1.5, 2])("at %sx", (dpr) => {
+    const innerWidth = PHYS_W / dpr;
+    const innerHeight = PHYS_H / dpr;
+    const css = (p: { x: number; y: number }) => ({ x: p.x / dpr, y: p.y / dpr });
+
+    const pressAndDrag = (pressPhys: { x: number; y: number }, toPhys: { x: number; y: number }) => {
+      let s = initialState(0, innerWidth, false, false, 0, CELL);
+      // The press: where on the bird, from the state's box, in CSS px.
+      const grab = grabOffset(css(pressPhys), birdBox(s, innerHeight));
+      s = reduce(s, { type: "dragStart" }, 1, 0);
+      s = reduce(s, { type: "dragMove", ...dragPosition(css(toPhys), grab, innerHeight, s.cell) }, 2, 0);
+      return { grab, s, box: physicalBox(birdBox(s, innerHeight), dpr) };
+    };
+
+    it("grabs at the point pressed, inside a cell wider than it is tall", () => {
+      const s = initialState(0, innerWidth, false, false, 0, CELL);
+      const box = physicalBox(birdBox(s, innerHeight), dpr);
+      expect([box.w, box.h]).toEqual([Math.round(168 * dpr), Math.round(152 * dpr)]);
+      const press = { x: box.x + 40 * dpr, y: box.y + 100 * dpr };
+      // The box was rounded to whole physical px, so allow one of them.
+      const grab = grabOffset(css(press), birdBox(s, innerHeight));
+      expect(Math.abs(grab.x - 40) * dpr).toBeLessThanOrEqual(1);
+      expect(Math.abs(grab.y - 100) * dpr).toBeLessThanOrEqual(1);
+    });
+
+    it("keeps the pressed point under the cursor after a drag, to the physical pixel", () => {
+      const start = physicalBox(birdBox(initialState(0, innerWidth, false, false, 0, CELL), innerHeight), dpr);
+      const press = { x: start.x + 150 * dpr, y: start.y + 30 * dpr }; // near the right edge, high up
+      const to = { x: 900, y: 700 };
+      const { box } = pressAndDrag(press, to);
+      expect(Math.abs(box.x + 150 * dpr - to.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.y + 30 * dpr - to.y)).toBeLessThanOrEqual(1);
+    });
+
+    it("stops the box at the top and side edges by the cell's own width and height", () => {
+      const start = physicalBox(birdBox(initialState(0, innerWidth, false, false, 0, CELL), innerHeight), dpr);
+      const press = { x: start.x + 10 * dpr, y: start.y + 10 * dpr };
+      const { s, box } = pressAndDrag(press, { x: PHYS_W + 500, y: -500 });
+      expect(s.x).toBe(innerWidth - 168);
+      expect(s.lift).toBe(innerHeight - 152);
+      expect(box.x + box.w).toBeLessThanOrEqual(PHYS_W + 1);
+      expect(box.y).toBe(0);
+    });
   });
 });

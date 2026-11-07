@@ -5,7 +5,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { DISPLAY_CELL, createLoop, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
-import { birdBox, dragPosition, physicalBox } from "./layout";
+import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { createSheetSwap } from "./sheetSwap";
 import {
   frameIndex,
@@ -82,6 +82,11 @@ export function createBird(
     invoke("companion_set_hitbox", { boxes }).catch(() => {});
   };
 
+  /** Moves the element to the state's position. Compositor-only: no repaint. */
+  const place = () => {
+    el.style.transform = `translate3d(${state.x}px, ${-state.lift}px, 0) scaleX(${state.facing})`;
+  };
+
   const draw = (now: number) => {
     const name = spriteState(state);
     const frame = frameIndex(state, now, (s, elapsed) => frameAt(rowOf(s), elapsed));
@@ -89,7 +94,7 @@ export function createBird(
     const key = `${source.file}:${frame}:${state.x}:${state.lift}:${state.facing}`;
     if (key === drawn) return;
     drawn = key;
-    el.style.transform = `translate3d(${state.x}px, ${-state.lift}px, 0) scaleX(${state.facing})`;
+    place();
     sheet.show(source);
   };
 
@@ -125,8 +130,8 @@ export function createBird(
   el.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     el.setPointerCapture(e.pointerId);
-    const r = el.getBoundingClientRect();
-    press = { at: Date.now(), x: e.clientX, y: e.clientY, grabX: e.clientX - r.left, grabY: e.clientY - r.top, dragging: false };
+    const grab = grabOffset({ x: e.clientX, y: e.clientY }, birdBox(state, window.innerHeight));
+    press = { at: Date.now(), x: e.clientX, y: e.clientY, grabX: grab.x, grabY: grab.y, dragging: false };
     invoke("companion_set_dragging", { dragging: true }).catch(() => {});
   });
 
@@ -142,6 +147,9 @@ export function createBird(
       type: "dragMove",
       ...dragPosition({ x: e.clientX, y: e.clientY }, { x: press.grabX, y: press.grabY }, window.innerHeight, state.cell),
     });
+    // Under the pointer now, not at the next 30 Hz step: waiting left the bird a
+    // frame or two behind a fast hand. The sprite frame still changes on the loop.
+    place();
   });
 
   const release = (up: PointerEvent | null) => {
@@ -158,6 +166,8 @@ export function createBird(
   };
   el.addEventListener("pointerup", (e) => release(e));
   el.addEventListener("pointercancel", () => release(null));
+  // Capture lost without an up or a cancel: drop the bird rather than leave it stuck to the cursor.
+  el.addEventListener("lostpointercapture", () => release(null));
 
   // ── The world around it ────────────────────────────────────────────────
   motion.addEventListener("change", () => dispatch({ type: "reducedMotion", reduced: motion.matches }));

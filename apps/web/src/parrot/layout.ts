@@ -18,6 +18,15 @@ export function physicalBox(box: Box, dpr: number): Box {
 }
 
 /**
+ * Where on the bird's box the pointer pressed, in CSS px. Taken from the
+ * state's box, not the element's drawn rectangle: the drawn one can trail the
+ * state by a frame, and a lean or bob transform would change its size.
+ */
+export function grabOffset(pointer: { x: number; y: number }, box: Box): { x: number; y: number } {
+  return { x: pointer.x - box.x, y: pointer.y - box.y };
+}
+
+/**
  * Where a drag puts the bird: the pointer minus where it grabbed the box, so
  * the bird stays under the finger. The machine clamps x and lift to the window.
  */
