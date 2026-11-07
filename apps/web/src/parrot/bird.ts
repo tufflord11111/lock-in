@@ -4,7 +4,7 @@
  * animation loop, the drag and the hitboxes.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { DISPLAY_CELL, createLoop, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, FEET_ORIGIN, createLoop, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { createSheetSwap } from "./sheetSwap";
 import {
@@ -14,6 +14,7 @@ import {
   loopPlan,
   reduce,
   spriteState,
+  walkPose,
   type BirdEvent,
   type BirdState,
 } from "./machine";
@@ -40,6 +41,8 @@ export function createBird(
   let state = initialState(Date.now(), window.innerWidth, motion.matches, options.sessionActive, Math.random(), DISPLAY_CELL);
   el.style.width = `${DISPLAY_CELL.width}px`;
   el.style.height = `${DISPLAY_CELL.height}px`;
+  // The walk's lean pivots on the feet; the flip is still about the middle.
+  el.style.transformOrigin = FEET_ORIGIN;
   let lastPlan: LoopPlan["kind"] = "stop";
   let drawn = "";
   let sentBoxes = "";
@@ -82,19 +85,25 @@ export function createBird(
     invoke("companion_set_hitbox", { boxes }).catch(() => {});
   };
 
-  /** Moves the element to the state's position. Compositor-only: no repaint. */
-  const place = () => {
-    el.style.transform = `translate3d(${state.x}px, ${-state.lift}px, 0) scaleX(${state.facing})`;
+  /**
+   * Moves the element to the state's position, with the walk's bob and lean.
+   * Compositor-only: no repaint. Sub-pixel x is kept, never rounded.
+   */
+  const place = (now = Date.now()) => {
+    const { bob, lean } = walkPose(state, now);
+    const rotate = lean === 0 ? "" : ` rotate(${lean.toFixed(3)}deg)`;
+    el.style.transform = `translate3d(${state.x}px, ${-(state.lift + bob)}px, 0)${rotate} scaleX(${state.facing})`;
   };
 
   const draw = (now: number) => {
     const name = spriteState(state);
     const frame = frameIndex(state, now, (s, elapsed) => frameAt(rowOf(s), elapsed));
     const source = frameSource(scaleFor(window.devicePixelRatio), name, frame);
-    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${state.facing}`;
+    const { bob, lean } = walkPose(state, now);
+    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${state.facing}:${bob}:${lean}`;
     if (key === drawn) return;
     drawn = key;
-    place();
+    place(now);
     sheet.show(source);
   };
 

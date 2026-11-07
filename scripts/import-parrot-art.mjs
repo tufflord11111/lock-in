@@ -11,6 +11,12 @@
  * than 16 MiB is written as one strip per row, cropped to its frames, so the
  * overlay decodes only the rows it shows. Any branch@*.png in <dir> is copied
  * as a static prop, listed under "props" in the manifest; nothing draws it yet.
+ *
+ * The walk row's stride (planted-foot travel per frame, CSS px at 1x) sets the
+ * walking speed. It is kept from the current manifest unless --walk-stride=<px>
+ * is given. When <dir>/../picks.json has the art pipeline's measured stride, it
+ * is printed: a measured stride under 1 px per frame means the frames walk in
+ * place, and using it would stop the bird, so it is never applied by itself.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,7 +32,8 @@ const SCALES = [
   { name: "2x", maxDpr: null },
 ];
 
-const dir = process.argv[2];
+const dir = process.argv.slice(2).find((a) => !a.startsWith("--"));
+const strideArg = process.argv.find((a) => a.startsWith("--walk-stride="));
 if (!dir) {
   console.error("usage: node scripts/import-parrot-art.mjs <dir with parrot@1x|1.5x|2x.png + .json>");
   process.exit(2);
@@ -34,8 +41,22 @@ if (!dir) {
 
 const current = JSON.parse(readFileSync(MANIFEST, "utf8"));
 const fromMarks = new Map(current.rows.map((r) => [r.state, r.from]));
+const keptStride = current.rows.find((r) => r.state === "walk")?.stride;
+const walkStride = strideArg ? Number(strideArg.split("=")[1]) : keptStride;
+if (!(walkStride > 0)) throw new Error("No walk stride: pass --walk-stride=<px per frame at 1x>");
+const picks = join(dir, "..", "picks.json");
+if (existsSync(picks)) {
+  const measured = JSON.parse(readFileSync(picks, "utf8")).walk?.built?.stride_px_1x;
+  if (measured) {
+    const mean = measured.reduce((n, v) => n + Math.abs(v ?? 0), 0) / measured.length;
+    console.log(`walk stride measured by the art pipeline: ${JSON.stringify(measured)} px per frame (mean |step| ${mean.toFixed(2)})`);
+    if (mean < 1) console.log("  under 1 px per frame: these frames walk in place, so it is not used");
+  }
+}
+console.log(`walk stride used: ${walkStride} px per frame at 1x`);
 
 let rows = null;
+let baseline = null;
 const scales = [];
 for (const { name, maxDpr } of SCALES) {
   const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta;
@@ -47,7 +68,9 @@ for (const { name, maxDpr } of SCALES) {
     fps: t.fps,
     loop: t.loop,
     ...(fromMarks.get(t.name) ? { from: fromMarks.get(t.name) } : {}),
+    ...(t.name === "walk" ? { stride: walkStride } : {}),
   }));
+  if (name === "1x" && typeof meta.baseline === "number") baseline = meta.baseline;
   if (rows === null) rows = these;
   else if (JSON.stringify(these) !== JSON.stringify(rows)) throw new Error(`parrot@${name}.json: rows differ from parrot@1x.json`);
 
@@ -97,7 +120,7 @@ if (props.length === 0 && existsSync(join(PUBLIC, "parrot/props"))) rmSync(join(
 
 const manifest = {
   columns: current.columns,
-  displayCell: scales[0].cell,
+  displayCell: baseline === null ? scales[0].cell : { ...scales[0].cell, baseline },
   scales,
   rows,
   ...(props.length ? { props } : {}),

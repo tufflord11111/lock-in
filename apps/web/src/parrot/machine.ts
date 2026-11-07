@@ -46,8 +46,38 @@ export type BirdEvent =
   | { type: "dragMove"; x: number; lift: number; maxLift: number }
   | { type: "dragEnd" };
 
-/** The art's stride: 12 px per 8-frame, 10 fps cycle. Faster and the feet slide. */
-export const WALK_PX_PER_S = 15;
+/**
+ * Walking speed in CSS px/s: the art's stride per frame times the walk row's
+ * fps, so the planted foot moves with the ground instead of sliding over it.
+ */
+export function walkSpeed(row = rowOf("walk")): number {
+  if (row.stride === undefined) throw new Error("The walk row needs a stride");
+  return row.stride * row.fps;
+}
+export const WALK_PX_PER_S = walkSpeed();
+
+/** The body's rise per step, CSS px, and the lean into the walk, degrees. */
+export const BOB_PX = 2.5;
+export const LEAN_MIN_DEG = 1;
+export const LEAN_MAX_DEG = 2;
+
+/** A step is half the walk cycle: one foot, then the other. */
+export const stepMs = (row = rowOf("walk")) => (row.frames * 1000) / row.fps / 2;
+
+/**
+ * The walking body's rise and lean, drawn between the art's frames. Eased with
+ * a half cosine, so it starts and ends each step at rest: up by BOB_PX at
+ * mid-step, leaning LEAN_MIN_DEG at the foot strike and LEAN_MAX_DEG at the
+ * top. The lean is toward where it's going. Nothing outside a walk or under
+ * reduced motion.
+ */
+export function walkPose(s: BirdState, now: number): { bob: number; lean: number } {
+  if (s.mode !== "walk" || s.reducedMotion) return { bob: 0, lean: 0 };
+  const step = stepMs();
+  const phase = (Math.max(0, now - s.enteredAt) % step) / step;
+  const ease = (1 - Math.cos(2 * Math.PI * phase)) / 2;
+  return { bob: BOB_PX * ease, lean: s.facing * (LEAN_MIN_DEG + (LEAN_MAX_DEG - LEAN_MIN_DEG) * ease) };
+}
 export const FALL_PX_PER_S = 600;
 export const IDLE_MIN_MS = 4_000;
 export const IDLE_MAX_MS = 20_000;
