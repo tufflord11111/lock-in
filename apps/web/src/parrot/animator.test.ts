@@ -22,12 +22,19 @@ import {
 import manifest from "./sprites.manifest.json";
 
 describe("the manifest", () => {
-  it("has the 17 rows and 96 frames of the art spec, in order", () => {
-    expect(ROWS.map((r) => r.state)).toEqual([
-      "idle", "idle_blink", "idle_preen", "walk", "takeoff", "fly", "land", "perch", "sleep",
-      "talk", "drag", "wake", "peck", "happy", "sad", "yawn", "droopy_idle",
-    ]);
-    expect(ROWS.reduce((n, r) => n + r.frames, 0)).toBe(96);
+  it("has the 17 rows of the art spec, in order, none longer than the spec's 96 frames allow", () => {
+    const SPEC: [string, number][] = [
+      ["idle", 6], ["idle_blink", 3], ["idle_preen", 8], ["walk", 8], ["takeoff", 4], ["fly", 6], ["land", 4],
+      ["perch", 4], ["sleep", 4], ["talk", 6], ["drag", 4], ["wake", 5], ["peck", 6], ["happy", 8], ["sad", 6],
+      ["yawn", 8], ["droopy_idle", 6],
+    ];
+    expect(SPEC.reduce((n, [, f]) => n + f, 0)).toBe(96);
+    expect(ROWS.map((r) => r.state)).toEqual(SPEC.map(([state]) => state));
+    // The art may cut a row short (the gen walk and idle have 4 frames), never make it longer.
+    ROWS.forEach((r, i) => {
+      expect(r.frames, r.state).toBeGreaterThanOrEqual(1);
+      expect(r.frames, r.state).toBeLessThanOrEqual(SPEC[i][1]);
+    });
   });
 
   it("sizes every sheet as 12 columns by 17 rows of its cell, width and height apart", () => {
@@ -53,10 +60,12 @@ describe("the manifest", () => {
 describe("frames", () => {
   it("come from elapsed time and wrap on a looping row", () => {
     const walk = rowOf("walk");
+    const frameMs = 1000 / walk.fps;
     expect(frameAt(walk, 0)).toBe(0);
-    expect(frameAt(walk, 100)).toBe(1);
-    expect(frameAt(walk, 750)).toBe(7);
-    expect(frameAt(walk, 800)).toBe(0);
+    expect(frameAt(walk, frameMs)).toBe(1);
+    expect(frameAt(walk, walk.frames * frameMs - 1)).toBe(walk.frames - 1);
+    expect(frameAt(walk, walk.frames * frameMs)).toBe(0);
+    expect(frameAt({ ...walk, frames: 8, fps: 10 }, 750)).toBe(7);
   });
 
   it("hold the last frame on a one-shot row", () => {
@@ -92,7 +101,7 @@ describe("frames", () => {
     });
     expect(frameSource(rows, "walk", 2)).toEqual({
       file: "parrot/parrot-2x/walk.png",
-      size: { width: 8 * DISPLAY_CELL.width, height: DISPLAY_CELL.height },
+      size: { width: rowOf("walk").frames * DISPLAY_CELL.width, height: DISPLAY_CELL.height },
       position: { x: -2 * DISPLAY_CELL.width, y: 0 },
     });
     expect(() => frameSource({ ...whole, file: undefined }, "walk", 0)).toThrow();
