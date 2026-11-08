@@ -17,6 +17,11 @@
  * frame, CSS px) comes from meta.walkSpeed.pxPerFrame divided by each sheet's
  * scale, which must agree across the three; --walk-stride=<px> overrides it,
  * and without either the current manifest's stride is kept.
+ *
+ * The walk row's contact frames (both feet down, where a walk may stop) come
+ * from meta.walkContact, else --walk-contact=<i,j>, else the app's default of 0
+ * and half way. Row frame numbers, not gait phases: a row that starts part way
+ * round the cycle has its contacts elsewhere.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -37,6 +42,7 @@ const SCALES = [
 
 const dir = process.argv.slice(2).find((a) => !a.startsWith("--"));
 const strideArg = process.argv.find((a) => a.startsWith("--walk-stride="));
+const contactArg = process.argv.find((a) => a.startsWith("--walk-contact="));
 if (!dir) {
   console.error("usage: node scripts/import-parrot-art.mjs <dir with parrot@1x|1.5x|2x.png + .json>");
   process.exit(2);
@@ -53,6 +59,10 @@ const artStrides = SCALES.map(({ name }) => {
 if (artStrides.some((s) => s !== artStrides[0])) throw new Error(`walkSpeed.pxPerFrame disagrees across scales: ${artStrides}`);
 const walkStride = strideArg ? Number(strideArg.split("=")[1]) : (artStrides[0] ?? keptStride);
 if (!(walkStride > 0)) throw new Error("No walk stride: the art has no meta.walkSpeed; pass --walk-stride=<px per frame>");
+const metaContact = JSON.parse(readFileSync(join(dir, "parrot@1x.json"), "utf8")).meta.walkContact;
+const walkContact = metaContact ?? (contactArg ? contactArg.split("=")[1].split(",").map(Number) : undefined);
+if (walkContact && !walkContact.every((f) => Number.isInteger(f) && f >= 0)) throw new Error(`bad walk contact frames: ${walkContact}`);
+console.log(`walk contact frames: ${walkContact ? walkContact.join(", ") + (metaContact ? " (meta.walkContact)" : " (--walk-contact)") : "the app's default"}`);
 console.log(`walk: ${walkStride} px per frame at ${WALK_FPS} fps = ${walkStride * WALK_FPS} px/s` +
   (strideArg ? " (--walk-stride)" : artStrides[0] !== null ? " (meta.walkSpeed)" : " (kept)"));
 
@@ -70,7 +80,7 @@ for (const { name, maxDpr } of SCALES) {
     fps: t.name === "walk" ? WALK_FPS : t.fps,
     loop: t.loop,
     ...(fromMarks.get(t.name) ? { from: fromMarks.get(t.name) } : {}),
-    ...(t.name === "walk" ? { stride: walkStride } : {}),
+    ...(t.name === "walk" ? { stride: walkStride, ...(walkContact ? { contact: walkContact } : {}) } : {}),
   }));
   if (name === "1x" && typeof meta.baseline === "number") baseline = meta.baseline;
   if (name === "1x" && typeof meta.lidColour === "string") lidColour = meta.lidColour;
