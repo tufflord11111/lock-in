@@ -89,25 +89,21 @@ export function cellOffset(state: string, frame: number, cell: Cell = DISPLAY_CE
   return { x: -frame * cell.width, y: -ROWS.indexOf(rowOf(state)) * cell.height };
 }
 
-/** The image behind the bird for one frame, and how to place it, in CSS px. */
-export type FrameSource = {
-  file: string;
-  /** background-size: the image's size in CSS px, so one sheet px is 1/scale CSS px. */
-  size: { width: number; height: number };
-  /** background-position. */
-  position: { x: number; y: number };
-};
+/** Where one frame is in its image, in that image's px: the file, and the rectangle to draw from. */
+export type FrameRect = { file: string; sx: number; sy: number; sw: number; sh: number };
 
-export function frameSource(scale: SheetScale, state: string, frame: number): FrameSource {
-  if (scale.rowFiles) {
-    return {
-      file: scale.rowFiles.replace("{state}", state),
-      size: { width: rowOf(state).frames * DISPLAY_CELL.width, height: DISPLAY_CELL.height },
-      position: { x: -frame * DISPLAY_CELL.width, y: 0 },
-    };
-  }
+export function frameRect(scale: SheetScale, state: string, frame: number): FrameRect {
+  const { width, height } = scale.cell;
+  if (scale.rowFiles) return { file: scale.rowFiles.replace("{state}", state), sx: frame * width, sy: 0, sw: width, sh: height };
   if (!scale.file) throw new Error("A sheet scale needs file or rowFiles");
-  return { file: scale.file, size: sheetSize(DISPLAY_CELL), position: cellOffset(state, frame) };
+  return { file: scale.file, sx: frame * width, sy: ROWS.indexOf(rowOf(state)) * height, sw: width, sh: height };
+}
+
+/** The files of this scale, each with what it holds once decoded: a row's frames, or the whole sheet. */
+export function scaleFiles(scale: SheetScale): Map<string, number> {
+  if (!scale.rowFiles) return new Map(scale.file ? [[scale.file, decodedBytes(scale.sheet)]] : []);
+  const pattern = scale.rowFiles;
+  return new Map(ROWS.map((r) => [pattern.replace("{state}", r.state), r.frames * scale.cell.width * scale.cell.height * 4]));
 }
 
 export const FRAME_BUDGET_MS = 1000 / 30;

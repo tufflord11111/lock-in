@@ -43,6 +43,7 @@ import {
   reduce,
   restingX,
   spriteState,
+  nextRows,
   type BirdEvent,
   type BirdState,
   ARC_PEAK_PX,
@@ -1177,6 +1178,62 @@ describe("what the overlay tells Rust", () => {
     expect(branchImageFor(3, images)?.scale).toBe(2);
     expect(branchImageFor(1, [])).toBeNull();
     expect(BRANCH.width).toBeGreaterThan(0);
+  });
+});
+
+describe("a turn never makes the bird vanish", () => {
+  it("is never thinner than a third of the bird, at any moment of any turn", () => {
+    expect(TURN_MIN_SCALE).toBeGreaterThanOrEqual(0.35);
+    const turning = faceTo(start({ facing: 1 }), -1, T0);
+    for (let t = 0; t <= TURN_MS; t += 0.5) expect(Math.abs(turnPose(turning, T0 + t).scaleX)).toBeGreaterThanOrEqual(TURN_MIN_SCALE - 1e-9);
+  });
+
+  it("keeps the frame check's squeeze alarm quiet", async () => {
+    const { SQUEEZE_BELOW } = await import("./frameCheck");
+    expect(TURN_MIN_SCALE).toBeGreaterThan(SQUEEZE_BELOW);
+  });
+});
+
+describe("the rows decoded ahead", () => {
+  it("lists the row it is drawing first", () => {
+    const s = start();
+    expect(nextRows(s, T0)[0]).toBe(spriteState(s, T0));
+    const f = beginFlight(start(), T0, perchFor(start()), true);
+    expect(nextRows(f, T0 + 1)[0]).toBe("takeoff");
+  });
+
+  it("already holds every row the bird changes to, through hours of everything it does", () => {
+    let r = 9;
+    const rand = () => (r = (r * 16807) % 2147483647) / 2147483647;
+    let s = start({ height: 900 });
+    let changes = 0;
+    let dropAt = Infinity;
+    const misses = new Map<string, number>();
+    for (let t = T0; t < T0 + 3 * 3_600_000; t += 50) {
+      const roll = rand();
+      let e: BirdEvent = { type: "tick" };
+      if (t >= dropAt) {
+        e = { type: "dragEnd" };
+        dropAt = Infinity;
+      } else if (roll < 0.0004) e = { type: "talkStart" };
+      else if (roll < 0.0008) e = { type: "talkEnd" };
+      else if (roll < 0.0009) e = { type: "session", active: !s.sessionActive };
+      else if (roll < 0.00095 && s.mode !== "drag") {
+        e = { type: "dragStart" };
+        dropAt = t + 1000;
+      }
+      const ahead = nextRows(s, t);
+      const before = spriteState(s, t);
+      s = reduce(s, e, t, rand());
+      // The next draw, at the next tick.
+      const after = spriteState(s, t + 50);
+      if (after !== before) {
+        changes++;
+        if (!ahead.includes(after)) misses.set(`${before}->${after}`, (misses.get(`${before}->${after}`) ?? 0) + 1);
+      }
+    }
+    expect(changes).toBeGreaterThan(1000);
+    expect([...misses]).toEqual([]);
   });
 });
 

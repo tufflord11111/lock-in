@@ -10,8 +10,6 @@ export const DEBUG = import.meta.env.VITE_PARROT_DEBUG === "1";
 export const SQUEEZE_BELOW = 0.3;
 /** A lid wider than this share of the cell is not an eyelid. */
 export const LID_MAX_SHARE = 0.25;
-/** Drawing a row's image that takes longer than this had to decode it first: it wasn't ready when shown. */
-export const NOT_DECODED_MS = 4;
 
 /** What was on the element when a frame was drawn. */
 export type FrameFacts = {

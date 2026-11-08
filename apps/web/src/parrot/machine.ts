@@ -155,9 +155,14 @@ export function walkStepsFor(
   return best;
 }
 
-/** Turning round: scaleX eases to TURN_MIN_SCALE, flips, eases back, over TURN_MS, dipping TURN_DIP_PX at the middle. */
+/**
+ * Turning round: scaleX eases to TURN_MIN_SCALE, flips, eases back, over
+ * TURN_MS, dipping TURN_DIP_PX at the middle. Never thinner than a third: at
+ * 0.08 the bird became a white stripe for a few frames, which read as it
+ * vanishing (the v11 "flash", found by the debug frame check).
+ */
 export const TURN_MS = 160;
-export const TURN_MIN_SCALE = 0.08;
+export const TURN_MIN_SCALE = 0.35;
 export const TURN_DIP_PX = 2;
 
 /**
@@ -674,6 +679,36 @@ export function spriteState(s: BirdState, now: number): string {
     return "land";
   }
   return s.mode;
+}
+
+/**
+ * What each mode may draw next, beside its own row, most likely first: these
+ * are decoded ahead, so a change of row never waits for a decode.
+ */
+const NEXT_ROWS: Record<Mode, readonly string[]> = {
+  idle: ["walk", "peck", "idle_preen", "talk", "takeoff", "drag"],
+  // A walk or a flight that starts with a turn shows the row it came from until it has turned.
+  walk: ["walk", "idle", "takeoff", "perch", "talk", "drag"],
+  peck: ["idle", "walk", "talk", "takeoff", "drag"],
+  preen: ["idle", "walk", "talk", "takeoff", "drag"],
+  mutter: ["idle", "walk", "takeoff", "drag"],
+  perch: ["walk", "talk", "takeoff", "drag"],
+  sleep: ["wake", "drag"],
+  wake: ["happy", "idle", "idle_preen", "takeoff"],
+  happy: ["idle", "idle_preen", "takeoff", "walk"],
+  talk: ["idle", "perch", "sleep", "walk", "takeoff", "drag"],
+  drag: ["land", "idle", "sleep", "perch", "walk"],
+  fall: ["idle", "sleep", "perch", "walk"],
+  flight: ["takeoff", "fly", "land", "idle", "walk", "sleep"],
+};
+/** On the branch a rest preens, talks, sleeps or flies down. */
+const NEXT_ON_BRANCH: readonly string[] = ["idle_preen", "takeoff", "fly", "talk", "sleep", "drag"];
+
+/** The row it is drawing, then the rows it may draw next. */
+export function nextRows(s: BirdState, now: number): string[] {
+  const here = spriteState(s, now);
+  const next = s.onBranch && (s.mode === "idle" || s.mode === "preen") ? ["idle", ...NEXT_ON_BRANCH] : NEXT_ROWS[s.mode];
+  return [...new Set([here, ...next])];
 }
 
 /** A still bird changes frame at most this often, on a timer rather than rAF. */

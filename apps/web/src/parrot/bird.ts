@@ -4,17 +4,18 @@
  * animation loop, the drag and the hitboxes.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { DISPLAY_CELL, LID_COLOUR, createLoop, eyeAt, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, LID_COLOUR, createLoop, eyeAt, frameAt, frameRect, rowOf, scaleFiles, scaleFor, type LoopPlan } from "./animator";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { BRANCH, branchBox, branchImageFor, cursorBoxes, fadeZone } from "./perch";
-import { createSheetSwap } from "./sheetSwap";
-import { DEBUG, NOT_DECODED_MS, createFrameLog } from "./frameCheck";
+import { createSpriteCache } from "./spriteCache";
+import { DEBUG, createFrameLog } from "./frameCheck";
 import {
   frameIndex,
   initialState,
   isStill,
   loopPlan,
+  nextRows,
   reduce,
   spriteState,
   turnPose,
@@ -38,6 +39,8 @@ export type Bird = {
   setFaded: (faded: boolean) => void;
   /** Debug builds: a line in the frame check's log. */
   debugNote: (text: string) => void;
+  /** Decoded sprite memory held right now, bytes. */
+  spriteBytes: () => number;
 };
 
 export function createBird(
@@ -109,9 +112,6 @@ export function createBird(
   let sentBoxes = "";
   let sentAt = 0;
 
-  // ── The sheet, or the row of it, behind the element ────────────────────
-  // The webview keeps the bitmaps of the rows it has shown and may drop the
-  // ones it has not shown for a while; sheetSwap.ts does the sequencing.
   // Debug builds: the frame check, written to parrot-debug.log (or kept on the page outside the app).
   const debugLines: string[] = [];
   (window as unknown as { __parrotDebug?: string[] }).__parrotDebug = debugLines;
@@ -122,39 +122,48 @@ export function createBird(
         invoke("companion_debug_log", { lines }).catch(() => {});
       })
     : null;
-  const debugImages = new Map<string, HTMLImageElement>();
-  const probe = DEBUG ? document.createElement("canvas").getContext("2d") : null;
-
-  const sheet = createSheetSwap(
-    (file) => {
+  // ── The sprite: a canvas drawn from bitmaps the page holds ─────────────
+  // A CSS background let the webview drop a row's decoded pixels once it was
+  // off screen, and redecode it, blank, the next time it went up. Here a frame
+  // is drawn only from a decoded bitmap the page owns; until the next one is
+  // ready the canvas keeps the last frame. spriteCache.ts decodes the rows the
+  // bird may show next ahead of time, within a memory budget.
+  const canvas = document.createElement("canvas");
+  canvas.className = "parrot-sprite";
+  el.prepend(canvas);
+  const ctx = canvas.getContext("2d");
+  let canvasFor = 0;
+  const sizeCanvas = () => {
+    const dpr = window.devicePixelRatio;
+    if (dpr === canvasFor) return;
+    canvasFor = dpr;
+    canvas.width = Math.round(DISPLAY_CELL.width * dpr);
+    canvas.height = Math.round(DISPLAY_CELL.height * dpr);
+    drawnFrame = "";
+  };
+  let drawnFrame = "";
+  let shownFile = "";
+  let resolveReady: () => void = () => {};
+  const firstFrame = new Promise<void>((resolve) => (resolveReady = resolve));
+  let fileBytes = scaleFiles(scaleFor(window.devicePixelRatio));
+  const sprites = createSpriteCache<ImageBitmap>({
+    decode: async (file) => {
       const img = new Image();
       img.src = `${import.meta.env.BASE_URL}${file}`;
-      if (DEBUG) debugImages.set(file, img);
-      return img.decode();
+      await img.decode();
+      return createImageBitmap(img);
     },
-    (source) => {
-      if (source.file !== sheet.shown()) {
-        // Debug: was the row's image still decoded as it went up? Drawing it says: a decode takes ms.
-        const img = debugImages.get(source.file);
-        if (frameLog && probe && img) {
-          const t0 = performance.now();
-          probe.drawImage(img, 0, 0, 1, 1);
-          const ms = performance.now() - t0;
-          frameLog.note(`swap ${source.file} draw-probe ${ms.toFixed(1)}ms`);
-          if (ms > NOT_DECODED_MS) frameLog.note(`ISSUE row-not-decoded ${source.file}: shown before its decode (${ms.toFixed(1)} ms to draw)`);
-        }
-        el.style.backgroundImage = `url("${import.meta.env.BASE_URL}${source.file}")`;
-        el.style.backgroundSize = `${source.size.width}px ${source.size.height}px`;
-      }
-      el.style.backgroundPosition = `${source.position.x}px ${source.position.y}px`;
-    },
-    // The frame may have moved on during the decode: draw the current one.
-    () => {
+    free: (bitmap) => bitmap.close(),
+    bytesOf: (file) => fileBytes.get(file) ?? 0,
+    // The frame it was waiting for, or a later one: draw whatever is current.
+    onReady: () => {
       drawn = "";
       draw(Date.now());
     },
-    (file, asked) => frameLog?.note(`ISSUE stale-row-applied ${file}: put up after the bird moved on to ${asked}`),
-  );
+  });
+
+  // Debug builds: the decoded sprite memory, twice a minute.
+  if (frameLog) window.setInterval(() => frameLog.note(`memory sprites ${(sprites.bytes() / 2 ** 20).toFixed(1)} MiB in ${sprites.files().length} files`), 30_000);
 
   const sendHitboxes = (now: number, force: boolean) => {
     if (!force && now - sentAt < HITBOX_EVERY_MS) return;
@@ -184,24 +193,35 @@ export function createBird(
     const name = spriteState(state, now);
     const frame = frameIndex(state, now, (s, elapsed) => frameAt(rowOf(s), elapsed));
     const scale = scaleFor(window.devicePixelRatio);
-    const source = frameSource(scale, name, frame);
+    const rect = frameRect(scale, name, frame);
     const shut = canBlink(state, name) ? lidAt(blink, now) : 0;
     const { scaleX, dip } = turnPose(state, now);
-    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}`;
+    const key = `${rect.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}`;
     if (key === drawn) return;
     drawn = key;
     place(now);
-    sheet.show(source);
-    // Only over the row the element is showing: while a new row decodes, the old one stays up.
-    showLid(sheet.shown() === source.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
+    sizeCanvas();
+    // This row, and the rows it may need next, decoded and held.
+    sprites.want(nextRows(state, now).map((row) => frameRect(scale, row, 0).file));
+    const bitmap = sprites.get(rect.file);
+    const frameKey = `${rect.file}:${rect.sx}:${rect.sy}:${canvas.width}`;
+    if (bitmap && ctx && frameKey !== drawnFrame) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
+      drawnFrame = frameKey;
+      if (shownFile === "") resolveReady();
+      shownFile = rect.file;
+    }
+    // Only over the row on the canvas: while a new row decodes, the old frame stays up.
+    showLid(shownFile === rect.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
     frameLog?.frame(
       {
         row: name,
         frame,
         frames: rowOf(name).frames,
-        wantedFile: source.file,
-        shownFile: sheet.shown(),
-        hasImage: el.style.backgroundImage !== "",
+        wantedFile: rect.file,
+        shownFile,
+        hasImage: shownFile !== "",
         scaleX,
         lidShown: lid.style.display === "block",
         lidSize: parseFloat(lid.style.width) || 0,
@@ -292,6 +312,7 @@ export function createBird(
   // A DPI change resizes the window too, so the sheet follows through draw().
   window.addEventListener("resize", () => {
     drawn = "";
+    fileBytes = scaleFiles(scaleFor(window.devicePixelRatio));
     placeBranch();
     dispatch({ type: "resize", width: window.innerWidth, height: window.innerHeight });
     sendHitboxes(Date.now(), true);
@@ -304,7 +325,8 @@ export function createBird(
     debugNote: (text: string) => frameLog?.note(text),
     state: () => state,
     refreshHitboxes: () => sendHitboxes(Date.now(), true),
-    ready: () => sheet.ready,
+    ready: () => firstFrame,
+    spriteBytes: () => sprites.bytes(),
     setFaded: (faded) => {
       el.classList.toggle("parrot-faded", faded);
       branch.classList.toggle("parrot-faded", faded);

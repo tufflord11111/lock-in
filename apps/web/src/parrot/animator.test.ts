@@ -8,7 +8,8 @@ import {
   createLoop,
   decodedBytes,
   frameAt,
-  frameSource,
+  frameRect,
+  scaleFiles,
   playedOnce,
   rowOf,
   scaleFor,
@@ -97,17 +98,19 @@ describe("frames", () => {
   it("come from a whole sheet by column and row, or from a row file by column alone", () => {
     const whole: SheetScale = { maxDpr: null, cell: { width: 192, height: 160 }, sheet: { width: 2304, height: 2720 }, file: "parrot/parrot-2x.png" };
     const rows: SheetScale = { ...whole, file: undefined, rowFiles: "parrot/parrot-2x/{state}.png" };
-    expect(frameSource(whole, "walk", 2)).toEqual({
-      file: "parrot/parrot-2x.png",
-      size: sheetSize(DISPLAY_CELL),
-      position: { x: -2 * DISPLAY_CELL.width, y: -3 * DISPLAY_CELL.height },
-    });
-    expect(frameSource(rows, "walk", 2)).toEqual({
-      file: "parrot/parrot-2x/walk.png",
-      size: { width: rowOf("walk").frames * DISPLAY_CELL.width, height: DISPLAY_CELL.height },
-      position: { x: -2 * DISPLAY_CELL.width, y: 0 },
-    });
-    expect(() => frameSource({ ...whole, file: undefined }, "walk", 0)).toThrow();
+    // In the image's own px: the scale's cell, not the display cell.
+    expect(frameRect(whole, "walk", 2)).toEqual({ file: "parrot/parrot-2x.png", sx: 384, sy: 3 * 160, sw: 192, sh: 160 });
+    expect(frameRect(rows, "walk", 2)).toEqual({ file: "parrot/parrot-2x/walk.png", sx: 384, sy: 0, sw: 192, sh: 160 });
+    expect(() => frameRect({ ...whole, file: undefined }, "walk", 0)).toThrow();
+  });
+
+  it("know what each file holds once decoded: a row's frames, or the whole sheet", () => {
+    const whole: SheetScale = { maxDpr: null, cell: { width: 192, height: 160 }, sheet: { width: 2304, height: 2720 }, file: "parrot/parrot-2x.png" };
+    const rows: SheetScale = { ...whole, file: undefined, rowFiles: "parrot/parrot-2x/{state}.png" };
+    expect([...scaleFiles(whole)]).toEqual([["parrot/parrot-2x.png", 2304 * 2720 * 4]]);
+    const files = scaleFiles(rows);
+    expect(files.size).toBe(17);
+    expect(files.get("parrot/parrot-2x/walk.png")).toBe(rowOf("walk").frames * 192 * 160 * 4);
   });
 
   it("ship any sheet over 16 MiB decoded as row files", () => {
