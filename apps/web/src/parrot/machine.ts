@@ -6,13 +6,27 @@
  */
 import { DISPLAY_CELL, playedOnce, rowOf, type Cell, type LoopPlan } from "./animator";
 
-export type Mode = "idle" | "walk" | "peck" | "perch" | "sleep" | "wake" | "happy" | "talk" | "drag" | "fall";
+export type Mode =
+  | "idle"
+  | "walk"
+  | "peck"
+  | "preen"
+  | "mutter"
+  | "perch"
+  | "sleep"
+  | "wake"
+  | "happy"
+  | "talk"
+  | "drag"
+  | "fall";
 
 export type BirdState = {
   mode: Mode;
   enteredAt: number;
-  /** When idle or perch moves on by itself. */
+  /** When idle or perch next decides something: a fidget, or the walk that ends the rest. */
   nextAt: number;
+  /** When the current rest between walks is over. */
+  restUntil: number;
   x: number;
   lift: number;
   targetX: number;
@@ -78,20 +92,32 @@ export function contactFrames(row = rowOf("walk")): number[] {
   return row.contact ?? (row.frames % 2 === 0 ? [0, row.frames / 2] : [0]);
 }
 
+/** How long a walk of k strides takes: the turn if any, frame 0 held, k strides, the last frame held. */
+export const walkTime = (steps: number, turned: boolean, row = rowOf("walk")): number =>
+  (turned ? TURN_MS : 0) + ((steps + 1) * 1000) / row.fps;
+
 /**
- * How many strides a walk of about `distance` takes: the count nearest to it
- * that ends on a contact frame and keeps the bird on the screen. 0 if none does.
+ * How many strides a walk of about `durationMs` takes: the count whose walk
+ * time is nearest it, within WALK_MIN_MS to WALK_MAX_MS, that ends on a
+ * contact frame and keeps the bird on the screen. 0 if none does.
  */
-export function walkStepsFor(distance: number, x: number, facing: 1 | -1, width: number, cell: Cell, row = rowOf("walk")): number {
+export function walkStepsFor(
+  durationMs: number,
+  x: number,
+  facing: 1 | -1,
+  turned: boolean,
+  width: number,
+  cell: Cell,
+  row = rowOf("walk"),
+): number {
   const stride = walkStride(row);
   const contact = contactFrames(row);
-  const ideal = distance / stride;
   let best = 0;
-  for (let k = 1; k <= Math.ceil(ideal) + row.frames; k++) {
-    if (!contact.includes(k % row.frames)) continue;
+  for (let k = 1; walkTime(k, turned, row) <= WALK_MAX_MS; k++) {
+    if (!contact.includes(k % row.frames) || walkTime(k, turned, row) < WALK_MIN_MS) continue;
     const end = x + facing * k * stride;
     if (end < 0 || end > maxX(width, cell)) continue;
-    if (best === 0 || Math.abs(k - ideal) < Math.abs(best - ideal)) best = k;
+    if (best === 0 || Math.abs(walkTime(k, turned, row) - durationMs) < Math.abs(walkTime(best, turned, row) - durationMs)) best = k;
   }
   return best;
 }
@@ -133,26 +159,58 @@ export function turnPose(s: BirdState, now: number): { scaleX: number; dip: numb
 }
 
 export const FALL_PX_PER_S = 600;
-export const IDLE_MIN_MS = 4_000;
-export const IDLE_MAX_MS = 20_000;
-export const PERCH_MIN_MS = 30_000;
-export const PERCH_MAX_MS = 120_000;
+
+/*
+ * The awake rhythm: a walk of WALK_MIN_MS to WALK_MAX_MS, then a rest of
+ * REST_MIN_MS to REST_MAX_MS, and again. A rest is idle, or now and then
+ * perched; idle fidgets every FIDGET_MIN_MS to FIDGET_MAX_MS with a peck, a
+ * preen or a mutter (the blink has its own clock). Rest lengths lean short
+ * (REST_SKEW) and walk lengths long (WALK_SKEW) so that walking is about a
+ * quarter of the awake time.
+ */
+export const WALK_MIN_MS = 1_000;
+export const WALK_MAX_MS = 4_000;
+export const WALK_SKEW = 0.5;
+export const REST_MIN_MS = 6_000;
+export const REST_MAX_MS = 20_000;
+export const REST_SKEW = 4;
+export const PERCH_CHANCE = 0.2;
+export const FIDGET_MIN_MS = 2_500;
+export const FIDGET_MAX_MS = 6_000;
+export const MUTTER_MS = 1_500;
+/** The longest fidget: none starts this close to the end of a rest. */
+export const FIDGET_LONGEST_MS = MUTTER_MS;
+/** The next walk keeps going the way the bird faces this often, so it gets from one side to the other. */
+export const KEEP_GOING = 0.7;
+export const FIDGETS: readonly (readonly [Mode, number])[] = [
+  ["peck", 0.4],
+  ["preen", 0.35],
+  ["mutter", 0.25],
+];
 
 export const maxX = (width: number, cell: Cell = DISPLAY_CELL) => Math.max(0, width - cell.width);
 export const restingX = (width: number, cell: Cell = DISPLAY_CELL) => Math.round(maxX(width, cell) * 0.85);
 
-/** How often a walk heads for an edge. Uniform targets alone almost never reach one. */
-export const EDGE_WALK_CHANCE = 0.3;
+const between = (rand: number, min: number, max: number) => min + rand * (max - min);
 
-/** Where a walk ends: either edge some of the time, else anywhere between. */
-export function walkTarget(rand: number, width: number, cell: Cell = DISPLAY_CELL): number {
-  const edge = EDGE_WALK_CHANCE / 2;
-  if (rand < edge) return 0;
-  if (rand >= 1 - edge) return maxX(width, cell);
-  return Math.round(rand * maxX(width, cell));
+/** One random number in, several independent-looking ones out, so the reducer still takes a single rand. */
+export function mix(rand: number, salt: number): number {
+  const v = Math.sin(rand * 12.9898 + salt * 78.233) * 43758.5453;
+  return v - Math.floor(v);
 }
 
-const between = (rand: number, min: number, max: number) => min + rand * (max - min);
+export const walkLength = (u: number) => between(u ** WALK_SKEW, WALK_MIN_MS, WALK_MAX_MS);
+export const restLength = (u: number) => between(u ** REST_SKEW, REST_MIN_MS, REST_MAX_MS);
+export const fidgetGap = (u: number) => between(u, FIDGET_MIN_MS, FIDGET_MAX_MS);
+
+export function pickFidget(u: number): Mode {
+  let acc = 0;
+  for (const [mode, weight] of FIDGETS) {
+    acc += weight;
+    if (u < acc) return mode;
+  }
+  return FIDGETS[FIDGETS.length - 1][0];
+}
 
 export function initialState(
   now: number,
@@ -163,10 +221,12 @@ export function initialState(
   cell: Cell = DISPLAY_CELL,
 ): BirdState {
   const x = restingX(width, cell);
+  const restUntil = now + restLength(mix(rand, 4));
   return {
     mode: sessionActive ? "sleep" : "idle",
     enteredAt: now,
-    nextAt: now + between(rand, IDLE_MIN_MS, IDLE_MAX_MS),
+    nextAt: Math.min(restUntil, now + fidgetGap(mix(rand, 5))),
+    restUntil,
     x,
     lift: 0,
     targetX: x,
@@ -188,28 +248,35 @@ export function initialState(
   };
 }
 
-const enterIdle = (s: BirdState, now: number, rand: number): BirdState => ({
-  ...s,
-  mode: "idle",
-  enteredAt: now,
-  nextAt: now + between(rand, IDLE_MIN_MS, IDLE_MAX_MS),
-  happyAfterWake: false,
-});
+/** A new rest between walks: idle, or now and then perched, for a rest length. */
+export function enterRest(s: BirdState, now: number, rand: number): BirdState {
+  const restUntil = now + restLength(mix(rand, 4));
+  const perched = mix(rand, 3) < PERCH_CHANCE;
+  return {
+    ...s,
+    mode: perched ? "perch" : "idle",
+    enteredAt: now,
+    restUntil,
+    nextAt: perched ? restUntil : Math.min(restUntil, now + fidgetGap(mix(rand, 5))),
+    happyAfterWake: false,
+  };
+}
 
-/** Where anything that ended goes: asleep if a session is running, else idle. */
+/** After a fidget: back to idle for what is left of the same rest. */
+function backToRest(s: BirdState, now: number, rand: number): BirdState {
+  if (s.sessionActive) return { ...s, mode: "sleep", enteredAt: now, happyAfterWake: false };
+  return { ...s, mode: "idle", enteredAt: now, nextAt: Math.min(s.restUntil, now + fidgetGap(mix(rand, 5))) };
+}
+
+/** Where anything that ended goes: asleep if a session is running, else a new rest. */
 const settle = (s: BirdState, now: number, rand: number): BirdState =>
-  s.sessionActive ? { ...s, mode: "sleep", enteredAt: now, happyAfterWake: false } : enterIdle(s, now, rand);
+  s.sessionActive ? { ...s, mode: "sleep", enteredAt: now, happyAfterWake: false } : enterRest(s, now, rand);
 
-/**
- * Turn first if it has to, then walk: hold walk frame 0 for a frame without
- * moving, step a stride per frame, stop on a contact frame and hold it a frame,
- * then idle. While it turns it keeps the drawing it had.
- */
-function startWalk(s: BirdState, now: number, rand: number): BirdState {
-  const wanted = walkTarget(rand, s.width, s.cell);
-  const facing: 1 | -1 = wanted > s.x ? 1 : -1;
-  const steps = walkStepsFor(Math.abs(wanted - s.x), s.x, facing, s.width, s.cell);
-  if (steps === 0 || steps * walkStride() < s.cell.width / 2) return enterIdle(s, now, rand);
+/** A walk of about this long, this way, or null if it can't go that way. */
+export function beginWalk(s: BirdState, now: number, facing: 1 | -1, durationMs: number): BirdState | null {
+  const turning = facing !== s.facing && !s.reducedMotion;
+  const steps = walkStepsFor(durationMs, s.x, facing, turning, s.width, s.cell);
+  if (steps === 0) return null;
   const holdRow = spriteState(s, now);
   const holdFrame = frameIndex(s, now, () => 0);
   const turned = faceTo(s, facing, now);
@@ -226,32 +293,44 @@ function startWalk(s: BirdState, now: number, rand: number): BirdState {
   };
 }
 
+/**
+ * The rest is over: walk for WALK_MIN_MS to WALK_MAX_MS, mostly on the way it
+ * faces, else back the other way, whichever has room; if neither has, rest again.
+ * Turn first if it has to, then hold walk frame 0 for a frame without moving,
+ * step a stride per frame, stop on a contact frame and hold it a frame.
+ */
+function startWalk(s: BirdState, now: number, rand: number): BirdState {
+  const ahead: 1 | -1 = mix(rand, 1) < KEEP_GOING ? s.facing : s.facing === 1 ? -1 : 1;
+  const duration = walkLength(mix(rand, 2));
+  return beginWalk(s, now, ahead, duration) ?? beginWalk(s, now, ahead === 1 ? -1 : 1, duration) ?? enterRest(s, now, rand);
+}
+
 function tick(s: BirdState, now: number, rand: number): BirdState {
   const elapsed = now - s.enteredAt;
   switch (s.mode) {
     case "idle":
       if (s.reducedMotion || now < s.nextAt) return s;
-      if (rand < 0.5) return startWalk(s, now, rand * 2);
-      if (rand < 0.75) return { ...s, mode: "peck", enteredAt: now };
-      return {
-        ...s,
-        mode: "perch",
-        enteredAt: now,
-        nextAt: now + between((rand - 0.75) * 4, PERCH_MIN_MS, PERCH_MAX_MS),
-      };
+      if (now >= s.restUntil) return startWalk(s, now, rand);
+      // A fidget that couldn't finish inside the rest would stretch it: wait for the walk instead.
+      if (now + FIDGET_LONGEST_MS > s.restUntil) return { ...s, nextAt: s.restUntil };
+      return { ...s, mode: pickFidget(mix(rand, 6)), enteredAt: now };
     case "perch":
-      if (s.reducedMotion || now < s.nextAt) return s;
+      if (s.reducedMotion || now < s.restUntil) return s;
       return startWalk(s, now, rand);
     case "walk": {
       const walked = now - s.stepAt;
       if (walked < 0) return s; // still turning: nothing moves
       const n = Math.floor((walked * rowOf("walk").fps) / 1000);
       // The last frame, a contact frame at the target, has had its frame-time.
-      if (n > s.walkSteps) return enterIdle({ ...s, x: s.targetX }, now, rand);
+      if (n > s.walkSteps) return enterRest({ ...s, x: s.targetX }, now, rand);
       return { ...s, x: s.fromX + s.facing * n * walkStride() };
     }
     case "peck":
-      return playedOnce(rowOf("peck"), elapsed) ? settle(s, now, rand) : s;
+      return playedOnce(rowOf("peck"), elapsed) ? backToRest(s, now, rand) : s;
+    case "preen":
+      return playedOnce(rowOf("idle_preen"), elapsed) ? backToRest(s, now, rand) : s;
+    case "mutter":
+      return elapsed >= MUTTER_MS ? backToRest(s, now, rand) : s;
     case "wake":
       if (!playedOnce(rowOf("wake"), elapsed)) return s;
       return s.happyAfterWake && !s.sessionActive
@@ -276,7 +355,7 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
       if (s.reducedMotion) return { ...s, width: event.width, x: restingX(event.width, s.cell) };
       const resized = { ...s, width: event.width, x: Math.min(s.x, maxX(event.width, s.cell)) };
       // A walk's end point may now be off the screen.
-      return s.mode === "walk" ? enterIdle(resized, now, rand) : resized;
+      return s.mode === "walk" ? enterRest(resized, now, rand) : resized;
     }
     case "session":
       if (event.active === s.sessionActive) return s;
@@ -298,7 +377,10 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
       return { ...s, hidden: event.hidden };
     case "reducedMotion":
       if (event.reduced === s.reducedMotion) return s;
-      if (!event.reduced) return { ...s, reducedMotion: false, nextAt: now + between(rand, IDLE_MIN_MS, IDLE_MAX_MS) };
+      if (!event.reduced) {
+        const moving = { ...s, reducedMotion: false };
+        return s.mode === "idle" || s.mode === "perch" ? enterRest(moving, now, rand) : moving;
+      }
       return settle({ ...s, reducedMotion: true, x: restingX(s.width, s.cell), lift: 0 }, now, rand);
     case "talkStart":
       if (s.mode === "drag" || s.mode === "sleep" || s.mode === "fall") return s;
@@ -327,6 +409,8 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
  */
 export function spriteState(s: BirdState, now: number): string {
   if (s.mode === "fall") return "drag";
+  if (s.mode === "preen") return "idle_preen";
+  if (s.mode === "mutter") return "talk";
   if (s.mode === "walk" && now < s.stepAt) return s.holdRow;
   return s.mode;
 }
@@ -354,7 +438,9 @@ export function loopPlan(s: BirdState, now: number): LoopPlan {
   if (isTurning(s, now)) return { kind: "frames" };
   if (s.mode === "walk") return { kind: "wait", ms: WALK_STEP_MS };
   if (!isStill(s)) return { kind: "frames" };
-  return { kind: "wait", ms: STILL_STEP_MS - ((now - s.enteredAt) % STILL_STEP_MS) };
+  // The next frame step, or sooner if a fidget or the walk is due before it.
+  const step = STILL_STEP_MS - ((now - s.enteredAt) % STILL_STEP_MS);
+  return { kind: "wait", ms: s.mode === "sleep" ? step : Math.max(0, Math.min(step, s.nextAt - now)) };
 }
 
 /** The frame to show. Still modes step slowly from the clock; reduced motion holds frame 0. */

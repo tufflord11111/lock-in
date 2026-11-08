@@ -15,6 +15,23 @@ import {
   turnPose,
   walkStepsFor,
   walkDistance,
+  walkTime,
+  beginWalk,
+  enterRest,
+  pickFidget,
+  restLength,
+  walkLength,
+  mix,
+  FIDGETS,
+  FIDGET_LONGEST_MS,
+  KEEP_GOING,
+  MUTTER_MS,
+  PERCH_CHANCE,
+  REST_MAX_MS,
+  REST_MIN_MS,
+  WALK_MAX_MS,
+  WALK_MIN_MS,
+  type Mode,
   walkSpeed,
   walkStride,
   frameIndex,
@@ -23,7 +40,6 @@ import {
   isStill,
   loopPlan,
   maxX,
-  walkTarget,
   reduce,
   restingX,
   spriteState,
@@ -49,12 +65,13 @@ describe("awake", () => {
     expect(s.x).toBe(restingX(WIDTH));
   });
 
-  it("stays idle until its time is up, then moves on", () => {
-    const s = start({ nextAt: T0 + 5000 });
+  it("rests until its next moment, fidgets within the rest, and walks when the rest is over", () => {
+    const s = start({ nextAt: T0 + 5000, restUntil: T0 + 15_000 });
     expect(tick(s, T0 + 4999)).toBe(s);
-    expect(tick(s, T0 + 5000, 0.1).mode).toBe("walk");
-    expect(tick(s, T0 + 5000, 0.6).mode).toBe("peck");
-    expect(tick(s, T0 + 5000, 0.9).mode).toBe("perch");
+    const fidget = tick(s, T0 + 5000, 0.3);
+    expect(["peck", "preen", "mutter"]).toContain(fidget.mode);
+    expect(fidget.restUntil).toBe(T0 + 15_000);
+    expect(tick(start({ nextAt: T0, restUntil: T0 }), T0, 0.3).mode).toBe("walk");
   });
 
   it("walks at the art's stride, from the clock, and stops at its target", () => {
@@ -62,8 +79,8 @@ describe("awake", () => {
     const target = 100 + steps * walkStride();
     const s = { ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: target, facing: 1, enteredAt: T0, stepAt: T0, walkSteps: steps } as BirdState;
     expect(tick(s, T0 + 2000).x).toBeCloseTo(100 + 2 * WALK_PX_PER_S);
-    const done = tick(s, T0 + ((steps + 1) * 1000) / rowOf("walk").fps);
-    expect(done.mode).toBe("idle");
+    const done = tick(s, T0 + ((steps + 1) * 1000) / rowOf("walk").fps + 1);
+    expect(["idle", "perch"]).toContain(done.mode);
     expect(done.x).toBe(target);
   });
 
@@ -72,16 +89,18 @@ describe("awake", () => {
     const s = { ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: target, facing: 1, enteredAt: T0, stepAt: T0, walkSteps: 60 } as BirdState;
     const late = tick(s, T0 + 3_600_000);
     expect(late.x).toBe(target);
-    expect(late.mode).toBe("idle");
+    expect(["idle", "perch"]).toContain(late.mode);
   });
 
-  it("picks walk targets inside the overlay and faces them", () => {
-    const s = start({ x: 500, nextAt: T0 });
-    const right = tick(s, T0, 0.49);
+  it("walks the way it is sent, inside the overlay, facing where it goes", () => {
+    const s = start({ x: 500 });
+    const right = beginWalk(s, T0, 1, 2500)!;
     expect(right.mode).toBe("walk");
+    expect(right.targetX).toBeGreaterThan(500);
     expect(right.targetX).toBeLessThanOrEqual(maxX(WIDTH));
     expect(right.facing).toBe(1);
-    const left = tick(s, T0, 0.05);
+    const left = beginWalk(s, T0, -1, 2500)!;
+    expect(left.targetX).toBeLessThan(500);
     expect(left.targetX).toBeGreaterThanOrEqual(0);
     expect(left.facing).toBe(-1);
   });
@@ -221,7 +240,8 @@ describe("reduced motion", () => {
     expect(still.x).toBe(restingX(WIDTH));
     const back = go(still, { type: "reducedMotion", reduced: false }, T0 + 1000);
     expect(back.reducedMotion).toBe(false);
-    expect(tick(back, back.nextAt, 0.1).mode).toBe("walk");
+    expect(back.restUntil).toBeGreaterThan(T0 + 1000);
+    expect(tick({ ...back, mode: "idle", nextAt: back.restUntil }, back.restUntil, 0.3).mode).toBe("walk");
   });
 });
 
@@ -257,25 +277,27 @@ describe("what the loop needs", () => {
 });
 
 describe("walks and drags stay on the screen and reach its edges", () => {
-  it("a walk can end exactly on either edge", () => {
-    expect(walkTarget(0, WIDTH)).toBe(0);
-    expect(walkTarget(0.14, WIDTH)).toBe(0);
-    expect(walkTarget(0.86, WIDTH)).toBe(maxX(WIDTH));
-    expect(walkTarget(0.999, WIDTH)).toBe(maxX(WIDTH));
+  it("a walk never ends off the screen, from anywhere, either way", () => {
+    for (let x = 0; x <= maxX(WIDTH); x += 37) {
+      for (const facing of [1, -1] as const) {
+        for (const d of [1000, 2500, 4000]) {
+          const w = beginWalk(start({ x }), T0, facing, d);
+          if (!w) continue;
+          expect(w.targetX).toBeGreaterThanOrEqual(0);
+          expect(w.targetX).toBeLessThanOrEqual(maxX(WIDTH));
+        }
+      }
+    }
   });
 
-  it("between the edge bands, a walk ends somewhere in between", () => {
-    const t = walkTarget(0.5, WIDTH);
-    expect(t).toBeGreaterThan(0);
-    expect(t).toBeLessThan(maxX(WIDTH));
-  });
-
-  it("both edges turn up within a modest number of walks", () => {
-    let seed = 1;
-    const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    const targets = Array.from({ length: 40 }, () => walkTarget(rand(), WIDTH));
-    expect(targets).toContain(0);
-    expect(targets).toContain(maxX(WIDTH));
+  it("near an edge it turns back, or rests if neither way has room for a walk", () => {
+    const atRight = start({ x: maxX(WIDTH), facing: 1, nextAt: T0, restUntil: T0 });
+    const w = tick(atRight, T0, 0.01);
+    expect(w.mode).toBe("walk");
+    expect(w.facing).toBe(-1);
+    // A window too narrow for even the shortest walk: it rests again.
+    const narrow = start({ width: DISPLAY_CELL.width + 10, x: 5, nextAt: T0, restUntil: T0 });
+    expect(["idle", "perch"]).toContain(tick(narrow, T0, 0.5).mode);
   });
 
   it("dragging past the top keeps the whole bird on the screen", () => {
@@ -332,19 +354,18 @@ describe("a cell that isn't square", () => {
     expect(maxX(WIDTH, WIDE)).toBe(WIDTH - 128);
     expect(restingX(WIDTH, WIDE)).toBe(Math.round((WIDTH - 128) * 0.85));
     expect(wide().x).toBe(restingX(WIDTH, WIDE));
-    expect(walkTarget(0.999, WIDTH, WIDE)).toBe(WIDTH - 128);
-    expect(walkTarget(0.5, WIDTH, WIDE)).toBeLessThanOrEqual(WIDTH - 128);
+    const w = beginWalk(wide({ x: WIDTH - 128 - 60 }), T0, 1, 4000)!;
+    expect(w.targetX).toBeLessThanOrEqual(WIDTH - 128);
   });
 
-  it("walks to the right edge, stopping on a contact frame within one contact interval of it", () => {
-    let s = tick(wide({ nextAt: T0 }), T0, 0.999 / 2);
+  it("walking right toward the edge stops on a contact frame without passing it", () => {
+    let s = beginWalk(wide({ x: WIDTH - 128 - 120 }), T0, 1, 4000)!;
     expect(s.mode).toBe("walk");
-    const interval = (rowOf("walk").frames / contactFrames().length) * walkStride();
     expect(s.targetX).toBeLessThanOrEqual(WIDTH - 128);
-    expect(WIDTH - 128 - s.targetX).toBeLessThan(interval);
+    expect(contactFrames()).toContain(s.walkSteps % rowOf("walk").frames);
     s = tick(s, T0 + 1_000_000);
     expect(s.x).toBe(s.targetX);
-    expect(s.mode).toBe("idle");
+    expect(["idle", "perch"]).toContain(s.mode);
   });
 
   it("clamps a drag by the cell's width, and keeps the cell on a resize", () => {
@@ -391,8 +412,8 @@ describe("the walk, locked to the art's frames", () => {
 
   it("still stops exactly at its target", () => {
     const s = walking({ targetX: 100 + 8 * walk.stride!, walkSteps: 8 });
-    const done = tick(s, T0 + 9 * frameMs);
-    expect(done.mode).toBe("idle");
+    const done = tick(s, T0 + 9 * frameMs + 1);
+    expect(["idle", "perch"]).toContain(done.mode);
     expect(done.x).toBe(100 + 8 * walk.stride!);
   });
 });
@@ -441,7 +462,7 @@ describe("turning round", () => {
   });
 
   it("doesn't move the bird while it turns", () => {
-    let s = tick(facingRight({ x: 600, nextAt: T0 }), T0, 0.1 / 2); // a walk to the left
+    let s = beginWalk(facingRight({ x: 600 }), T0, -1, 2500)!; // a walk to the left
     expect(s.mode).toBe("walk");
     expect(s.facing).toBe(-1);
     for (let t = 0; t <= TURN_MS; t += 10) expect(tick(s, T0 + t).x).toBe(600);
@@ -477,8 +498,8 @@ describe("turning round", () => {
 describe("starting and stopping a walk", () => {
   const walk = rowOf("walk");
   const frameMs = 1000 / walk.fps;
-  const leftFrom = (x: number) => tick(start({ x, facing: 1, nextAt: T0 }), T0, 0.1 / 2);
-  const rightFrom = (x: number) => tick(start({ x, facing: 1, nextAt: T0 }), T0, 0.9 / 2);
+  const leftFrom = (x: number) => beginWalk(start({ x, facing: 1 }), T0, -1, 3000)!;
+  const rightFrom = (x: number) => beginWalk(start({ x, facing: 1 }), T0, 1, 3000)!;
 
   it("turns first, keeping the drawing it had, then starts the walk", () => {
     const s = leftFrom(700);
@@ -526,7 +547,7 @@ describe("starting and stopping a walk", () => {
       expect(tick(s, arrive + frameMs - 1).mode).toBe("walk");
       expect(frameIndex(s, arrive + frameMs - 1, byRow)).toBe(k % walk.frames);
       const done = tick(s, arrive + frameMs + 1);
-      expect(done.mode).toBe("idle");
+      expect(["idle", "perch"]).toContain(done.mode);
       expect(done.x).toBe(s.targetX);
     }
   });
@@ -534,17 +555,166 @@ describe("starting and stopping a walk", () => {
   it("only ever plans walks that end on a contact frame and stay on the screen", () => {
     expect(contactFrames({ ...walk, frames: 8, contact: undefined })).toEqual([0, 4]);
     expect(contactFrames({ ...walk, contact: [2, 6] })).toEqual([2, 6]);
-    for (let d = 1; d < 900; d += 37) {
+    for (let d = WALK_MIN_MS; d <= WALK_MAX_MS; d += 250) {
       for (const facing of [1, -1] as const) {
-        const k = walkStepsFor(d, 500, facing, WIDTH, DISPLAY_CELL);
-        if (k === 0) continue;
-        expect(contactFrames()).toContain(k % walk.frames);
-        const end = 500 + facing * k * walkStride();
-        expect(end).toBeGreaterThanOrEqual(0);
-        expect(end).toBeLessThanOrEqual(maxX(WIDTH));
+        for (const turned of [false, true]) {
+          const k = walkStepsFor(d, 500, facing, turned, WIDTH, DISPLAY_CELL);
+          if (k === 0) continue;
+          expect(contactFrames()).toContain(k % walk.frames);
+          const end = 500 + facing * k * walkStride();
+          expect(end).toBeGreaterThanOrEqual(0);
+          expect(end).toBeLessThanOrEqual(maxX(WIDTH));
+          expect(walkTime(k, turned)).toBeGreaterThanOrEqual(WALK_MIN_MS);
+          expect(walkTime(k, turned)).toBeLessThanOrEqual(WALK_MAX_MS);
+        }
       }
     }
     // Nowhere to go: no walk.
-    expect(walkStepsFor(400, maxX(WIDTH), 1, WIDTH, DISPLAY_CELL)).toBe(0);
+    expect(walkStepsFor(2000, maxX(WIDTH), 1, false, WIDTH, DISPLAY_CELL)).toBe(0);
+  });
+});
+
+/** Runs the bird awake for a while on a seeded clock and reports what it did. */
+function simulate(hours: number, seed: number, over: Partial<BirdState> = {}, width = 1440) {
+  let r = seed;
+  const rand = () => (r = (r * 16807) % 2147483647) / 2147483647;
+  let s: BirdState = { ...initialState(0, width, false, false, rand()), ...over };
+  const time: Partial<Record<Mode, number>> = {};
+  const walks: number[] = [];
+  const rests: { length: number; fidgets: Mode[] }[] = [];
+  let walkStart = 0;
+  let restStart = 0;
+  let fidgets: Mode[] = [];
+  let prev = s.mode;
+  let minX = Infinity;
+  let maxXs = -Infinity;
+  const STEP = 50;
+  for (let t = 0; t < hours * 3_600_000; t += STEP) {
+    s = reduce(s, { type: "tick" }, t, rand());
+    time[s.mode] = (time[s.mode] ?? 0) + STEP;
+    if (s.mode === "walk" && prev !== "walk") {
+      walkStart = t;
+      if (t > 0) rests.push({ length: t - restStart, fidgets });
+    }
+    if (s.mode !== "walk" && prev === "walk") {
+      walks.push(t - walkStart);
+      restStart = t;
+      fidgets = [];
+    }
+    if (s.mode !== prev && ["peck", "preen", "mutter"].includes(s.mode)) fidgets.push(s.mode);
+    minX = Math.min(minX, s.x);
+    maxXs = Math.max(maxXs, s.x);
+    prev = s.mode;
+  }
+  const total = Object.values(time).reduce((a, b) => a + (b ?? 0), 0);
+  return { time, total, walks, rests: rests.slice(1), minX, maxX: maxXs, end: s };
+}
+
+describe("the awake rhythm: short walks, longer rests", () => {
+  const runs = [1, 7, 42].map((seed) => simulate(2, seed));
+
+  it("walks for 1 to 4 s at a time, turn and held frames included", () => {
+    for (const { walks } of runs) {
+      expect(walks.length).toBeGreaterThan(400);
+      // One 50 ms tick of slack either side for where the simulation samples.
+      for (const w of walks) {
+        expect(w).toBeGreaterThanOrEqual(WALK_MIN_MS - 50);
+        expect(w).toBeLessThanOrEqual(WALK_MAX_MS + 50);
+      }
+    }
+  });
+
+  it("rests 6 to 20 s between walks", () => {
+    for (const { rests } of runs) {
+      for (const r of rests) {
+        expect(r.length).toBeGreaterThanOrEqual(REST_MIN_MS - 50);
+        expect(r.length).toBeLessThanOrEqual(REST_MAX_MS + 50);
+      }
+    }
+  });
+
+  it("walks about a quarter of its awake time", () => {
+    for (const { time, total } of runs) {
+      const walking = (time.walk ?? 0) / total;
+      expect(walking).toBeGreaterThan(0.22);
+      expect(walking).toBeLessThan(0.28);
+    }
+  });
+
+  it("pecks, preens and mutters now and then while it rests, never mid-walk", () => {
+    for (const { rests, time, total } of runs) {
+      const all = rests.flatMap((r) => r.fidgets);
+      for (const mode of ["peck", "preen", "mutter"] as const) expect(all).toContain(mode);
+      // Occasional: most rests have one or two, none is busy, and fidgets are a small share of the time.
+      const counts = rests.map((r) => r.fidgets.length);
+      expect(Math.max(...counts)).toBeLessThanOrEqual(7);
+      expect(counts.reduce((a, b) => a + b, 0) / counts.length).toBeLessThan(2.5);
+      const fidgeting = ((time.peck ?? 0) + (time.preen ?? 0) + (time.mutter ?? 0)) / total;
+      expect(fidgeting).toBeLessThan(0.15);
+    }
+  });
+
+  it("sometimes spends a rest perched", () => {
+    for (const { time, total } of runs) expect((time.perch ?? 0) / total).toBeGreaterThan(0.05);
+  });
+
+  it("gets to within one walk of both edges", () => {
+    for (const { minX, maxX: right } of runs) {
+      expect(minX).toBeLessThan(40);
+      expect(right).toBeGreaterThan(1440 - DISPLAY_CELL.width - 40);
+    }
+  });
+
+  it("draws its rest and walk lengths from the stated ranges, skewed to give the quarter", () => {
+    expect([REST_MIN_MS, REST_MAX_MS, WALK_MIN_MS, WALK_MAX_MS]).toEqual([6_000, 20_000, 1_000, 4_000]);
+    expect(restLength(0)).toBe(6_000);
+    expect(restLength(1)).toBe(20_000);
+    expect(walkLength(0)).toBe(1_000);
+    expect(walkLength(1)).toBe(4_000);
+    expect(restLength(0.5)).toBeLessThan(13_000);
+    expect(walkLength(0.5)).toBeGreaterThan(2_500);
+  });
+
+  it("chooses its fidgets by their weights, and none starts that couldn't finish inside the rest", () => {
+    expect(FIDGETS.reduce((a, [, w]) => a + w, 0)).toBeCloseTo(1);
+    expect(pickFidget(0)).toBe("peck");
+    expect(pickFidget(0.5)).toBe("preen");
+    expect(pickFidget(0.99)).toBe("mutter");
+    const late = start({ nextAt: T0, restUntil: T0 + FIDGET_LONGEST_MS - 1 });
+    const waited = tick(late, T0, 0.3);
+    expect(waited.mode).toBe("idle");
+    expect(waited.nextAt).toBe(late.restUntil);
+    expect(MUTTER_MS).toBe(FIDGET_LONGEST_MS);
+  });
+
+  it("keeps going the same way most of the time", () => {
+    expect(KEEP_GOING).toBe(0.7);
+    let same = 0;
+    const N = 400;
+    for (let i = 0; i < N; i++) {
+      const w = tick(start({ x: 600, facing: 1, nextAt: T0, restUntil: T0 }), T0, (i + 0.5) / N);
+      if (w.mode === "walk" && w.facing === 1) same++;
+    }
+    expect(same / N).toBeGreaterThan(0.6);
+    expect(same / N).toBeLessThan(0.8);
+  });
+
+  it("perches about one rest in five", () => {
+    let perched = 0;
+    const N = 1000;
+    for (let i = 0; i < N; i++) if (enterRest(start(), T0, (i + 0.5) / N).mode === "perch") perched++;
+    expect(perched / N).toBeGreaterThan(PERCH_CHANCE - 0.05);
+    expect(perched / N).toBeLessThan(PERCH_CHANCE + 0.05);
+    expect(mix(0.5, 1)).not.toBe(mix(0.5, 2));
+  });
+
+  it("under reduced motion never walks or fidgets", () => {
+    const { time, total } = simulate(0.5, 3, { reducedMotion: true });
+    expect(time.idle).toBe(total);
+  });
+
+  it("asleep stays asleep", () => {
+    const { time, total } = simulate(0.5, 3, { mode: "sleep", sessionActive: true });
+    expect(time.sleep).toBe(total);
   });
 });
