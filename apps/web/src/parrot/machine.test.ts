@@ -45,7 +45,24 @@ import {
   spriteState,
   type BirdEvent,
   type BirdState,
+  ARC_PEAK_PX,
+  BRANCH_CHANCE,
+  BRANCH_SIT_MIN_MS,
+  FLY_PX_PER_S,
+  LEAVE_MAX_MS,
+  LEAVE_MIN_MS,
+  arcLength,
+  arcPoint,
+  beginFlight,
+  canFly,
+  easeInOut,
+  flyMs,
+  nearBranch,
+  perchFor,
+  rowMs,
 } from "./machine";
+import { birdBox } from "./layout";
+import { BRANCH, DROP_ON_PERCH_PX, PERCH_HEIGHT, boxGap, branchBox, perchSpot, unionBox } from "./perch";
 
 const WIDTH = 1000;
 const T0 = 1_000_000;
@@ -56,6 +73,13 @@ const start = (over: Partial<BirdState> = {}): BirdState => ({
 const go = (s: BirdState, e: BirdEvent, now = T0, rand = 0.5) => reduce(s, e, now, rand);
 const tick = (s: BirdState, now: number, rand = 0.5) => go(s, { type: "tick" }, now, rand);
 const byRow = (state: string, elapsed: number) => frameAt(rowOf(state), elapsed);
+/** A flight in progress, played to its end: where it lands and what it does there. */
+const landed = (s: BirdState, rand = 0.5): BirdState => (s.mode === "flight" && s.flight ? tick(s, s.flight.endAt, rand) : s);
+/** A session started from the default bird, flown up and asleep on the perch, and when it got there. */
+const asleepOnPerch = (): { s: BirdState; at: number } => {
+  const flying = go(start(), { type: "session", active: true });
+  return { s: landed(flying), at: flying.flight!.endAt };
+};
 
 describe("awake", () => {
   it("boots idle on the bottom edge", () => {
@@ -117,41 +141,42 @@ describe("sessions", () => {
     expect(initialState(T0, WIDTH, false, true, 0).mode).toBe("sleep");
   });
 
-  it("falls asleep when a session starts, and stays put", () => {
-    const s = go(start(), { type: "session", active: true });
+  it("falls asleep on the perch when a session starts, and stays put", () => {
+    const { s, at } = asleepOnPerch();
     expect(s.mode).toBe("sleep");
-    expect(tick(s, T0 + 86_400_000)).toBe(s);
+    expect(s.onBranch).toBe(true);
+    expect(tick(s, at + 86_400_000)).toBe(s);
   });
 
   it("wakes happy when a session ran to its end", () => {
-    let s = go(start(), { type: "session", active: true });
-    s = go(s, { type: "stoodDown", finished: true });
+    let { s, at } = asleepOnPerch();
+    s = go(s, { type: "stoodDown", finished: true }, at);
     expect(s.mode).toBe("wake");
-    s = tick(s, T0 + 500);
+    s = tick(s, at + 500);
     expect(s.mode).toBe("happy");
-    s = tick(s, T0 + 500 + 800);
+    s = tick(s, at + 500 + 800);
     expect(s.mode).toBe("idle");
   });
 
   it("wakes without the celebration on any other ending", () => {
-    let s = go(start(), { type: "session", active: true });
-    s = go(s, { type: "stoodDown", finished: false });
+    let { s, at } = asleepOnPerch();
+    s = go(s, { type: "stoodDown", finished: false }, at);
     expect(s.mode).toBe("wake");
-    s = tick(s, T0 + 500);
+    s = tick(s, at + 500);
     expect(s.mode).toBe("idle");
   });
 
   it("is still happy if the poll woke it just before the event", () => {
-    let s = go(start(), { type: "session", active: true });
-    s = go(s, { type: "session", active: false });
-    s = go(s, { type: "stoodDown", finished: true });
-    expect(tick(s, T0 + 500).mode).toBe("happy");
+    let { s, at } = asleepOnPerch();
+    s = go(s, { type: "session", active: false }, at);
+    s = go(s, { type: "stoodDown", finished: true }, at);
+    expect(tick(s, at + 500).mode).toBe("happy");
   });
 
   it("goes back to sleep if a new session starts while it wakes", () => {
-    let s = go(start(), { type: "session", active: true });
-    s = go(s, { type: "stoodDown", finished: true });
-    s = go(s, { type: "session", active: true });
+    let { s, at } = asleepOnPerch();
+    s = go(s, { type: "stoodDown", finished: true }, at);
+    s = go(s, { type: "session", active: true }, at + 100);
     expect(s.mode).toBe("sleep");
   });
 
@@ -165,8 +190,8 @@ describe("sessions", () => {
   });
 
   it("the sleeping bird doesn't start talking", () => {
-    const s = go(start(), { type: "session", active: true });
-    expect(go(s, { type: "talkStart" }).mode).toBe("sleep");
+    const { s, at } = asleepOnPerch();
+    expect(go(s, { type: "talkStart" }, at).mode).toBe("sleep");
   });
 });
 
@@ -183,7 +208,9 @@ describe("drag and fall", () => {
   it("is clamped to the overlay and falls to the bottom edge from the clock", () => {
     let s = go(start(), { type: "dragStart" });
     s = go(s, { type: "dragMove", x: 99_999, lift: 300, maxLift: 800 });
-    expect(s.x).toBe(maxX(WIDTH));
+    // As far right as the perch's bird, which may overhang the edge a little.
+    expect(s.x).toBe(Math.max(maxX(WIDTH), perchFor(s).x));
+    s = go(s, { type: "dragMove", x: 300, lift: 300, maxLift: 800 });
     s = go(s, { type: "dragMove", x: -50, lift: 300, maxLift: 800 });
     expect(s.x).toBe(0);
     s = go(s, { type: "dragEnd" }, T0);
@@ -482,8 +509,9 @@ describe("turning round", () => {
   });
 
   it("is not drawn asleep or hidden, so the sleeping bird still asks for no redraw", () => {
-    const turning = faceTo(facingRight(), -1, T0);
+    const turning = faceTo(facingRight({ onBranch: true, ...perchFor(facingRight()) }), -1, T0);
     const asleep = go(turning, { type: "session", active: true }, T0 + 20);
+    expect(asleep.mode).toBe("sleep");
     expect(turnPose(asleep, T0 + 30)).toEqual({ scaleX: -1, dip: 0 });
     expect(loopPlan(asleep, T0 + 30).kind).toBe("stop");
     expect(turnPose({ ...turning, hidden: true }, T0 + 30).scaleX).toBe(-1);
@@ -581,7 +609,9 @@ function simulate(hours: number, seed: number, over: Partial<BirdState> = {}, wi
   let s: BirdState = { ...initialState(0, width, false, false, rand()), ...over };
   const time: Partial<Record<Mode, number>> = {};
   const walks: number[] = [];
-  const rests: { length: number; fidgets: Mode[] }[] = [];
+  const rests: { length: number; fidgets: Mode[]; branch: boolean }[] = [];
+  let branch = false;
+  let flights = 0;
   let walkStart = 0;
   let restStart = 0;
   let fidgets: Mode[] = [];
@@ -594,20 +624,25 @@ function simulate(hours: number, seed: number, over: Partial<BirdState> = {}, wi
     time[s.mode] = (time[s.mode] ?? 0) + STEP;
     if (s.mode === "walk" && prev !== "walk") {
       walkStart = t;
-      if (t > 0) rests.push({ length: t - restStart, fidgets });
+      if (t > 0) rests.push({ length: t - restStart, fidgets, branch });
     }
     if (s.mode !== "walk" && prev === "walk") {
       walks.push(t - walkStart);
       restStart = t;
       fidgets = [];
+      branch = false;
     }
+    if (s.onBranch) branch = true;
+    if (s.mode === "flight" && prev !== "flight") flights++;
     if (s.mode !== prev && ["peck", "preen", "mutter"].includes(s.mode)) fidgets.push(s.mode);
-    minX = Math.min(minX, s.x);
-    maxXs = Math.max(maxXs, s.x);
+    if (s.lift === 0 && s.mode !== "flight") {
+      minX = Math.min(minX, s.x);
+      maxXs = Math.max(maxXs, s.x);
+    }
     prev = s.mode;
   }
   const total = Object.values(time).reduce((a, b) => a + (b ?? 0), 0);
-  return { time, total, walks, rests: rests.slice(1), minX, maxX: maxXs, end: s };
+  return { time, total, walks, rests: rests.slice(1), minX, maxX: maxXs, end: s, flights };
 }
 
 describe("the awake rhythm: short walks, longer rests", () => {
@@ -624,13 +659,42 @@ describe("the awake rhythm: short walks, longer rests", () => {
     }
   });
 
-  it("rests 6 to 20 s between walks", () => {
+  it("rests 6 to 20 s between walks; a rest on the branch has its flights in it", () => {
     for (const { rests } of runs) {
-      for (const r of rests) {
+      for (const r of rests.filter((r) => !r.branch)) {
         expect(r.length).toBeGreaterThanOrEqual(REST_MIN_MS - 50);
         expect(r.length).toBeLessThanOrEqual(REST_MAX_MS + 50);
       }
+      // The flight down is to a random spot, so it may run a little longer than the one up.
+      for (const r of rests.filter((r) => r.branch)) {
+        expect(r.length).toBeGreaterThanOrEqual(REST_MIN_MS);
+        expect(r.length).toBeLessThanOrEqual(REST_MAX_MS + 4_000);
+      }
     }
+  });
+
+  it("spends about a quarter of its rests on the branch, flying up and back down", () => {
+    for (const { rests, flights } of runs) {
+      const share = rests.filter((r) => r.branch).length / rests.length;
+      expect(share).toBeGreaterThan(BRANCH_CHANCE - 0.06);
+      expect(share).toBeLessThan(BRANCH_CHANCE + 0.06);
+      // Up and down for each, give or take the one in the air when the run ends.
+      const onBranch = rests.filter((r) => r.branch).length;
+      expect(Math.abs(flights - 2 * onBranch)).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("on the branch only preens: no pecks, mutters or walks up there", () => {
+    let r = 11;
+    const rand = () => (r = (r * 16807) % 2147483647) / 2147483647;
+    let s = landed(beginFlight(start(), 0, perchFor(start()), true));
+    const seen = new Set<Mode>();
+    for (let t = s.enteredAt; t < s.enteredAt + 600_000 && s.onBranch; t += 50) {
+      s = tick(s, t, rand());
+      if (s.onBranch) seen.add(s.mode);
+    }
+    expect([...seen].sort()).toEqual(["idle", "preen"].filter((m) => seen.has(m as Mode)).sort());
+    expect(seen.has("idle")).toBe(true);
   });
 
   it("walks about a quarter of its awake time", () => {
@@ -708,13 +772,333 @@ describe("the awake rhythm: short walks, longer rests", () => {
     expect(mix(0.5, 1)).not.toBe(mix(0.5, 2));
   });
 
-  it("under reduced motion never walks or fidgets", () => {
-    const { time, total } = simulate(0.5, 3, { reducedMotion: true });
+  it("under reduced motion never walks, fidgets or flies", () => {
+    const { time, total, flights } = simulate(0.5, 3, { reducedMotion: true });
     expect(time.idle).toBe(total);
+    expect(flights).toBe(0);
   });
 
-  it("asleep stays asleep", () => {
-    const { time, total } = simulate(0.5, 3, { mode: "sleep", sessionActive: true });
+  it("asleep stays asleep, and never flies", () => {
+    const { time, total, flights } = simulate(0.5, 3, { mode: "sleep", sessionActive: true });
     expect(time.sleep).toBe(total);
+    expect(flights).toBe(0);
+  });
+});
+
+describe("the branch and the perch", () => {
+  const H = 900;
+
+  it("is flush with the right edge, its perch point 55% of the way down", () => {
+    const box = branchBox(1440, H);
+    expect(box.x + box.w).toBe(1440);
+    expect(box.y + BRANCH.perchY).toBeCloseTo(H * PERCH_HEIGHT, 0);
+    expect(PERCH_HEIGHT).toBe(0.55);
+  });
+
+  it("stands the bird's feet on the perch point, centred on it", () => {
+    const spot = perchSpot(1440, H, DISPLAY_CELL);
+    const box = birdBox({ ...spot, cell: DISPLAY_CELL }, H);
+    const branch = branchBox(1440, H);
+    expect(box.x + DISPLAY_CELL.width / 2).toBeCloseTo(branch.x + BRANCH.perchX, 0);
+    expect(box.y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height)).toBeCloseTo(branch.y + BRANCH.perchY, 0);
+  });
+
+  it("measures the gap between boxes, and the box around both", () => {
+    const a = { x: 0, y: 0, w: 10, h: 10 };
+    expect(boxGap(a, { x: 5, y: 5, w: 10, h: 10 })).toBe(0);
+    expect(boxGap(a, { x: 13, y: 0, w: 10, h: 10 })).toBe(3);
+    expect(boxGap(a, { x: 13, y: 14, w: 10, h: 10 })).toBe(5);
+    expect(unionBox(a, { x: 20, y: 5, w: 10, h: 10 }, 2)).toEqual({ x: -2, y: -2, w: 34, h: 19 });
+  });
+});
+
+describe("flight", () => {
+  const ground = (over: Partial<BirdState> = {}) => start({ x: 300, facing: 1, ...over });
+
+  it("takes off, flies the arc and lands, each row in its own time", () => {
+    const s = ground();
+    const to = perchFor(s);
+    const f = beginFlight(s, T0, to, true);
+    const fl = f.flight!;
+    expect(f.mode).toBe("flight");
+    expect(fl.takeoffAt).toBe(T0);
+    expect(fl.flyAt).toBe(T0 + rowMs("takeoff"));
+    expect(fl.landAt - fl.flyAt).toBeCloseTo(flyMs({ x: 300, lift: 0 }, to), 6);
+    expect(fl.endAt).toBe(fl.landAt + rowMs("land"));
+    expect(spriteState(f, T0 + 1)).toBe("takeoff");
+    expect(spriteState(f, fl.flyAt + 1)).toBe("fly");
+    expect(spriteState(f, fl.landAt + 1)).toBe("land");
+    expect(frameIndex(f, fl.flyAt + 1, byRow)).toBe(0);
+    // Takes off in place, lands in place.
+    expect(tick(f, fl.flyAt - 1).x).toBe(300);
+    expect(tick(f, fl.landAt + 1)).toMatchObject(to);
+    const done = tick(f, fl.endAt);
+    expect(done.onBranch).toBe(true);
+    expect(done.flight).toBeNull();
+    expect(done).toMatchObject(to);
+  });
+
+  it("flies at about 350 px/s along the arc, easing in and out, 80 px above the straight line at the middle", () => {
+    const from = { x: 200, lift: 0 };
+    const to = { x: 1300, lift: 400 };
+    expect(FLY_PX_PER_S).toBe(350);
+    expect(ARC_PEAK_PX).toBe(80);
+    expect((arcLength(from, to) / flyMs(from, to)) * 1000).toBeCloseTo(350, 6);
+    const mid = arcPoint(from, to, 0.5);
+    expect(mid.lift - (from.lift + to.lift) / 2).toBeCloseTo(80, 6);
+    expect(arcPoint(from, to, 0)).toEqual(from);
+    expect(arcPoint(from, to, 1).x).toBeCloseTo(to.x, 6);
+    expect(arcPoint(from, to, 1).lift).toBeCloseTo(to.lift, 6);
+    // Eased: slow at the ends, quick in the middle.
+    expect(easeInOut(0.1)).toBeLessThan(0.1);
+    expect(easeInOut(0.5)).toBeCloseTo(0.5, 6);
+    expect(easeInOut(0.9)).toBeGreaterThan(0.9);
+  });
+
+  it("moves smoothly: no jump bigger than a 30 Hz frame at its top speed", () => {
+    let s = beginFlight(ground(), T0, perchFor(ground()), true);
+    const fl = s.flight!;
+    let prev = { x: s.x, lift: s.lift };
+    for (let t = fl.flyAt; t <= fl.landAt; t += 1000 / 30) {
+      s = tick(s, t);
+      const step = Math.hypot(s.x - prev.x, s.lift - prev.lift);
+      // An eased arc peaks at pi/2 times its average speed.
+      // An eased arc peaks at about pi/2 times its average speed; the rise adds a little.
+      expect(step).toBeLessThan(((FLY_PX_PER_S * Math.PI) / 2 / 30) * 1.25);
+      prev = { x: s.x, lift: s.lift };
+    }
+  });
+
+  it("faces the way it goes, turning round first when it must", () => {
+    const away = ground({ facing: -1 });
+    const f = beginFlight(away, T0, perchFor(away), true);
+    expect(f.facing).toBe(1);
+    expect(f.turnStart).toBe(T0);
+    expect(f.flight!.takeoffAt).toBe(T0 + TURN_MS);
+    expect(spriteState(f, T0 + 10)).toBe("idle");
+    const down = beginFlight({ ...away, onBranch: true, facing: 1, ...perchFor(away) }, T0, { x: 100, lift: 0 }, false);
+    expect(down.facing).toBe(-1);
+  });
+
+  it("costs frames only while flying; asleep on the perch it asks for none", () => {
+    const f = beginFlight(ground(), T0, perchFor(ground()), true);
+    expect(loopPlan(f, T0 + 100).kind).toBe("frames");
+    const { s, at } = asleepOnPerch();
+    expect(loopPlan(s, at).kind).toBe("stop");
+  });
+});
+
+describe("when it flies", () => {
+  it("flies up once when a session starts, lands and sleeps there, and does nothing more", () => {
+    const flying = go(start(), { type: "session", active: true });
+    expect(flying.mode).toBe("flight");
+    expect(flying.flight!.toBranch).toBe(true);
+    let s = flying;
+    let flights = 1;
+    let prev = s.mode;
+    for (let t = T0; t < T0 + 3_600_000; t += 50) {
+      s = tick(s, t, (t % 997) / 997);
+      if (s.mode === "flight" && prev !== "flight") flights++;
+      prev = s.mode;
+    }
+    expect(flights).toBe(1);
+    expect(s.mode).toBe("sleep");
+    expect(s.onBranch).toBe(true);
+    expect(s).toMatchObject(perchFor(s));
+  });
+
+  it("wakes on the perch when the session ends, then flies down after 2 to 5 s", () => {
+    let { s, at } = asleepOnPerch();
+    s = go(s, { type: "stoodDown", finished: false }, at);
+    s = tick(s, at + rowMs("wake"));
+    expect(s.mode).toBe("idle");
+    expect(s.onBranch).toBe(true);
+    const awake = at + rowMs("wake");
+    expect(s.restUntil - awake).toBeGreaterThanOrEqual(LEAVE_MIN_MS);
+    expect(s.restUntil - awake).toBeLessThanOrEqual(LEAVE_MAX_MS);
+    // Nothing else is due before then.
+    for (let t = awake; t < s.restUntil; t += 50) expect(tick(s, t).mode).not.toBe("flight");
+    const down = tick({ ...s, nextAt: s.restUntil }, s.restUntil);
+    expect(down.mode).toBe("flight");
+    expect(down.flight!.toBranch).toBe(false);
+    expect(down.flight!.to.lift).toBe(0);
+    expect(down.flight!.to.x).toBeGreaterThanOrEqual(0);
+    expect(down.flight!.to.x).toBeLessThanOrEqual(maxX(WIDTH));
+    // Back on the ground the rest is over: it walks, or rests again if it has no room.
+    expect(["walk", "idle", "perch", "flight"]).toContain(landed(down).mode);
+    expect(landed(down).onBranch).toBe(false);
+  });
+
+  it("the session's flight up, already on its way, isn't made twice", () => {
+    const flying = go(start(), { type: "session", active: true });
+    const again = go(go(flying, { type: "session", active: false }, T0 + 100), { type: "session", active: true }, T0 + 200);
+    expect(again.flight).toEqual(flying.flight);
+  });
+
+  it("on a branch rest outside a session it sits for its rest, then flies down", () => {
+    const up = beginFlight(start(), T0, perchFor(start()), true);
+    const sitting = landed(up);
+    expect(sitting.mode).toBe("idle");
+    expect(sitting.onBranch).toBe(true);
+    const flown = up.flight!.endAt - T0;
+    expect(sitting.restUntil - up.flight!.endAt).toBeGreaterThanOrEqual(BRANCH_SIT_MIN_MS);
+    expect(sitting.restUntil - up.flight!.endAt).toBeLessThanOrEqual(Math.max(BRANCH_SIT_MIN_MS, REST_MAX_MS - 2 * flown));
+  });
+
+  it("goes to the branch from about a quarter of its walks", () => {
+    let up = 0;
+    const N = 1000;
+    for (let i = 0; i < N; i++) {
+      const rand = (i + 0.5) / N;
+      const walking = beginWalk(start({ x: 300 }), T0, 1, 2000)!;
+      const after = tick(walking, T0 + 60_000, rand);
+      if (after.mode === "flight") up++;
+    }
+    expect(up / N).toBeGreaterThan(BRANCH_CHANCE - 0.05);
+    expect(up / N).toBeLessThan(BRANCH_CHANCE + 0.05);
+  });
+
+  describe("never", () => {
+    // A rand that picks the branch when flying is allowed.
+    const UP = Array.from({ length: 1000 }, (_, i) => (i + 0.5) / 1000).find((r) => mix(r, 7) < BRANCH_CHANCE)!;
+    const walkDone = (over: Partial<BirdState>) => tick(beginWalk(start({ x: 300, ...over }), T0, 1, 2000)!, T0 + 60_000, UP);
+
+    it("checks: only with motion, shown, and nothing open", () => {
+      expect(canFly(start())).toBe(true);
+      expect(canFly(start({ reducedMotion: true }))).toBe(false);
+      expect(canFly(start({ hidden: true }))).toBe(false);
+      expect(canFly(start({ talking: true }))).toBe(false);
+    });
+
+    it("from a walk with a bubble or the menu open, or hidden", () => {
+      expect(walkDone({}).mode).toBe("flight");
+      expect(walkDone({ talking: true }).mode).not.toBe("flight");
+      expect(walkDone({ hidden: true }).mode).not.toBe("flight");
+    });
+
+    it("during a session, beyond the flight up", () => {
+      // Dropped on the ground in a session: it sleeps there, with no flight up.
+      let s = go(start(), { type: "session", active: true });
+      s = go(landed(s), { type: "dragStart" });
+      s = go(s, { type: "dragMove", x: 200, lift: 0, maxLift: 800 });
+      s = go(s, { type: "dragEnd" });
+      expect(s.mode).toBe("sleep");
+      for (let t = T0; t < T0 + 600_000; t += 500) expect(tick(s, t).mode).toBe("sleep");
+    });
+
+    it("with a bubble open when the session starts: straight to the perch, asleep", () => {
+      const talking = go(start(), { type: "talkStart" });
+      const s = go(talking, { type: "session", active: true });
+      expect(s.mode).toBe("sleep");
+      expect(s.onBranch).toBe(true);
+      expect(s).toMatchObject(perchFor(s));
+    });
+
+    it("off the branch while a bubble is open: it waits", () => {
+      const sitting = { ...landed(beginFlight(start(), T0, perchFor(start()), true)), talking: true };
+      const due = { ...sitting, nextAt: sitting.restUntil };
+      const waited = tick(due, sitting.restUntil);
+      expect(waited.mode).toBe("idle");
+      expect(waited.onBranch).toBe(true);
+      expect(waited.nextAt).toBeGreaterThan(sitting.restUntil);
+    });
+
+    it("over a full-screen app: the session puts it straight on the perch", () => {
+      const s = go(start({ hidden: true }), { type: "session", active: true });
+      expect(s.mode).toBe("sleep");
+      expect(s.onBranch).toBe(true);
+    });
+
+    it("under reduced motion: straight up to the perch and, after, straight down", () => {
+      let s = go(start({ reducedMotion: true }), { type: "session", active: true });
+      expect(s.mode).toBe("sleep");
+      expect(s.onBranch).toBe(true);
+      s = go(s, { type: "stoodDown", finished: false }, T0 + 1000);
+      s = tick(s, T0 + 1000 + rowMs("wake"));
+      expect(s.mode).toBe("idle");
+      expect(s.onBranch).toBe(true);
+      // Still, but the loop wakes once for the jump down.
+      expect(loopPlan(s, T0 + 2000)).toEqual({ kind: "wait", ms: s.restUntil - (T0 + 2000) });
+      const down = tick(s, s.restUntil);
+      expect(down.mode).toBe("idle");
+      expect(down.onBranch).toBe(false);
+      expect(down).toMatchObject({ x: restingX(WIDTH), lift: 0 });
+    });
+
+    it("reduced motion turned on mid-flight: it is where it was going at once", () => {
+      const f = go(start(), { type: "session", active: true });
+      const s = go(f, { type: "reducedMotion", reduced: true }, T0 + 500);
+      expect(s.mode).toBe("sleep");
+      expect(s.onBranch).toBe(true);
+      expect(s.flight).toBeNull();
+    });
+  });
+});
+
+describe("dragged off the perch and dropped", () => {
+  const perched = () => landed(beginFlight(start(), T0, perchFor(start()), true));
+  const dropAt = (s: BirdState, x: number, lift: number) => {
+    let d = go(s, { type: "dragStart" });
+    d = go(d, { type: "dragMove", x, lift, maxLift: 800 });
+    return d;
+  };
+
+  it("comes off the perch when picked up", () => {
+    const d = go(perched(), { type: "dragStart" });
+    expect(d.onBranch).toBe(false);
+    expect(d.mode).toBe("drag");
+  });
+
+  it("dropped within 60 px of the branch, lands on the perch", () => {
+    expect(DROP_ON_PERCH_PX).toBe(60);
+    const s = perched();
+    const branch = branchBox(s.width, s.height);
+    // The bird's box 55 px left of the branch, level with it.
+    const x = branch.x - 55 - DISPLAY_CELL.width;
+    const lift = s.height - branch.y - DISPLAY_CELL.height;
+    const d = dropAt(s, x, lift);
+    expect(nearBranch(d)).toBe(true);
+    const dropped = go(d, { type: "dragEnd" }, T0 + 1000);
+    expect(dropped.mode).toBe("flight");
+    expect(spriteState(dropped, T0 + 1001)).toBe("land");
+    expect(dropped).toMatchObject(perchFor(s));
+    const rested = tick(dropped, T0 + 1000 + rowMs("land"));
+    expect(rested.onBranch).toBe(true);
+    expect(rested.mode).toBe("idle");
+  });
+
+  it("dropped further away, falls to the bottom as before", () => {
+    const s = perched();
+    const branch = branchBox(s.width, s.height);
+    const x = branch.x - 65 - DISPLAY_CELL.width;
+    const lift = s.height - branch.y - DISPLAY_CELL.height;
+    const d = dropAt(s, x, lift);
+    expect(boxGap(birdBox(d, d.height), branch)).toBeGreaterThan(60);
+    const dropped = go(d, { type: "dragEnd" }, T0 + 1000);
+    expect(dropped.mode).toBe("fall");
+    expect(dropped.onBranch).toBe(false);
+  });
+
+  it("in a session, dropped on the perch it sleeps there", () => {
+    const { s, at } = asleepOnPerch();
+    const branch = branchBox(s.width, s.height);
+    const d = dropAt(s, branch.x - 20 - DISPLAY_CELL.width, s.height - branch.y - DISPLAY_CELL.height);
+    const dropped = go(d, { type: "dragEnd" }, at + 1000);
+    expect(tick(dropped, at + 1000 + rowMs("land")).mode).toBe("sleep");
+  });
+
+  it("under reduced motion, dropped by the branch it is on the perch at once", () => {
+    const s = { ...perched(), reducedMotion: true };
+    const branch = branchBox(s.width, s.height);
+    const d = dropAt(s, branch.x - 20 - DISPLAY_CELL.width, s.height - branch.y - DISPLAY_CELL.height);
+    const dropped = go(d, { type: "dragEnd" }, T0 + 1000);
+    expect(dropped.mode).toBe("idle");
+    expect(dropped.onBranch).toBe(true);
+  });
+
+  it("stays on the perch when the window changes size", () => {
+    const s = go(perched(), { type: "resize", width: 1600, height: 1000 });
+    expect(s.onBranch).toBe(true);
+    expect(s).toMatchObject(perchSpot(1600, 1000, DISPLAY_CELL));
   });
 });

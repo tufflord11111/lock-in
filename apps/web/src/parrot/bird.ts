@@ -39,7 +39,15 @@ export function createBird(
   options: { sessionActive: boolean; onClick: (trigger: string) => void; extraRects: () => DOMRect[] },
 ): Bird {
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-  let state = initialState(Date.now(), window.innerWidth, motion.matches, options.sessionActive, Math.random(), DISPLAY_CELL);
+  let state = initialState(
+    Date.now(),
+    window.innerWidth,
+    motion.matches,
+    options.sessionActive,
+    Math.random(),
+    DISPLAY_CELL,
+    window.innerHeight,
+  );
   el.style.width = `${DISPLAY_CELL.width}px`;
   el.style.height = `${DISPLAY_CELL.height}px`;
   let lastPlan: LoopPlan["kind"] = "stop";
@@ -215,7 +223,7 @@ export function createBird(
   // A DPI change resizes the window too, so the sheet follows through draw().
   window.addEventListener("resize", () => {
     drawn = "";
-    dispatch({ type: "resize", width: window.innerWidth });
+    dispatch({ type: "resize", width: window.innerWidth, height: window.innerHeight });
     sendHitboxes(Date.now(), true);
   });
 

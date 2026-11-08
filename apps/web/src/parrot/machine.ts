@@ -4,7 +4,11 @@
  * cell's left edge, lift is the height of the feet above the bottom edge. The
  * cell is the bird's box in CSS px; it need not be square.
  */
-import { DISPLAY_CELL, playedOnce, rowOf, type Cell, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, playedOnce, rowOf, type DisplayCell, type LoopPlan } from "./animator";
+import { birdBox } from "./layout";
+import { DROP_ON_PERCH_PX, boxGap, branchBox, perchSpot } from "./perch";
+
+type Cell = DisplayCell;
 
 export type Mode =
   | "idle"
@@ -18,7 +22,25 @@ export type Mode =
   | "happy"
   | "talk"
   | "drag"
-  | "fall";
+  | "fall"
+  | "flight";
+
+/** A place the bird can be: x is the cell's left edge, lift the feet's height above the bottom edge. */
+export type Spot = { x: number; lift: number };
+
+/**
+ * One flight: turn first if it has to (until takeoffAt), the takeoff row in
+ * place, the fly row along the arc, the land row in place at the end.
+ */
+export type Flight = {
+  from: Spot;
+  to: Spot;
+  takeoffAt: number;
+  flyAt: number;
+  landAt: number;
+  endAt: number;
+  toBranch: boolean;
+};
 
 export type BirdState = {
   mode: Mode;
@@ -42,8 +64,17 @@ export type BirdState = {
   walkSteps: number;
   holdRow: string;
   holdFrame: number;
-  /** The window's width in CSS px. */
+  /** The window's width and height in CSS px. */
   width: number;
+  height: number;
+  /** On the branch at the right edge, rather than the bottom edge. */
+  onBranch: boolean;
+  /** flight: where from, where to, and when each part of it happens. */
+  flight: Flight | null;
+  /** A bubble or the menu is open, whatever the mode. */
+  talking: boolean;
+  /** A session ended with the bird on the branch: the next rest there is short. */
+  leaveSoon: boolean;
   /** The bird's box in CSS px, from the manifest. */
   cell: Cell;
   /** Over a full-screen app: the window is hidden and nothing needs drawing. */
@@ -57,7 +88,7 @@ export type BirdState = {
 
 export type BirdEvent =
   | { type: "tick" }
-  | { type: "resize"; width: number }
+  | { type: "resize"; width: number; height?: number }
   | { type: "session"; active: boolean }
   | { type: "stoodDown"; finished: boolean }
   | { type: "hidden"; hidden: boolean }
@@ -189,6 +220,119 @@ export const FIDGETS: readonly (readonly [Mode, number])[] = [
 ];
 
 export const maxX = (width: number, cell: Cell = DISPLAY_CELL) => Math.max(0, width - cell.width);
+
+/*
+ * Flight: the takeoff row in place, the fly row along an arc that eases in and
+ * out and rises ARC_PEAK_PX above the straight line at its middle, at about
+ * FLY_PX_PER_S, then the land row in place. Outside a session BRANCH_CHANCE of
+ * the rests are spent on the branch; after a session the bird stays there
+ * LEAVE_MIN_MS to LEAVE_MAX_MS once awake, then flies down.
+ */
+export const FLY_PX_PER_S = 350;
+export const ARC_PEAK_PX = 80;
+export const BRANCH_CHANCE = 0.25;
+export const LEAVE_MIN_MS = 2_000;
+export const LEAVE_MAX_MS = 5_000;
+export const BRANCH_SIT_MIN_MS = 4_000;
+/** Until the overlay says how tall it is: a typical work area. */
+export const DEFAULT_HEIGHT = 900;
+
+export const rowMs = (state: string): number => (rowOf(state).frames * 1000) / rowOf(state).fps;
+export const easeInOut = (u: number): number => (1 - Math.cos(Math.PI * Math.min(1, Math.max(0, u)))) / 2;
+
+/** The arc at s (0 to 1 along it, eased): the straight line, raised by a half sine. */
+export function arcPoint(from: Spot, to: Spot, s: number): Spot {
+  return {
+    x: from.x + (to.x - from.x) * s,
+    lift: from.lift + (to.lift - from.lift) * s + ARC_PEAK_PX * Math.sin(Math.PI * s),
+  };
+}
+
+export function arcLength(from: Spot, to: Spot): number {
+  const N = 64;
+  let length = 0;
+  let prev = from;
+  for (let i = 1; i <= N; i++) {
+    const p = arcPoint(from, to, i / N);
+    length += Math.hypot(p.x - prev.x, p.lift - prev.lift);
+    prev = p;
+  }
+  return length;
+}
+
+/** How long the fly row plays: the arc's length at FLY_PX_PER_S. */
+export const flyMs = (from: Spot, to: Spot): number => (arcLength(from, to) / FLY_PX_PER_S) * 1000;
+
+/** Where the perch puts the bird in this window. */
+export const perchFor = (s: { width: number; height: number; cell: Cell }): Spot => perchSpot(s.width, s.height, s.cell);
+
+/**
+ * Never under reduced motion, while hidden, or while a bubble or the menu is
+ * open. A session's own flight up to the perch is the only one during a session.
+ */
+export const canFly = (s: BirdState): boolean => !s.reducedMotion && !s.hidden && !s.talking;
+
+/** Facing the way it goes, turning first if it must, then up, along and down. */
+export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boolean): BirdState {
+  const facing: 1 | -1 = to.x === s.x ? s.facing : to.x > s.x ? 1 : -1;
+  const holdRow = spriteState(s, now);
+  const holdFrame = frameIndex(s, now, () => 0);
+  const turned = faceTo(s, facing, now);
+  const from = { x: s.x, lift: s.lift };
+  const takeoffAt = turned !== s && turned.turnStart === now ? now + TURN_MS : now;
+  const flyAt = takeoffAt + rowMs("takeoff");
+  const landAt = flyAt + flyMs(from, to);
+  return {
+    ...turned,
+    mode: "flight",
+    enteredAt: now,
+    stepAt: takeoffAt,
+    holdRow,
+    holdFrame,
+    onBranch: false,
+    flight: { from, to, takeoffAt, flyAt, landAt, endAt: landAt + rowMs("land"), toBranch },
+  };
+}
+
+/** Dropped by the branch: onto the perch at once, then the land row. Under reduced motion, just there. */
+function dropOntoPerch(s: BirdState, now: number, rand: number): BirdState {
+  const spot = perchFor(s);
+  if (s.reducedMotion) return settle(teleport(s, spot, true), now, rand);
+  return {
+    ...teleport(s, spot, false),
+    mode: "flight",
+    enteredAt: now,
+    stepAt: now,
+    flight: { from: spot, to: spot, takeoffAt: now, flyAt: now, landAt: now, endAt: now + rowMs("land"), toBranch: true },
+  };
+}
+
+/** Straight there with no animation: under reduced motion, hidden, or with a bubble open. */
+const teleport = (s: BirdState, to: Spot, onBranch: boolean): BirdState => ({ ...s, x: to.x, lift: to.lift, onBranch, flight: null });
+
+/** A random spot on the bottom edge to fly down to. */
+const groundSpot = (s: BirdState, u: number): Spot => ({ x: Math.round(u * maxX(s.width, s.cell)), lift: 0 });
+
+/** The rest on the branch is over: fly down, or where it may not fly, be there. */
+function leaveBranch(s: BirdState, now: number, rand: number): BirdState {
+  if (s.reducedMotion || s.hidden) {
+    const to = s.reducedMotion ? { x: restingX(s.width, s.cell), lift: 0 } : groundSpot(s, mix(rand, 9));
+    return enterRest(teleport(s, to, false), now, rand);
+  }
+  // A bubble or the menu is open: ask again shortly.
+  if (s.talking) return { ...s, nextAt: now + STILL_STEP_MS };
+  return beginFlight(s, now, groundSpot(s, mix(rand, 9)), false);
+}
+
+/** The bird is wherever the flight was going, its flight over. */
+function arrive(s: BirdState, now: number, rand: number): BirdState {
+  const f = s.flight as Flight;
+  const landed = { ...teleport(s, f.to, f.toBranch), enteredAt: now };
+  // On the branch it rests, or sleeps in a session. Back on the ground the rest is over: walk.
+  if (landed.sessionActive) return settle(landed, now, rand);
+  if (f.toBranch) return enterRest(landed, now, rand, now - s.enteredAt);
+  return startWalk(landed, now, rand);
+}
 export const restingX = (width: number, cell: Cell = DISPLAY_CELL) => Math.round(maxX(width, cell) * 0.85);
 
 const between = (rand: number, min: number, max: number) => min + rand * (max - min);
@@ -219,16 +363,19 @@ export function initialState(
   sessionActive: boolean,
   rand: number,
   cell: Cell = DISPLAY_CELL,
+  height: number = DEFAULT_HEIGHT,
 ): BirdState {
   const x = restingX(width, cell);
   const restUntil = now + restLength(mix(rand, 4));
+  // In a session already: asleep on the perch, put there.
+  const perch = sessionActive ? perchSpot(width, height, cell) : null;
   return {
     mode: sessionActive ? "sleep" : "idle",
     enteredAt: now,
     nextAt: Math.min(restUntil, now + fidgetGap(mix(rand, 5))),
     restUntil,
-    x,
-    lift: 0,
+    x: perch?.x ?? x,
+    lift: perch?.lift ?? 0,
     targetX: x,
     fromX: x,
     fromLift: 0,
@@ -240,6 +387,11 @@ export function initialState(
     holdRow: "idle",
     holdFrame: 0,
     width,
+    height,
+    onBranch: perch !== null,
+    flight: null,
+    talking: false,
+    leaveSoon: false,
     cell,
     hidden: false,
     reducedMotion,
@@ -248,8 +400,27 @@ export function initialState(
   };
 }
 
-/** A new rest between walks: idle, or now and then perched, for a rest length. */
-export function enterRest(s: BirdState, now: number, rand: number): BirdState {
+/**
+ * A new rest between walks: idle, or now and then perched, for a rest length.
+ * On the branch always idle, for the rest less the flights there and back
+ * (`flownMs` is the flight up), and at least BRANCH_SIT_MIN_MS; just after a
+ * session, only LEAVE_MIN_MS to LEAVE_MAX_MS.
+ */
+export function enterRest(s: BirdState, now: number, rand: number, flownMs = 0): BirdState {
+  if (s.onBranch) {
+    // The flights up and down come out of the rest, so the rhythm keeps its quarter of walking.
+    const sit = Math.max(BRANCH_SIT_MIN_MS, restLength(mix(rand, 4)) - 2 * flownMs);
+    const until = now + (s.leaveSoon ? between(mix(rand, 8), LEAVE_MIN_MS, LEAVE_MAX_MS) : sit);
+    return {
+      ...s,
+      mode: "idle",
+      enteredAt: now,
+      restUntil: until,
+      nextAt: s.reducedMotion ? until : Math.min(until, now + fidgetGap(mix(rand, 5))),
+      leaveSoon: false,
+      happyAfterWake: false,
+    };
+  }
   const restUntil = now + restLength(mix(rand, 4));
   const perched = mix(rand, 3) < PERCH_CHANCE;
   return {
@@ -266,6 +437,12 @@ export function enterRest(s: BirdState, now: number, rand: number): BirdState {
 function backToRest(s: BirdState, now: number, rand: number): BirdState {
   if (s.sessionActive) return { ...s, mode: "sleep", enteredAt: now, happyAfterWake: false };
   return { ...s, mode: "idle", enteredAt: now, nextAt: Math.min(s.restUntil, now + fidgetGap(mix(rand, 5))) };
+}
+
+/** After a walk: a quarter of the rests are on the branch, flown up to. */
+function restAfterWalk(s: BirdState, now: number, rand: number): BirdState {
+  if (!s.sessionActive && canFly(s) && mix(rand, 7) < BRANCH_CHANCE) return beginFlight(s, now, perchFor(s), true);
+  return enterRest(s, now, rand);
 }
 
 /** Where anything that ended goes: asleep if a session is running, else a new rest. */
@@ -309,6 +486,13 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
   const elapsed = now - s.enteredAt;
   switch (s.mode) {
     case "idle":
+      if (s.onBranch) {
+        if (now < s.nextAt) return s;
+        if (now >= s.restUntil) return leaveBranch(s, now, rand);
+        // On the branch it preens; under reduced motion it waits for the rest to end.
+        if (s.reducedMotion || now + FIDGET_LONGEST_MS > s.restUntil) return { ...s, nextAt: s.restUntil };
+        return { ...s, mode: "preen", enteredAt: now };
+      }
       if (s.reducedMotion || now < s.nextAt) return s;
       if (now >= s.restUntil) return startWalk(s, now, rand);
       // A fidget that couldn't finish inside the rest would stretch it: wait for the walk instead.
@@ -322,7 +506,7 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
       if (walked < 0) return s; // still turning: nothing moves
       const n = Math.floor((walked * rowOf("walk").fps) / 1000);
       // The last frame, a contact frame at the target, has had its frame-time.
-      if (n > s.walkSteps) return enterRest({ ...s, x: s.targetX }, now, rand);
+      if (n > s.walkSteps) return restAfterWalk({ ...s, x: s.targetX }, now, rand);
       return { ...s, x: s.fromX + s.facing * n * walkStride() };
     }
     case "peck":
@@ -338,6 +522,14 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
         : settle(s, now, rand);
     case "happy":
       return playedOnce(rowOf("happy"), elapsed) ? settle(s, now, rand) : s;
+    case "flight": {
+      const f = s.flight;
+      if (!f) return settle(s, now, rand);
+      if (now >= f.endAt) return arrive(s, now, rand);
+      if (now < f.flyAt) return s.x === f.from.x && s.lift === f.from.lift ? s : { ...s, ...f.from };
+      if (now >= f.landAt) return { ...s, ...f.to };
+      return { ...s, ...arcPoint(f.from, f.to, easeInOut((now - f.flyAt) / (f.landAt - f.flyAt))) };
+    }
     case "fall": {
       const lift = s.fromLift - (FALL_PX_PER_S * elapsed) / 1000;
       return lift <= 0 ? settle({ ...s, lift: 0 }, now, rand) : { ...s, lift };
@@ -352,26 +544,39 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
     case "tick":
       return tick(s, now, rand);
     case "resize": {
-      if (s.reducedMotion) return { ...s, width: event.width, x: restingX(event.width, s.cell) };
-      const resized = { ...s, width: event.width, x: Math.min(s.x, maxX(event.width, s.cell)) };
+      const sized = { ...s, width: event.width, height: event.height ?? s.height };
+      // The perch moves with the window's edges; a flight in the air finishes where it was going.
+      if (s.mode === "flight" && s.flight) {
+        const to = s.flight.toBranch ? perchFor(sized) : { x: Math.min(s.flight.to.x, maxX(sized.width, s.cell)), lift: 0 };
+        return arrive({ ...sized, flight: { ...s.flight, to } }, now, rand);
+      }
+      if (s.onBranch) return { ...sized, ...perchFor(sized) };
+      if (s.reducedMotion) return { ...sized, x: restingX(event.width, s.cell) };
+      const resized = { ...sized, x: Math.min(s.x, maxX(event.width, s.cell)) };
       // A walk's end point may now be off the screen.
       return s.mode === "walk" ? enterRest(resized, now, rand) : resized;
     }
-    case "session":
+    case "session": {
       if (event.active === s.sessionActive) return s;
       if (event.active) {
-        if (s.mode === "drag") return { ...s, sessionActive: true };
-        return { ...s, sessionActive: true, mode: "sleep", enteredAt: now, lift: 0 };
+        // To the perch to sleep: one flight, or straight there when it may not fly.
+        const on = { ...s, sessionActive: true };
+        if (s.mode === "drag") return on;
+        if (s.onBranch) return { ...on, mode: "sleep", enteredAt: now, happyAfterWake: false };
+        if (s.mode === "flight" && s.flight?.toBranch) return on;
+        if (canFly(on)) return beginFlight(on, now, perchFor(on), true);
+        return { ...teleport(on, perchFor(on), true), mode: "sleep", enteredAt: now, happyAfterWake: false };
       }
-      return s.mode === "sleep"
-        ? { ...s, sessionActive: false, mode: "wake", enteredAt: now }
-        : { ...s, sessionActive: false };
+      const off = { ...s, sessionActive: false, leaveSoon: headedForBranch(s) };
+      return s.mode === "sleep" ? { ...off, mode: "wake", enteredAt: now } : off;
+    }
     case "stoodDown": {
       const happyAfterWake = event.finished;
-      if (s.mode === "sleep") return { ...s, sessionActive: false, mode: "wake", enteredAt: now, happyAfterWake };
+      const off = { ...s, sessionActive: false, leaveSoon: s.leaveSoon || (s.sessionActive && headedForBranch(s)) };
+      if (s.mode === "sleep") return { ...off, mode: "wake", enteredAt: now, happyAfterWake };
       // The poll may have woken the bird a moment before this event arrived.
-      if (s.mode === "wake") return { ...s, sessionActive: false, happyAfterWake };
-      return { ...s, sessionActive: false };
+      if (s.mode === "wake") return { ...off, happyAfterWake };
+      return off;
     }
     case "hidden":
       return { ...s, hidden: event.hidden };
@@ -381,27 +586,46 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
         const moving = { ...s, reducedMotion: false };
         return s.mode === "idle" || s.mode === "perch" ? enterRest(moving, now, rand) : moving;
       }
-      return settle({ ...s, reducedMotion: true, x: restingX(s.width, s.cell), lift: 0 }, now, rand);
+      {
+        const still = { ...s, reducedMotion: true };
+        // In the air: at once where it was going. On the branch it stays.
+        if (s.mode === "flight" && s.flight) return settle(teleport(still, s.flight.to, s.flight.toBranch), now, rand);
+        if (s.onBranch) return settle(still, now, rand);
+        return settle({ ...still, x: restingX(s.width, s.cell), lift: 0 }, now, rand);
+      }
     case "talkStart":
-      if (s.mode === "drag" || s.mode === "sleep" || s.mode === "fall") return s;
-      return { ...s, mode: "talk", enteredAt: now };
-    case "talkEnd":
-      return s.mode === "talk" ? settle(s, now, rand) : s;
+      if (s.mode === "drag" || s.mode === "sleep" || s.mode === "fall" || s.mode === "flight") return { ...s, talking: true };
+      return { ...s, mode: "talk", enteredAt: now, talking: true };
+    case "talkEnd": {
+      const quiet = { ...s, talking: false };
+      return s.mode === "talk" ? settle(quiet, now, rand) : quiet;
+    }
     case "dragStart":
-      return { ...s, mode: "drag", enteredAt: now };
+      return { ...s, mode: "drag", enteredAt: now, onBranch: false, flight: null };
     case "dragMove":
       if (s.mode !== "drag") return s;
       return {
         ...s,
-        x: Math.min(Math.max(0, event.x), maxX(s.width, s.cell)),
+        // As far right as the perch, whose bird overhangs the edge a little.
+        x: Math.min(Math.max(0, event.x), Math.max(maxX(s.width, s.cell), perchFor(s).x)),
         lift: Math.min(Math.max(0, event.lift), Math.max(0, event.maxLift)),
       };
-    case "dragEnd":
+    case "dragEnd": {
       if (s.mode !== "drag") return s;
-      if (s.reducedMotion || s.lift === 0) return settle({ ...s, lift: 0 }, now, rand);
-      return { ...s, mode: "fall", enteredAt: now, fromLift: s.lift };
+      if (nearBranch(s)) return dropOntoPerch(s, now, rand);
+      const onScreen = { ...s, x: Math.min(s.x, maxX(s.width, s.cell)) };
+      if (s.reducedMotion || s.lift === 0) return settle({ ...onScreen, lift: 0 }, now, rand);
+      return { ...onScreen, mode: "fall", enteredAt: now, fromLift: s.lift };
+    }
   }
 }
+
+/** On the branch, or on its way there. */
+const headedForBranch = (s: BirdState): boolean => s.onBranch || (s.mode === "flight" && s.flight?.toBranch === true);
+
+/** Dropped within DROP_ON_PERCH_PX of the branch. */
+export const nearBranch = (s: BirdState): boolean =>
+  boxGap(birdBox(s, s.height), branchBox(s.width, s.height)) <= DROP_ON_PERCH_PX;
 
 /**
  * The sprite row to draw. `fall` has no row in the sheet; it reuses `drag`. A
@@ -412,6 +636,14 @@ export function spriteState(s: BirdState, now: number): string {
   if (s.mode === "preen") return "idle_preen";
   if (s.mode === "mutter") return "talk";
   if (s.mode === "walk" && now < s.stepAt) return s.holdRow;
+  if (s.mode === "flight") {
+    const f = s.flight;
+    if (!f) return "fly";
+    if (now < f.takeoffAt) return s.holdRow;
+    if (now < f.flyAt) return "takeoff";
+    if (now < f.landAt) return "fly";
+    return "land";
+  }
   return s.mode;
 }
 
@@ -434,7 +666,10 @@ export const WALK_STEP_MS = 1000 / WALK_TICK_FPS;
 
 /** What the animation loop does next. */
 export function loopPlan(s: BirdState, now: number): LoopPlan {
-  if (s.hidden || holdsOneFrame(s)) return { kind: "stop" };
+  if (s.hidden) return { kind: "stop" };
+  // Still under reduced motion, but a rest on the branch ends with a jump down.
+  if (s.reducedMotion && s.onBranch && s.mode === "idle" && !s.sessionActive) return { kind: "wait", ms: Math.max(0, s.restUntil - now) };
+  if (holdsOneFrame(s)) return { kind: "stop" };
   if (isTurning(s, now)) return { kind: "frames" };
   if (s.mode === "walk") return { kind: "wait", ms: WALK_STEP_MS };
   if (!isStill(s)) return { kind: "frames" };
@@ -445,6 +680,13 @@ export function loopPlan(s: BirdState, now: number): LoopPlan {
 
 /** The frame to show. Still modes step slowly from the clock; reduced motion holds frame 0. */
 export function frameIndex(s: BirdState, now: number, frameAt: (state: string, elapsedMs: number) => number): number {
+  if (s.mode === "flight" && s.flight) {
+    const f = s.flight;
+    if (now < f.takeoffAt) return s.holdFrame;
+    if (now < f.flyAt) return frameAt("takeoff", now - f.takeoffAt);
+    if (now < f.landAt) return frameAt("fly", now - f.flyAt);
+    return frameAt("land", now - f.landAt);
+  }
   if (s.mode === "walk") {
     const walked = now - s.stepAt;
     if (walked < 0) return s.holdFrame;
