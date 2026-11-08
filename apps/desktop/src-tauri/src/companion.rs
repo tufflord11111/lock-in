@@ -603,6 +603,8 @@ fn run(app: AppHandle) {
     let mut fit: Option<Fit> = None;
     let mut fade = Fade::default();
     let started = Instant::now();
+    #[cfg(debug_assertions)]
+    let mut last_probe = Instant::now();
 
     loop {
         {
@@ -686,6 +688,21 @@ fn run(app: AppHandle) {
                 if ignoring == inside {
                     let _ = window.set_ignore_cursor_events(!inside);
                     ignoring = !inside;
+                    #[cfg(debug_assertions)]
+                    debug_log(&app, if inside { "rust clickthrough off (cursor on the bird)" } else { "rust clickthrough on" });
+                }
+                // Debug builds, PARROT_PROBE_TOGGLE=1: the same toggle every 10 s, only while nobody
+                // has touched the mouse or keyboard for 5 s, clickable for 150 ms.
+                #[cfg(debug_assertions)]
+                if ignoring && std::env::var("PARROT_PROBE_TOGGLE").as_deref() == Ok("1") && user_idle_ms() > 5_000 {
+                    if last_probe.elapsed() >= Duration::from_secs(10) {
+                        last_probe = Instant::now();
+                        debug_log(&app, "rust probe clickthrough off");
+                        let _ = window.set_ignore_cursor_events(false);
+                        thread::sleep(Duration::from_millis(150));
+                        let _ = window.set_ignore_cursor_events(true);
+                        debug_log(&app, "rust probe clickthrough on");
+                    }
                 }
             }
             thread::sleep(HIT_TEST_EVERY);
@@ -790,6 +807,27 @@ pub fn companion_log_menu(trigger: String, app: AppHandle) -> Result<(), String>
         .open(dir.join("parrot-menu.log"))
         .map_err(|e| e.to_string())?;
     writeln!(file, "{} {}", crate::iso8601_utc(crate::now_millis()), clean).map_err(|e| e.to_string())
+}
+
+/// Debug builds only: lines from the page's frame check, appended to parrot-debug.log
+/// with the time they arrived. Local only; a release build has no such command.
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn companion_debug_log(lines: Vec<String>, app: AppHandle) -> Result<(), String> {
+    for line in lines.iter().take(200) {
+        debug_log(&app, line);
+    }
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn debug_log(app: &AppHandle, line: &str) {
+    use std::io::Write;
+    let clean: String = line.chars().filter(|c| !c.is_control()).take(300).collect();
+    let Ok(dir) = app.path().app_data_dir() else { return };
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("parrot-debug.log")) {
+        let _ = writeln!(file, "{} {}", crate::now_millis(), clean);
+    }
 }
 
 /// What the page reads at boot and on its slow backstop.
@@ -956,6 +994,7 @@ mod tests {
         assert_eq!(
             granted,
             [
+                "allow-companion-debug-log",
                 "allow-companion-interaction-ended",
                 "allow-companion-log-menu",
                 "allow-companion-ready",

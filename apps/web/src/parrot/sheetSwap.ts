@@ -21,9 +21,12 @@ export function createSheetSwap(
   apply: (source: FrameSource) => void,
   /** Called after a decoded image goes up, so the caller can redraw the current frame. */
   onSwapped: () => void = () => {},
+  /** Debug: an image went up that the last show() no longer asked for. */
+  onStale: (file: string, asked: string) => void = () => {},
 ): SheetSwap {
   let shownFile = "";
   let wantedFile = "";
+  let lastAsked = "";
   const decoded = new Map<string, Promise<void>>();
   let resolveReady: () => void = () => {};
   const ready = new Promise<void>((resolve) => (resolveReady = resolve));
@@ -48,6 +51,7 @@ export function createSheetSwap(
 
   return {
     show(source) {
+      lastAsked = source.file;
       if (source.file === shownFile) {
         apply(source);
         return;
@@ -56,6 +60,7 @@ export function createSheetSwap(
       void decodeOnce(source.file).then(() => {
         // Superseded by a later row, or already up: nothing to do.
         if (wantedFile !== source.file || shownFile === source.file) return;
+        if (lastAsked !== source.file) onStale(source.file, lastAsked);
         put(source);
         onSwapped();
       });

@@ -38,4 +38,5 @@
     "companion_interaction_ended",
     "companion_state",
     "companion_log_menu",
+    "companion_debug_log",
 ]

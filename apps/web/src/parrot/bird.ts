@@ -9,6 +9,7 @@ import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, 
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { BRANCH, branchBox, branchImageFor, cursorBoxes, fadeZone } from "./perch";
 import { createSheetSwap } from "./sheetSwap";
+import { DEBUG, NOT_DECODED_MS, createFrameLog } from "./frameCheck";
 import {
   frameIndex,
   initialState,
@@ -35,6 +36,8 @@ export type Bird = {
   ready: () => Promise<void>;
   /** Rust's word: the cursor is near the perched bird, so it and the branch fade. */
   setFaded: (faded: boolean) => void;
+  /** Debug builds: a line in the frame check's log. */
+  debugNote: (text: string) => void;
 };
 
 export function createBird(
@@ -109,14 +112,37 @@ export function createBird(
   // ── The sheet, or the row of it, behind the element ────────────────────
   // The webview keeps the bitmaps of the rows it has shown and may drop the
   // ones it has not shown for a while; sheetSwap.ts does the sequencing.
+  // Debug builds: the frame check, written to parrot-debug.log (or kept on the page outside the app).
+  const debugLines: string[] = [];
+  (window as unknown as { __parrotDebug?: string[] }).__parrotDebug = debugLines;
+  const frameLog = DEBUG
+    ? createFrameLog((lines) => {
+        debugLines.push(...lines);
+        if (debugLines.length > 20_000) debugLines.splice(0, debugLines.length - 20_000);
+        invoke("companion_debug_log", { lines }).catch(() => {});
+      })
+    : null;
+  const debugImages = new Map<string, HTMLImageElement>();
+  const probe = DEBUG ? document.createElement("canvas").getContext("2d") : null;
+
   const sheet = createSheetSwap(
     (file) => {
       const img = new Image();
       img.src = `${import.meta.env.BASE_URL}${file}`;
+      if (DEBUG) debugImages.set(file, img);
       return img.decode();
     },
     (source) => {
       if (source.file !== sheet.shown()) {
+        // Debug: was the row's image still decoded as it went up? Drawing it says: a decode takes ms.
+        const img = debugImages.get(source.file);
+        if (frameLog && probe && img) {
+          const t0 = performance.now();
+          probe.drawImage(img, 0, 0, 1, 1);
+          const ms = performance.now() - t0;
+          frameLog.note(`swap ${source.file} draw-probe ${ms.toFixed(1)}ms`);
+          if (ms > NOT_DECODED_MS) frameLog.note(`ISSUE row-not-decoded ${source.file}: shown before its decode (${ms.toFixed(1)} ms to draw)`);
+        }
         el.style.backgroundImage = `url("${import.meta.env.BASE_URL}${source.file}")`;
         el.style.backgroundSize = `${source.size.width}px ${source.size.height}px`;
       }
@@ -127,6 +153,7 @@ export function createBird(
       drawn = "";
       draw(Date.now());
     },
+    (file, asked) => frameLog?.note(`ISSUE stale-row-applied ${file}: put up after the bird moved on to ${asked}`),
   );
 
   const sendHitboxes = (now: number, force: boolean) => {
@@ -167,6 +194,23 @@ export function createBird(
     sheet.show(source);
     // Only over the row the element is showing: while a new row decodes, the old one stays up.
     showLid(sheet.shown() === source.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
+    frameLog?.frame(
+      {
+        row: name,
+        frame,
+        frames: rowOf(name).frames,
+        wantedFile: source.file,
+        shownFile: sheet.shown(),
+        hasImage: el.style.backgroundImage !== "",
+        scaleX,
+        lidShown: lid.style.display === "block",
+        lidSize: parseFloat(lid.style.width) || 0,
+        cellWidth: DISPLAY_CELL.width,
+      },
+      state.mode,
+      state.x,
+      state.lift,
+    );
   };
 
   const loop = createLoop(
@@ -257,6 +301,7 @@ export function createBird(
 
   return {
     dispatch,
+    debugNote: (text: string) => frameLog?.note(text),
     state: () => state,
     refreshHitboxes: () => sendHitboxes(Date.now(), true),
     ready: () => sheet.ready,

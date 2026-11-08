@@ -49,6 +49,7 @@
     "allow-companion-set-dragging",
     "allow-companion-interaction-ended",
     "allow-companion-state",
-    "allow-companion-log-menu"
+    "allow-companion-log-menu",
+    "allow-companion-debug-log"
   ]
 }

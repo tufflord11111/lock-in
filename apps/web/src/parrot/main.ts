@@ -6,6 +6,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { createBird } from "./bird";
 import { createChatter, type Chatter } from "./chatter";
 import { finishedOnTime, type Settings } from "./nextBubble";
+import { TOUR, startTour } from "./tour";
 
 /** Mirrors companion.rs's World. No process or app names. */
 type NativeWorld = {
@@ -38,7 +39,8 @@ async function boot() {
   let plannedEndAt: number | null = null;
   const applyWorld = (world: NativeWorld) => {
     if (world.session_end_at !== null) plannedEndAt = world.session_end_at;
-    bird.dispatch({ type: "session", active: world.session_active });
+    // Touring (debug builds), the tour's made-up sessions stand in for the real one.
+    if (!TOUR) bird.dispatch({ type: "session", active: world.session_active });
     bird.dispatch({ type: "hidden", hidden: world.fullscreen });
     talk.setWorld({ sessionActive: world.session_active, hidden: world.fullscreen, userIdle: world.user_idle });
   };
@@ -69,6 +71,7 @@ async function boot() {
 
   // Main answers with the settings. Until then the bird stays silent.
   await emitTo("main", "companion:hello");
+  if (TOUR) startTour(bird);
 
   bird.refreshHitboxes();
   // A hidden webview may never fire rAF, so wait for the first image, not for a frame.
