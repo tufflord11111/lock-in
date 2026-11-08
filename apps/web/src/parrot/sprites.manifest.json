@@ -1,28 +1,34 @@
 {
   "columns": 12,
-  "displayCell": {"width": 96, "height": 96, "baseline": 92},
+  "displayCell": {"width":168,"height":152,"baseline":121.6},
+  "lidColour": "#f3e7f1",
   "scales": [
-    {"maxDpr": 1.25, "cell": {"width": 96, "height": 96}, "sheet": {"width": 1152, "height": 1632}, "file": "parrot/parrot-1x.png"},
-    {"maxDpr": 1.75, "cell": {"width": 144, "height": 144}, "sheet": {"width": 1728, "height": 2448}, "rowFiles": "parrot/parrot-1.5x/{state}.png"},
-    {"maxDpr": null, "cell": {"width": 192, "height": 192}, "sheet": {"width": 2304, "height": 3264}, "rowFiles": "parrot/parrot-2x/{state}.png"}
+    {"maxDpr":1.25,"cell":{"width":168,"height":152},"sheet":{"width":2016,"height":2584},"rowFiles":"parrot/parrot-1x/{state}.png","eyes":{"idle":[{"x":127.1,"y":32.7,"r":2.9,"open":true},{"x":127.2,"y":33.2,"r":2.8,"open":true},{"x":127.9,"y":33.1,"r":2.8,"open":true},{"x":129.3,"y":33.3,"r":2.8,"open":true}],"walk":[{"x":127.1,"y":33.7,"r":2.8,"open":true},{"x":127.1,"y":33,"r":2.8,"open":true},{"x":127.1,"y":32.7,"r":2.9,"open":true},{"x":127.1,"y":33,"r":2.8,"open":true},{"x":127.1,"y":33.7,"r":2.8,"open":true},{"x":127.1,"y":33,"r":2.8,"open":true},{"x":127.1,"y":32.7,"r":2.9,"open":true},{"x":127.1,"y":33,"r":2.8,"open":true}],"talk":[{"x":127.1,"y":32.6,"r":2.7,"open":true},{"x":126.5,"y":32.8,"r":2.7,"open":true},{"x":126,"y":33.3,"r":2.9,"open":true},{"x":125.9,"y":32,"r":1.6,"open":false},{"x":126,"y":33.3,"r":2.9,"open":true},{"x":126.5,"y":32.8,"r":2.7,"open":true}],"peck":[{"x":127.1,"y":32.7,"r":2.9,"open":true},{"x":127.8,"y":48.3,"r":2.7,"open":true},{"x":131.4,"y":90.3,"r":2.2,"open":false},{"x":127.8,"y":49.2,"r":2.7,"open":true},{"x":131.2,"y":91,"r":2.2,"open":false},{"x":127.1,"y":32.7,"r":2.9,"open":true}],"perch":[{"x":127.1,"y":32.7,"r":2.9,"open":true},{"x":127.2,"y":33.2,"r":2.8,"open":true},{"x":127.9,"y":33.1,"r":2.8,"open":true},{"x":129.3,"y":33.3,"r":2.8,"open":true}]}},
+    {"maxDpr":1.75,"cell":{"width":252,"height":228},"sheet":{"width":3024,"height":3876},"rowFiles":"parrot/parrot-1.5x/{state}.png","eyes":{"idle":[{"x":190.7,"y":49,"r":4.3,"open":true},{"x":190.8,"y":49.7,"r":4.2,"open":true},{"x":191.8,"y":49.6,"r":4.3,"open":true},{"x":194,"y":49.9,"r":4.2,"open":true}],"walk":[{"x":190.7,"y":50.6,"r":4.2,"open":true},{"x":190.7,"y":49.4,"r":4.2,"open":true},{"x":190.7,"y":49,"r":4.3,"open":true},{"x":190.7,"y":49.4,"r":4.2,"open":true},{"x":190.7,"y":50.6,"r":4.2,"open":true},{"x":190.7,"y":49.4,"r":4.2,"open":true},{"x":190.7,"y":49,"r":4.3,"open":true},{"x":190.7,"y":49.4,"r":4.2,"open":true}],"talk":[{"x":190.7,"y":48.9,"r":4.1,"open":true},{"x":189.7,"y":49.2,"r":4.1,"open":true},{"x":189,"y":49.9,"r":4.3,"open":true},{"x":188.8,"y":48,"r":2.3,"open":false},{"x":189,"y":49.9,"r":4.3,"open":true},{"x":189.7,"y":49.2,"r":4.1,"open":true}],"peck":[{"x":190.7,"y":49,"r":4.3,"open":true},{"x":191.7,"y":72.5,"r":4,"open":true},{"x":197.1,"y":135.4,"r":3.4,"open":false},{"x":191.7,"y":73.8,"r":4.1,"open":true},{"x":196.9,"y":136.5,"r":3.4,"open":false},{"x":190.7,"y":49,"r":4.3,"open":true}],"perch":[{"x":190.7,"y":49,"r":4.3,"open":true},{"x":190.8,"y":49.7,"r":4.2,"open":true},{"x":191.8,"y":49.6,"r":4.3,"open":true},{"x":194,"y":49.9,"r":4.2,"open":true}]}},
+    {"maxDpr":null,"cell":{"width":336,"height":304},"sheet":{"width":4032,"height":5168},"rowFiles":"parrot/parrot-2x/{state}.png","eyes":{"idle":[{"x":254.2,"y":65.4,"r":5.7,"open":true},{"x":254.4,"y":66.3,"r":5.7,"open":true},{"x":255.7,"y":66.2,"r":5.7,"open":true},{"x":258.6,"y":66.5,"r":5.7,"open":true}],"walk":[{"x":254.2,"y":67.5,"r":5.7,"open":true},{"x":254.2,"y":65.9,"r":5.7,"open":true},{"x":254.2,"y":65.4,"r":5.7,"open":true},{"x":254.2,"y":65.9,"r":5.7,"open":true},{"x":254.2,"y":67.5,"r":5.7,"open":true},{"x":254.2,"y":65.9,"r":5.7,"open":true},{"x":254.2,"y":65.4,"r":5.7,"open":true},{"x":254.2,"y":65.9,"r":5.7,"open":true}],"talk":[{"x":254.2,"y":65.1,"r":5.4,"open":true},{"x":253,"y":65.7,"r":5.4,"open":true},{"x":252,"y":66.6,"r":5.7,"open":true},{"x":251.8,"y":64,"r":3.1,"open":false},{"x":252,"y":66.6,"r":5.7,"open":true},{"x":253,"y":65.7,"r":5.4,"open":true}],"peck":[{"x":254.2,"y":65.4,"r":5.7,"open":true},{"x":255.6,"y":96.6,"r":5.3,"open":true},{"x":262.7,"y":180.5,"r":4.5,"open":false},{"x":255.6,"y":98.5,"r":5.4,"open":true},{"x":262.5,"y":182,"r":4.5,"open":false},{"x":254.2,"y":65.4,"r":5.7,"open":true}],"perch":[{"x":254.2,"y":65.4,"r":5.7,"open":true},{"x":254.4,"y":66.3,"r":5.7,"open":true},{"x":255.7,"y":66.2,"r":5.7,"open":true},{"x":258.6,"y":66.5,"r":5.7,"open":true}]}}
   ],
   "rows": [
-    {"state": "idle", "frames": 6, "fps": 6, "loop": true},
-    {"state": "idle_blink", "frames": 3, "fps": 12, "loop": false},
-    {"state": "idle_preen", "frames": 8, "fps": 8, "loop": false},
-    {"state": "walk", "frames": 8, "fps": 7.5, "loop": true, "stride": 5},
-    {"state": "takeoff", "frames": 4, "fps": 12, "loop": false, "from": "v0.2"},
-    {"state": "fly", "frames": 6, "fps": 12, "loop": true, "from": "v0.2"},
-    {"state": "land", "frames": 4, "fps": 12, "loop": false, "from": "v0.2"},
-    {"state": "perch", "frames": 4, "fps": 4, "loop": true},
-    {"state": "sleep", "frames": 4, "fps": 2, "loop": true},
-    {"state": "talk", "frames": 6, "fps": 8, "loop": true},
-    {"state": "drag", "frames": 4, "fps": 8, "loop": true},
-    {"state": "wake", "frames": 5, "fps": 10, "loop": false},
-    {"state": "peck", "frames": 6, "fps": 10, "loop": false},
-    {"state": "happy", "frames": 8, "fps": 10, "loop": false},
-    {"state": "sad", "frames": 6, "fps": 6, "loop": true, "from": "v0.2"},
-    {"state": "yawn", "frames": 8, "fps": 8, "loop": false, "from": "v0.2"},
-    {"state": "droopy_idle", "frames": 6, "fps": 4, "loop": true, "from": "v0.2"}
+    {"state":"idle","frames":4,"fps":6,"loop":true},
+    {"state":"idle_blink","frames":3,"fps":12,"loop":false},
+    {"state":"idle_preen","frames":8,"fps":8,"loop":false},
+    {"state":"walk","frames":8,"fps":7.5,"loop":true,"stride":5},
+    {"state":"takeoff","frames":4,"fps":12,"loop":false,"from":"v0.2"},
+    {"state":"fly","frames":6,"fps":12,"loop":true,"from":"v0.2"},
+    {"state":"land","frames":4,"fps":12,"loop":false,"from":"v0.2"},
+    {"state":"perch","frames":4,"fps":4,"loop":true},
+    {"state":"sleep","frames":4,"fps":2,"loop":true},
+    {"state":"talk","frames":6,"fps":8,"loop":true},
+    {"state":"drag","frames":4,"fps":8,"loop":true},
+    {"state":"wake","frames":5,"fps":10,"loop":false},
+    {"state":"peck","frames":6,"fps":10,"loop":false},
+    {"state":"happy","frames":8,"fps":10,"loop":false},
+    {"state":"sad","frames":6,"fps":6,"loop":true,"from":"v0.2"},
+    {"state":"yawn","frames":8,"fps":8,"loop":false,"from":"v0.2"},
+    {"state":"droopy_idle","frames":6,"fps":4,"loop":true,"from":"v0.2"}
+  ],
+  "props": [
+    {"name":"branch","scale":1,"file":"parrot/props/branch-1x.png","width":531,"height":176},
+    {"name":"branch","scale":1.5,"file":"parrot/props/branch-1.5x.png","width":795,"height":263},
+    {"name":"branch","scale":2,"file":"parrot/props/branch-2x.png","width":1059,"height":350}
   ]
 }
