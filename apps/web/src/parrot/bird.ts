@@ -15,6 +15,7 @@ import {
   loopPlan,
   reduce,
   spriteState,
+  turnPose,
   type BirdEvent,
   type BirdState,
 } from "./machine";
@@ -109,21 +110,27 @@ export function createBird(
     invoke("companion_set_hitbox", { boxes }).catch(() => {});
   };
 
-  /** Moves the element to the state's position. Compositor-only: no repaint. */
-  const place = () => {
-    el.style.transform = `translate3d(${state.x}px, ${-state.lift}px, 0) scaleX(${state.facing})`;
+  /**
+   * Moves the element to the state's position, and squeezes it through a turn.
+   * Compositor-only: no repaint. The flip pivots on the cell's centre, where
+   * the feet stand.
+   */
+  const place = (now = Date.now()) => {
+    const { scaleX, dip } = turnPose(state, now);
+    el.style.transform = `translate3d(${state.x}px, ${dip - state.lift}px, 0) scaleX(${scaleX})`;
   };
 
   const draw = (now: number) => {
-    const name = spriteState(state);
+    const name = spriteState(state, now);
     const frame = frameIndex(state, now, (s, elapsed) => frameAt(rowOf(s), elapsed));
     const scale = scaleFor(window.devicePixelRatio);
     const source = frameSource(scale, name, frame);
     const shut = canBlink(state, name) ? lidAt(blink, now) : 0;
-    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${state.facing}:${shut}`;
+    const { scaleX, dip } = turnPose(state, now);
+    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}`;
     if (key === drawn) return;
     drawn = key;
-    place();
+    place(now);
     sheet.show(source);
     // Only over the row the element is showing: while a new row decodes, the old one stays up.
     showLid(sheet.shown() === source.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
@@ -139,7 +146,7 @@ export function createBird(
     () => {
       const now = Date.now();
       state = reduce(state, { type: "tick" }, now, Math.random());
-      const blinking = canBlink(state, spriteState(state));
+      const blinking = canBlink(state, spriteState(state, now));
       blink = stepBlink(blink, now, blinking, Math.random(), Math.random());
       draw(now);
       // Asleep, hidden or under reduced motion the blink adds nothing, so a stopped loop stays stopped.

@@ -12,6 +12,8 @@ export type SpriteRow = {
   from?: string;
   /** walk only: how far the sprite moves per frame, CSS px, so planted feet don't slide. Speed = stride x fps. */
   stride?: number;
+  /** walk only: the frames with both feet down, where a walk may stop. Default: 0 and half way. */
+  contact?: number[];
 };
 
 /** One frame's box on a sheet, in that sheet's px. Width and height are independent. */

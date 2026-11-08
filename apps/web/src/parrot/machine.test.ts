@@ -6,6 +6,14 @@ import {
   WALK_PX_PER_S,
   WALK_STEP_MS,
   WALK_TICK_FPS,
+  TURN_DIP_PX,
+  TURN_MIN_SCALE,
+  TURN_MS,
+  contactFrames,
+  faceTo,
+  isTurning,
+  turnPose,
+  walkStepsFor,
   walkDistance,
   walkSpeed,
   walkStride,
@@ -50,17 +58,20 @@ describe("awake", () => {
   });
 
   it("walks at the art's stride, from the clock, and stops at its target", () => {
-    const s = { ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: 400, facing: 1, enteredAt: T0 } as BirdState;
+    const steps = 60;
+    const target = 100 + steps * walkStride();
+    const s = { ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: target, facing: 1, enteredAt: T0, stepAt: T0, walkSteps: steps } as BirdState;
     expect(tick(s, T0 + 2000).x).toBeCloseTo(100 + 2 * WALK_PX_PER_S);
-    const done = tick(s, T0 + (300 / WALK_PX_PER_S) * 1000);
+    const done = tick(s, T0 + ((steps + 1) * 1000) / rowOf("walk").fps);
     expect(done.mode).toBe("idle");
-    expect(done.x).toBe(400);
+    expect(done.x).toBe(target);
   });
 
   it("gets there after a long stall instead of walking off the edge", () => {
-    const s = { ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: 400, facing: 1, enteredAt: T0 } as BirdState;
+    const target = 100 + 60 * walkStride();
+    const s = { ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: target, facing: 1, enteredAt: T0, stepAt: T0, walkSteps: 60 } as BirdState;
     const late = tick(s, T0 + 3_600_000);
-    expect(late.x).toBe(400);
+    expect(late.x).toBe(target);
     expect(late.mode).toBe("idle");
   });
 
@@ -165,8 +176,8 @@ describe("drag and fall", () => {
   });
 
   it("uses the drag row while falling", () => {
-    expect(spriteState({ ...start(), mode: "fall" })).toBe("drag");
-    expect(spriteState({ ...start(), mode: "walk" })).toBe("walk");
+    expect(spriteState({ ...start(), mode: "fall" }, T0)).toBe("drag");
+    expect(spriteState({ ...start(), mode: "walk", stepAt: T0 }, T0)).toBe("walk");
   });
 });
 
@@ -233,7 +244,7 @@ describe("what the loop needs", () => {
   });
 
   it("moving modes follow the row's own fps", () => {
-    const s = { ...start(), mode: "walk", fromX: 0, targetX: 900, enteredAt: T0 } as BirdState;
+    const s = { ...start(), mode: "walk", fromX: 0, targetX: 900, enteredAt: T0, stepAt: T0, walkSteps: 99 } as BirdState;
     const walk = rowOf("walk");
     expect(frameIndex(s, T0 + 3 * (1000 / walk.fps) + 1, byRow)).toBe(3 % walk.frames);
   });
@@ -325,12 +336,14 @@ describe("a cell that isn't square", () => {
     expect(walkTarget(0.5, WIDTH, WIDE)).toBeLessThanOrEqual(WIDTH - 128);
   });
 
-  it("walks to the right edge and stands flush with it", () => {
+  it("walks to the right edge, stopping on a contact frame within one contact interval of it", () => {
     let s = tick(wide({ nextAt: T0 }), T0, 0.999 / 2);
     expect(s.mode).toBe("walk");
-    expect(s.targetX).toBe(WIDTH - 128);
+    const interval = (rowOf("walk").frames / contactFrames().length) * walkStride();
+    expect(s.targetX).toBeLessThanOrEqual(WIDTH - 128);
+    expect(WIDTH - 128 - s.targetX).toBeLessThan(interval);
     s = tick(s, T0 + 1_000_000);
-    expect(s.x).toBe(WIDTH - 128);
+    expect(s.x).toBe(s.targetX);
     expect(s.mode).toBe("idle");
   });
 
@@ -347,7 +360,7 @@ describe("a cell that isn't square", () => {
 describe("the walk, locked to the art's frames", () => {
   const walk = rowOf("walk");
   const walking = (over: Partial<BirdState> = {}): BirdState =>
-    ({ ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: 900, facing: 1, enteredAt: T0, ...over }) as BirdState;
+    ({ ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: 900, facing: 1, enteredAt: T0, stepAt: T0, walkSteps: 160, ...over }) as BirdState;
   const frameMs = 1000 / walk.fps;
 
   it("plays at a rate that divides the 15 fps walk timer, so every frame shows for the same ticks", () => {
@@ -377,9 +390,161 @@ describe("the walk, locked to the art's frames", () => {
   });
 
   it("still stops exactly at its target", () => {
-    const s = walking({ targetX: 100 + 2.5 * walk.stride! });
-    const done = tick(s, T0 + 3 * frameMs);
+    const s = walking({ targetX: 100 + 8 * walk.stride!, walkSteps: 8 });
+    const done = tick(s, T0 + 9 * frameMs);
     expect(done.mode).toBe("idle");
-    expect(done.x).toBe(100 + 2.5 * walk.stride!);
+    expect(done.x).toBe(100 + 8 * walk.stride!);
+  });
+});
+
+describe("turning round", () => {
+  const facingRight = (over: Partial<BirdState> = {}) => start({ x: 400, facing: 1, ...over });
+
+  it("never flips at once: the old facing is still drawn when the turn begins", () => {
+    const s = faceTo(facingRight(), -1, T0);
+    expect(s.facing).toBe(-1);
+    expect(turnPose(s, T0).scaleX).toBe(1);
+    expect(isTurning(s, T0)).toBe(true);
+  });
+
+  it("squeezes to 0.08 over 80 ms, flips, and opens out over the next 80 ms, eased", () => {
+    const s = faceTo(facingRight(), -1, T0);
+    const at = (ms: number) => turnPose(s, T0 + ms);
+    expect(TURN_MS).toBe(160);
+    expect(at(0).scaleX).toBeCloseTo(1, 9);
+    expect(at(79.999).scaleX).toBeCloseTo(TURN_MIN_SCALE, 3);
+    expect(at(80).scaleX).toBeCloseTo(-TURN_MIN_SCALE, 9);
+    expect(at(159.999).scaleX).toBeCloseTo(-1, 3);
+    expect(at(160)).toEqual({ scaleX: -1, dip: 0 });
+    // Eased: slow at the ends, quick in the middle of each half.
+    expect(1 - at(8).scaleX).toBeLessThan(at(36).scaleX - at(44).scaleX);
+    // Shrinks through the first half, grows through the second.
+    for (let t = 0; t < 79; t += 4) expect(Math.abs(at(t + 4).scaleX)).toBeLessThanOrEqual(Math.abs(at(t).scaleX) + 1e-9);
+    for (let t = 80; t < 156; t += 4) expect(Math.abs(at(t + 4).scaleX)).toBeGreaterThanOrEqual(Math.abs(at(t).scaleX) - 1e-9);
+  });
+
+  it("dips 2 px at the midpoint, and none at either end", () => {
+    const s = faceTo(facingRight(), -1, T0);
+    expect(TURN_DIP_PX).toBe(2);
+    expect(turnPose(s, T0).dip).toBeCloseTo(0, 9);
+    expect(turnPose(s, T0 + 80).dip).toBeCloseTo(2, 9);
+    expect(turnPose(s, T0 + 40).dip).toBeGreaterThan(0);
+    expect(turnPose(s, T0 + 40).dip).toBeLessThan(2);
+    expect(turnPose(s, T0 + 160).dip).toBe(0);
+  });
+
+  it("turns left to right the same way", () => {
+    const s = faceTo(start({ facing: -1 }), 1, T0);
+    expect(turnPose(s, T0).scaleX).toBe(-1);
+    expect(turnPose(s, T0 + 80).scaleX).toBeCloseTo(TURN_MIN_SCALE, 9);
+    expect(turnPose(s, T0 + 160).scaleX).toBe(1);
+  });
+
+  it("doesn't move the bird while it turns", () => {
+    let s = tick(facingRight({ x: 600, nextAt: T0 }), T0, 0.1 / 2); // a walk to the left
+    expect(s.mode).toBe("walk");
+    expect(s.facing).toBe(-1);
+    for (let t = 0; t <= TURN_MS; t += 10) expect(tick(s, T0 + t).x).toBe(600);
+    s = tick(s, T0 + TURN_MS);
+    expect(s.x).toBe(600);
+  });
+
+  it("asks the loop for every frame while it turns", () => {
+    const s = faceTo(facingRight(), -1, T0);
+    expect(loopPlan(s, T0 + 50)).toEqual({ kind: "frames" });
+  });
+
+  it("just flips under reduced motion", () => {
+    const s = faceTo(facingRight({ reducedMotion: true }), -1, T0);
+    expect(s.turnStart).toBeNull();
+    expect(turnPose(s, T0)).toEqual({ scaleX: -1, dip: 0 });
+  });
+
+  it("is not drawn asleep or hidden, so the sleeping bird still asks for no redraw", () => {
+    const turning = faceTo(facingRight(), -1, T0);
+    const asleep = go(turning, { type: "session", active: true }, T0 + 20);
+    expect(turnPose(asleep, T0 + 30)).toEqual({ scaleX: -1, dip: 0 });
+    expect(loopPlan(asleep, T0 + 30).kind).toBe("stop");
+    expect(turnPose({ ...turning, hidden: true }, T0 + 30).scaleX).toBe(-1);
+  });
+
+  it("keeps facing as it is when nothing changes", () => {
+    const s = facingRight();
+    expect(faceTo(s, 1, T0)).toBe(s);
+  });
+});
+
+describe("starting and stopping a walk", () => {
+  const walk = rowOf("walk");
+  const frameMs = 1000 / walk.fps;
+  const leftFrom = (x: number) => tick(start({ x, facing: 1, nextAt: T0 }), T0, 0.1 / 2);
+  const rightFrom = (x: number) => tick(start({ x, facing: 1, nextAt: T0 }), T0, 0.9 / 2);
+
+  it("turns first, keeping the drawing it had, then starts the walk", () => {
+    const s = leftFrom(700);
+    expect(s.stepAt).toBe(T0 + TURN_MS);
+    for (const t of [0, 50, 159]) {
+      expect(spriteState(s, T0 + t)).toBe("idle");
+      expect(frameIndex(s, T0 + t, byRow)).toBe(s.holdFrame);
+    }
+    expect(spriteState(s, T0 + TURN_MS)).toBe("walk");
+    expect(frameIndex(s, T0 + TURN_MS, byRow)).toBe(0);
+  });
+
+  it("with no turn to make, shows walk frame 0 at once", () => {
+    const s = rightFrom(100);
+    expect(s.facing).toBe(1);
+    expect(s.stepAt).toBe(T0);
+    expect(spriteState(s, T0)).toBe("walk");
+    expect(frameIndex(s, T0, byRow)).toBe(0);
+  });
+
+  it("holds walk frame 0 for one frame-time without moving, then steps a stride per frame", () => {
+    for (const s of [leftFrom(700), rightFrom(100)]) {
+      const from = s.x;
+      // The first frame-time: frame 0, not moving.
+      expect(tick(s, s.stepAt + 1).x).toBe(from);
+      expect(tick(s, s.stepAt + frameMs - 1).x).toBe(from);
+      expect(frameIndex(s, s.stepAt + frameMs - 1, byRow)).toBe(0);
+      // Then frame 1, one stride on.
+      expect(frameIndex(s, s.stepAt + frameMs, byRow)).toBe(1);
+      expect(tick(s, s.stepAt + frameMs).x).toBe(from + s.facing * walkStride());
+    }
+  });
+
+  it("stops on a contact frame at its target, holds it one frame-time, then idles", () => {
+    for (const s of [leftFrom(700), rightFrom(100)]) {
+      const k = s.walkSteps;
+      expect(contactFrames()).toContain(k % walk.frames);
+      expect(s.targetX).toBe(s.fromX + s.facing * k * walkStride());
+      const arrive = s.stepAt + k * frameMs;
+      const there = tick(s, arrive + 1);
+      expect(there.mode).toBe("walk");
+      expect(there.x).toBe(s.targetX);
+      expect(frameIndex(s, arrive + 1, byRow)).toBe(k % walk.frames);
+      // Still that contact frame, still walking, to the end of its frame-time.
+      expect(tick(s, arrive + frameMs - 1).mode).toBe("walk");
+      expect(frameIndex(s, arrive + frameMs - 1, byRow)).toBe(k % walk.frames);
+      const done = tick(s, arrive + frameMs);
+      expect(done.mode).toBe("idle");
+      expect(done.x).toBe(s.targetX);
+    }
+  });
+
+  it("only ever plans walks that end on a contact frame and stay on the screen", () => {
+    expect(contactFrames({ ...walk, frames: 8, contact: undefined })).toEqual([0, 4]);
+    expect(contactFrames({ ...walk, contact: [2, 6] })).toEqual([2, 6]);
+    for (let d = 1; d < 900; d += 37) {
+      for (const facing of [1, -1] as const) {
+        const k = walkStepsFor(d, 500, facing, WIDTH, DISPLAY_CELL);
+        if (k === 0) continue;
+        expect(contactFrames()).toContain(k % walk.frames);
+        const end = 500 + facing * k * walkStride();
+        expect(end).toBeGreaterThanOrEqual(0);
+        expect(end).toBeLessThanOrEqual(maxX(WIDTH));
+      }
+    }
+    // Nowhere to go: no walk.
+    expect(walkStepsFor(400, maxX(WIDTH), 1, WIDTH, DISPLAY_CELL)).toBe(0);
   });
 });
