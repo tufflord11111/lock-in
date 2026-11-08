@@ -10,7 +10,10 @@
  * marks are kept from the current manifest. A sheet that would decode to more
  * than 16 MiB is written as one strip per row, cropped to its frames, so the
  * overlay decodes only the rows it shows. Any branch@*.png in <dir> is copied
- * as a static prop, listed under "props" in the manifest; nothing draws it yet.
+ * as a static prop, listed under "props" in the manifest. meta.branch in the
+ * 1x JSON (its size and the perch point, where the bird's feet go, in 1x px,
+ * the right side flush with the screen's edge) becomes the manifest's
+ * "branch"; without it the overlay guesses a perch point on the prop.
  *
  * The walk row plays at WALK_FPS, whatever its frameTag says, so it divides
  * the overlay's 15 fps walk timer. Its stride (how far the sprite moves per
@@ -142,6 +145,15 @@ for (const file of readdirSync(dir).filter((f) => /^branch@.*\.png$/.test(f)).so
   props.push({ name: "branch", scale: propScale(file), file: out, width: image.width, height: image.height });
   console.log(`prop ${file}: ${image.width}x${image.height} -> ${out}`);
 }
+// The perch: 1x px are CSS px.
+const metaBranch = JSON.parse(readFileSync(join(dir, "parrot@1x.json"), "utf8")).meta.branch;
+let branch = null;
+if (metaBranch) {
+  if (metaBranch.edge !== undefined && metaBranch.edge !== "right") throw new Error(`meta.branch.edge is ${metaBranch.edge}; the overlay draws a right-edge branch`);
+  for (const k of ["w", "h", "perchX", "perchY"]) if (typeof metaBranch[k] !== "number") throw new Error(`meta.branch.${k} is missing`);
+  branch = { width: metaBranch.w, height: metaBranch.h, perchX: metaBranch.perchX, perchY: metaBranch.perchY };
+  console.log(`branch: ${branch.width}x${branch.height}, perch at ${branch.perchX},${branch.perchY} (meta.branch)`);
+}
 if (props.length === 0 && existsSync(join(PUBLIC, "parrot/props"))) rmSync(join(PUBLIC, "parrot/props"), { recursive: true, force: true });
 
 const manifest = {
@@ -151,6 +163,7 @@ const manifest = {
   scales,
   rows,
   ...(props.length ? { props } : {}),
+  ...(branch ? { branch } : {}),
 };
 const line = (o) => JSON.stringify(o);
 const text = [
@@ -163,8 +176,9 @@ const text = [
   "  ],",
   '  "rows": [',
   ...manifest.rows.map((r, i) => `    ${line(r)}${i < manifest.rows.length - 1 ? "," : ""}`),
-  props.length ? "  ]," : "  ]",
-  ...(props.length ? ['  "props": [', ...props.map((p, i) => `    ${line(p)}${i < props.length - 1 ? "," : ""}`), "  ]"] : []),
+  props.length || branch ? "  ]," : "  ]",
+  ...(props.length ? ['  "props": [', ...props.map((p, i) => `    ${line(p)}${i < props.length - 1 ? "," : ""}`), branch ? "  ]," : "  ]"] : []),
+  ...(branch ? [`  "branch": ${line(branch)}`] : []),
   "}",
   "",
 ].join("\n");
