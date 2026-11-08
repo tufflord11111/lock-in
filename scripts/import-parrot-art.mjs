@@ -15,6 +15,10 @@
  * the right side flush with the screen's edge) becomes the manifest's
  * "branch"; without it the overlay guesses a perch point on the prop.
  *
+ * "ink" is how far the drawing reaches across the cell in any frame of any
+ * row, CSS px from the cell's left (alpha over 8 in the 1x sheet), so the
+ * overlay can keep the whole bird, beak and tail, on the screen.
+ *
  * The walk row plays at WALK_FPS, whatever its frameTag says, so it divides
  * the overlay's 15 fps walk timer. Its stride (how far the sprite moves per
  * frame, CSS px) comes from meta.walkSpeed.pxPerFrame divided by each sheet's
@@ -70,6 +74,7 @@ console.log(`walk: ${walkStride} px per frame at ${WALK_FPS} fps = ${walkStride 
   (strideArg ? " (--walk-stride)" : artStrides[0] !== null ? " (meta.walkSpeed)" : " (kept)"));
 
 let rows = null;
+let ink = null;
 let baseline = null;
 let lidColour = null;
 const scales = [];
@@ -117,6 +122,7 @@ for (const { name, maxDpr } of SCALES) {
   // Clear both forms of the old scale before writing either.
   rmSync(join(PUBLIC, `parrot/parrot-${name}.png`), { force: true });
   rmSync(join(PUBLIC, `parrot/parrot-${name}`), { recursive: true, force: true });
+  if (name === "1x") ink = inkExtent(image, cell, rows);
   const written = writeScale(PUBLIC, scale, rows, current.columns, image.pixels);
   const bytes = written.reduce((n, w) => n + w.bytes, 0);
   const decoded = written.reduce((n, w) => n + decodedBytes(w.width, w.height), 0);
@@ -145,6 +151,8 @@ for (const file of readdirSync(dir).filter((f) => /^branch@.*\.png$/.test(f)).so
   props.push({ name: "branch", scale: propScale(file), file: out, width: image.width, height: image.height });
   console.log(`prop ${file}: ${image.width}x${image.height} -> ${out}`);
 }
+console.log(`ink: x ${ink.left} to ${ink.right} of the ${scales[0].cell.width} px cell`);
+
 // The perch: 1x px are CSS px.
 const metaBranch = JSON.parse(readFileSync(join(dir, "parrot@1x.json"), "utf8")).meta.branch;
 let branch = null;
@@ -160,6 +168,7 @@ const manifest = {
   columns: current.columns,
   displayCell: baseline === null ? scales[0].cell : { ...scales[0].cell, baseline },
   ...(lidColour ? { lidColour } : {}),
+  ink,
   scales,
   rows,
   ...(props.length ? { props } : {}),
@@ -171,6 +180,7 @@ const text = [
   `  "columns": ${manifest.columns},`,
   `  "displayCell": ${line(manifest.displayCell)},`,
   ...(manifest.lidColour ? [`  "lidColour": ${line(manifest.lidColour)},`] : []),
+  `  "ink": ${line(manifest.ink)},`,
   '  "scales": [',
   ...manifest.scales.map((s, i) => `    ${line(s)}${i < manifest.scales.length - 1 ? "," : ""}`),
   "  ],",
@@ -184,3 +194,24 @@ const text = [
 ].join("\n");
 writeFileSync(MANIFEST, text);
 console.log(`wrote ${MANIFEST}: display cell ${manifest.displayCell.width}x${manifest.displayCell.height}`);
+
+/** The leftmost and rightmost opaque columns over every frame of every row: [left, right) in the cell. */
+function inkExtent(image, cell, rowList) {
+  let left = cell.width;
+  let right = 0;
+  rowList.forEach((row, r) => {
+    for (let f = 0; f < row.frames; f++) {
+      for (let y = 0; y < cell.height; y++) {
+        const base = ((r * cell.height + y) * image.width + f * cell.width) * 4;
+        for (let x = 0; x < cell.width; x++) {
+          if (image.pixels[base + x * 4 + 3] > 8) {
+            if (x < left) left = x;
+            if (x + 1 > right) right = x + 1;
+          }
+        }
+      }
+    }
+  });
+  if (right === 0) throw new Error("the 1x sheet has no opaque pixels");
+  return { left, right };
+}

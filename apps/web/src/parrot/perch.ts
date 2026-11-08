@@ -15,7 +15,16 @@ export type Branch = { width: number; height: number; perchX: number; perchY: nu
 export type BranchImage = { scale: number; file: string; width: number; height: number };
 
 type Prop = { name: string; scale: number; file: string; width: number; height: number };
-const m = manifest as { props?: Prop[]; branch?: Branch };
+const m = manifest as { props?: Prop[]; branch?: Branch; ink?: Ink; displayCell: { width: number } };
+
+/** How far the drawing reaches across the display cell in any frame: [left, right), CSS px from its left. */
+export type Ink = { left: number; right: number };
+export const INK: Ink = m.ink ?? { left: 0, right: m.displayCell.width };
+
+/** The branch is on the right edge, so on it the bird faces left, into the screen. */
+export const INTO_SCREEN = -1 as const;
+/** Kept between the bird's drawing and the screen's right edge. */
+export const PERCH_MARGIN_PX = 2;
 
 export const BRANCH_IMAGES: BranchImage[] = (m.props ?? []).filter((p) => p.name === "branch");
 
@@ -44,13 +53,27 @@ export function branchBox(width: number, height: number, b: Branch = BRANCH): Bo
   return { x: width - b.width, y: Math.round(height * PERCH_HEIGHT - b.perchY), w: b.width, h: b.height };
 }
 
-/** Where the bird stands on the perch: x and lift, as the machine keeps them. Feet on the perch point, centred. */
-export function perchSpot(width: number, height: number, cell: DisplayCell, b: Branch = BRANCH): { x: number; lift: number } {
+/**
+ * Where the bird stands on the perch: x and lift, as the machine keeps them.
+ * Feet on the perch point, centred; but moved in along the branch as far as it
+ * takes to keep the whole drawing on the screen, facing in as it perches or
+ * facing the edge as it arrives. `ink` defaults to the art's, for the art's cell.
+ */
+export function perchSpot(
+  width: number,
+  height: number,
+  cell: DisplayCell,
+  b: Branch = BRANCH,
+  ink: Ink = cell.width === m.displayCell.width ? INK : { left: 0, right: cell.width },
+): { x: number; lift: number } {
   const box = branchBox(width, height, b);
   const feetX = box.x + b.perchX;
   const feetY = box.y + b.perchY;
   const baseline = cell.baseline ?? cell.height;
-  return { x: Math.round(feetX - cell.width / 2), lift: Math.round(height - (feetY - baseline) - cell.height) };
+  // Mirrored, the drawing reaches cell.width - ink.left past x; facing the edge, ink.right.
+  const reach = Math.max(cell.width - ink.left, ink.right);
+  const x = Math.min(Math.round(feetX - cell.width / 2), Math.floor(width - PERCH_MARGIN_PX - reach));
+  return { x, lift: Math.round(height - (feetY - baseline) - cell.height) };
 }
 
 /** The gap between two boxes, 0 if they touch or overlap. */

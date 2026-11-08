@@ -6,7 +6,7 @@
  */
 import { DISPLAY_CELL, playedOnce, rowOf, type DisplayCell, type LoopPlan } from "./animator";
 import { birdBox } from "./layout";
-import { DROP_ON_PERCH_PX, boxGap, branchBox, perchSpot } from "./perch";
+import { DROP_ON_PERCH_PX, INTO_SCREEN, boxGap, branchBox, perchSpot } from "./perch";
 
 type Cell = DisplayCell;
 
@@ -30,7 +30,8 @@ export type Spot = { x: number; lift: number };
 
 /**
  * One flight: turn first if it has to (until takeoffAt), the takeoff row in
- * place, the fly row along the arc, the land row in place at the end.
+ * place, the fly row along the arc (until landAt), and at the perch a turn in
+ * the air to face into the screen (until landRowAt), then the land row in place.
  */
 export type Flight = {
   from: Spot;
@@ -38,6 +39,7 @@ export type Flight = {
   takeoffAt: number;
   flyAt: number;
   landAt: number;
+  landRowAt: number;
   endAt: number;
   toBranch: boolean;
 };
@@ -282,6 +284,8 @@ export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boole
   const takeoffAt = turned !== s && turned.turnStart === now ? now + TURN_MS : now;
   const flyAt = takeoffAt + rowMs("takeoff");
   const landAt = flyAt + flyMs(from, to);
+  // It lands on the perch facing into the screen, so one that flew in facing the edge turns first.
+  const landRowAt = landAt + (toBranch && facing !== INTO_SCREEN && !s.reducedMotion ? TURN_MS : 0);
   return {
     ...turned,
     mode: "flight",
@@ -290,7 +294,7 @@ export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boole
     holdRow,
     holdFrame,
     onBranch: false,
-    flight: { from, to, takeoffAt, flyAt, landAt, endAt: landAt + rowMs("land"), toBranch },
+    flight: { from, to, takeoffAt, flyAt, landAt, landRowAt, endAt: landRowAt + rowMs("land"), toBranch },
   };
 }
 
@@ -299,16 +303,23 @@ function dropOntoPerch(s: BirdState, now: number, rand: number): BirdState {
   const spot = perchFor(s);
   if (s.reducedMotion) return settle(teleport(s, spot, true), now, rand);
   return {
-    ...teleport(s, spot, false),
+    ...faceTo(teleport(s, spot, false), INTO_SCREEN, now),
     mode: "flight",
     enteredAt: now,
     stepAt: now,
-    flight: { from: spot, to: spot, takeoffAt: now, flyAt: now, landAt: now, endAt: now + rowMs("land"), toBranch: true },
+    flight: { from: spot, to: spot, takeoffAt: now, flyAt: now, landAt: now, landRowAt: now, endAt: now + rowMs("land"), toBranch: true },
   };
 }
 
-/** Straight there with no animation: under reduced motion, hidden, or with a bubble open. */
-const teleport = (s: BirdState, to: Spot, onBranch: boolean): BirdState => ({ ...s, x: to.x, lift: to.lift, onBranch, flight: null });
+/** Straight there with no animation: under reduced motion, hidden, or with a bubble open. On the perch, facing in. */
+const teleport = (s: BirdState, to: Spot, onBranch: boolean): BirdState => ({
+  ...s,
+  x: to.x,
+  lift: to.lift,
+  onBranch,
+  flight: null,
+  ...(onBranch ? { facing: INTO_SCREEN, turnStart: null } : {}),
+});
 
 /** A random spot on the bottom edge to fly down to. */
 const groundSpot = (s: BirdState, u: number): Spot => ({ x: Math.round(u * maxX(s.width, s.cell)), lift: 0 });
@@ -379,7 +390,7 @@ export function initialState(
     targetX: x,
     fromX: x,
     fromLift: 0,
-    facing: 1,
+    facing: perch ? INTO_SCREEN : 1,
     turnStart: null,
     turnFrom: 1,
     stepAt: now,
@@ -527,7 +538,11 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
       if (!f) return settle(s, now, rand);
       if (now >= f.endAt) return arrive(s, now, rand);
       if (now < f.flyAt) return s.x === f.from.x && s.lift === f.from.lift ? s : { ...s, ...f.from };
-      if (now >= f.landAt) return { ...s, ...f.to };
+      if (now >= f.landAt) {
+        // At the perch: turn in the air to face into the screen, from the moment it got there.
+        const there = { ...s, ...f.to };
+        return f.toBranch && there.facing !== INTO_SCREEN ? faceTo(there, INTO_SCREEN, f.landAt) : there;
+      }
       return { ...s, ...arcPoint(f.from, f.to, easeInOut((now - f.flyAt) / (f.landAt - f.flyAt))) };
     }
     case "fall": {
@@ -539,7 +554,20 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
   }
 }
 
+/**
+ * The perch rule, whatever else happened: on the branch it faces into the
+ * screen. Nothing on the perch turns it, so this only catches a mistake.
+ */
+function facingIn(s: BirdState): BirdState {
+  return s.onBranch && s.facing !== INTO_SCREEN ? { ...s, facing: INTO_SCREEN, turnStart: null } : s;
+}
+
 export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number): BirdState {
+  const next = step(s, event, now, rand);
+  return next === s ? s : facingIn(next);
+}
+
+function step(s: BirdState, event: BirdEvent, now: number, rand: number): BirdState {
   switch (event.type) {
     case "tick":
       return tick(s, now, rand);
@@ -642,7 +670,7 @@ export function spriteState(s: BirdState, now: number): string {
     if (!f) return "fly";
     if (now < f.takeoffAt) return s.holdRow;
     if (now < f.flyAt) return "takeoff";
-    if (now < f.landAt) return "fly";
+    if (now < f.landRowAt) return "fly";
     return "land";
   }
   return s.mode;
@@ -685,8 +713,8 @@ export function frameIndex(s: BirdState, now: number, frameAt: (state: string, e
     const f = s.flight;
     if (now < f.takeoffAt) return s.holdFrame;
     if (now < f.flyAt) return frameAt("takeoff", now - f.takeoffAt);
-    if (now < f.landAt) return frameAt("fly", now - f.flyAt);
-    return frameAt("land", now - f.landAt);
+    if (now < f.landRowAt) return frameAt("fly", now - f.flyAt);
+    return frameAt("land", now - f.landRowAt);
   }
   if (s.mode === "walk") {
     const walked = now - s.stepAt;

@@ -66,7 +66,10 @@ import {
   BRANCH,
   DROP_ON_PERCH_PX,
   FADE_NEAR_PX,
+  INK,
+  INTO_SCREEN,
   PERCH_HEIGHT,
+  PERCH_MARGIN_PX,
   boxGap,
   branchBox,
   branchImageFor,
@@ -806,12 +809,34 @@ describe("the branch and the perch", () => {
     expect(PERCH_HEIGHT).toBe(0.55);
   });
 
-  it("stands the bird's feet on the perch point, centred on it", () => {
+  it("stands the bird's feet on the branch at the perch's height, as near the perch point as the screen allows", () => {
     const spot = perchSpot(1440, H, DISPLAY_CELL);
     const box = birdBox({ ...spot, cell: DISPLAY_CELL }, H);
     const branch = branchBox(1440, H);
-    expect(box.x + DISPLAY_CELL.width / 2).toBeCloseTo(branch.x + BRANCH.perchX, 0);
+    const feetX = box.x + DISPLAY_CELL.width / 2;
     expect(box.y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height)).toBeCloseTo(branch.y + BRANCH.perchY, 0);
+    expect(feetX).toBeGreaterThan(branch.x);
+    expect(feetX).toBeLessThanOrEqual(branch.x + BRANCH.perchX);
+    // With the art's perch point the bird would overhang the edge, so it moved in, no further than needed.
+    const reach = Math.max(DISPLAY_CELL.width - INK.left, INK.right);
+    expect(spot.x).toBe(Math.min(Math.round(branch.x + BRANCH.perchX - DISPLAY_CELL.width / 2), Math.floor(1440 - PERCH_MARGIN_PX - reach)));
+  });
+
+  it("keeps the whole perched bird, beak and tail, inside the work area, facing in or arriving facing the edge", () => {
+    for (const width of [800, 1280, 1440, 1920, 2560]) {
+      for (const height of [600, 900, 1032, 1400]) {
+        const spot = perchSpot(width, height, DISPLAY_CELL);
+        // Facing in, the cell is mirrored about its centre: the ink's left edge becomes its right.
+        expect(spot.x + DISPLAY_CELL.width - INK.left).toBeLessThanOrEqual(width);
+        expect(spot.x + INK.right).toBeLessThanOrEqual(width);
+        expect(spot.x + INK.left).toBeGreaterThanOrEqual(0);
+        const box = birdBox({ ...spot, cell: DISPLAY_CELL }, height);
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.h).toBeLessThanOrEqual(height);
+      }
+    }
+    expect(INK.left).toBeGreaterThanOrEqual(0);
+    expect(INK.right).toBeLessThanOrEqual(DISPLAY_CELL.width);
   });
 
   it("measures the gap between boxes, and the box around both", () => {
@@ -835,10 +860,13 @@ describe("flight", () => {
     expect(fl.takeoffAt).toBe(T0);
     expect(fl.flyAt).toBe(T0 + rowMs("takeoff"));
     expect(fl.landAt - fl.flyAt).toBeCloseTo(flyMs({ x: 300, lift: 0 }, to), 6);
-    expect(fl.endAt).toBe(fl.landAt + rowMs("land"));
+    // Flying right, it turns in the air at the perch before the land row.
+    expect(fl.landRowAt).toBe(fl.landAt + TURN_MS);
+    expect(fl.endAt).toBe(fl.landRowAt + rowMs("land"));
     expect(spriteState(f, T0 + 1)).toBe("takeoff");
     expect(spriteState(f, fl.flyAt + 1)).toBe("fly");
-    expect(spriteState(f, fl.landAt + 1)).toBe("land");
+    expect(spriteState(f, fl.landAt + 1)).toBe("fly");
+    expect(spriteState(f, fl.landRowAt + 1)).toBe("land");
     expect(frameIndex(f, fl.flyAt + 1, byRow)).toBe(0);
     // Takes off in place, lands in place.
     expect(tick(f, fl.flyAt - 1).x).toBe(300);
@@ -1149,5 +1177,78 @@ describe("what the overlay tells Rust", () => {
     expect(branchImageFor(3, images)?.scale).toBe(2);
     expect(branchImageFor(1, [])).toBeNull();
     expect(BRANCH.width).toBeGreaterThan(0);
+  });
+});
+
+describe("on the perch it faces into the screen", () => {
+  const into = INTO_SCREEN;
+
+  it("lands facing in: it turns in the air at the perch first, then the land row", () => {
+    const f = beginFlight(start({ x: 300, facing: 1 }), T0, perchFor(start()), true);
+    const fl = f.flight!;
+    expect(f.facing).toBe(1);
+    const turning = tick(f, fl.landAt + 10);
+    expect(turning.facing).toBe(into);
+    expect(turning.turnStart).toBe(fl.landAt);
+    expect(isTurning(turning, fl.landAt + 10)).toBe(true);
+    // The turn is over before the land row starts, and the land row is drawn facing in.
+    const landing = tick(turning, fl.landRowAt + 1);
+    expect(spriteState(landing, fl.landRowAt + 1)).toBe("land");
+    expect(isTurning(landing, fl.landRowAt + 1)).toBe(false);
+    expect(turnPose(landing, fl.landRowAt + 1).scaleX).toBe(into);
+    expect(tick(landing, fl.endAt).facing).toBe(into);
+  });
+
+  it("takes off from the perch facing in, without a turn", () => {
+    const perched = landed(beginFlight(start(), T0, perchFor(start()), true));
+    const down = beginFlight(perched, perched.restUntil, { x: 200, lift: 0 }, false);
+    expect(down.facing).toBe(into);
+    expect(down.flight!.takeoffAt).toBe(perched.restUntil);
+  });
+
+  it("put on the perch, dropped on it or booted asleep on it, it faces in", () => {
+    expect(initialState(T0, WIDTH, false, true, 0).facing).toBe(into);
+    expect(go(start({ facing: 1, talking: true }), { type: "session", active: true }).facing).toBe(into);
+    expect(go(start({ facing: 1, reducedMotion: true }), { type: "session", active: true }).facing).toBe(into);
+    let d = go(start({ facing: 1 }), { type: "dragStart" });
+    const branch = branchBox(d.width, d.height);
+    d = go(d, { type: "dragMove", x: branch.x - 20 - DISPLAY_CELL.width, lift: d.height - branch.y - DISPLAY_CELL.height, maxLift: 800 });
+    const dropped = go(d, { type: "dragEnd" }, T0 + 1000);
+    expect(dropped.facing).toBe(into);
+    expect(tick(dropped, T0 + 1000 + rowMs("land")).facing).toBe(into);
+  });
+
+  it("never faces the edge on the perch, through hours of rests, fidgets, talk, sessions and blinks", () => {
+    let r = 5;
+    const rand = () => (r = (r * 16807) % 2147483647) / 2147483647;
+    let s = start({ height: 900 });
+    let perchedTicks = 0;
+    for (let t = T0; t < T0 + 4 * 3_600_000; t += 50) {
+      const roll = rand();
+      // Now and then a bubble, a session, or the end of one.
+      let e: BirdEvent = { type: "tick" };
+      if (roll < 0.0004) e = { type: "talkStart" };
+      else if (roll < 0.0008) e = { type: "talkEnd" };
+      else if (roll < 0.0009) e = { type: "session", active: !s.sessionActive };
+      s = reduce(s, e, t, rand());
+      if (s.onBranch) {
+        perchedTicks++;
+        expect(s.facing).toBe(into);
+        expect(turnPose(s, t).scaleX).toBeLessThan(0);
+      }
+      const f = s.flight;
+      if (s.mode === "flight" && f) {
+        // Landing on the perch, from the land row on, and taking off from it: facing in.
+        if (f.toBranch && t >= f.landRowAt) expect(turnPose(s, t).scaleX).toBe(into);
+        if (!f.toBranch && f.from.x === perchFor(s).x && f.from.lift === perchFor(s).lift) expect(s.facing).toBe(into);
+      }
+    }
+    expect(perchedTicks).toBeGreaterThan(10_000);
+  });
+
+  it("a mistake that left it facing the edge on the perch is put right", () => {
+    const perched = landed(beginFlight(start(), T0, perchFor(start()), true));
+    const wrong = { ...perched, facing: 1 as const };
+    expect(tick(wrong, perched.nextAt).facing).toBe(into);
   });
 });
