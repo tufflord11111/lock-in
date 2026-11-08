@@ -220,8 +220,7 @@ describe("drag and fall", () => {
   it("is clamped to the overlay and falls to the bottom edge from the clock", () => {
     let s = go(start(), { type: "dragStart" });
     s = go(s, { type: "dragMove", x: 99_999, lift: 300, maxLift: 800 });
-    // As far right as the perch's bird, which may overhang the edge a little.
-    expect(s.x).toBe(Math.max(maxX(WIDTH), perchFor(s).x));
+    expect(s.x).toBe(maxX(WIDTH));
     s = go(s, { type: "dragMove", x: 300, lift: 300, maxLift: 800 });
     s = go(s, { type: "dragMove", x: -50, lift: 300, maxLift: 800 });
     expect(s.x).toBe(0);
@@ -1055,10 +1054,14 @@ describe("dragged off the perch and dropped", () => {
     return d;
   };
 
-  it("comes off the perch when picked up", () => {
-    const d = go(perched(), { type: "dragStart" });
+  it("comes off the perch when picked up, without a jump where it overhangs the edge", () => {
+    const p = perched();
+    const d = go(p, { type: "dragStart" });
     expect(d.onBranch).toBe(false);
     expect(d.mode).toBe("drag");
+    const held = go(d, { type: "dragMove", x: p.x, lift: p.lift, maxLift: 800 });
+    expect(held.x).toBe(p.x);
+    expect(go(d, { type: "dragMove", x: p.x + 500, lift: p.lift, maxLift: 800 }).x).toBe(Math.max(p.x, maxX(p.width)));
   });
 
   it("dropped within 60 px of the branch, lands on the perch", () => {

@@ -601,13 +601,14 @@ export function reduce(s: BirdState, event: BirdEvent, now: number, rand: number
       return s.mode === "talk" ? settle(quiet, now, rand) : quiet;
     }
     case "dragStart":
-      return { ...s, mode: "drag", enteredAt: now, onBranch: false, flight: null };
+      // fromX: where it was picked up, so a bird lifted off the perch, which overhangs the edge, doesn't jump.
+      return { ...s, mode: "drag", enteredAt: now, onBranch: false, flight: null, fromX: s.x };
     case "dragMove":
       if (s.mode !== "drag") return s;
       return {
         ...s,
-        // As far right as the perch, whose bird overhangs the edge a little.
-        x: Math.min(Math.max(0, event.x), Math.max(maxX(s.width, s.cell), perchFor(s).x)),
+        // On the screen; a bird lifted off the perch may stay as far right as it was.
+        x: Math.min(Math.max(0, event.x), Math.max(maxX(s.width, s.cell), s.fromX)),
         lift: Math.min(Math.max(0, event.lift), Math.max(0, event.maxLift)),
       };
     case "dragEnd": {

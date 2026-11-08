@@ -30,10 +30,13 @@ describe("the manifest", () => {
     ];
     expect(SPEC.reduce((n, [, f]) => n + f, 0)).toBe(96);
     expect(ROWS.map((r) => r.state)).toEqual(SPEC.map(([state]) => state));
-    // The art may cut a row short (the gen walk and idle have 4 frames), never make it longer.
+    // The art may cut a row short (the gen walk and idle have 4 frames), never make it longer,
+    // except that takeoff may open and land close on a copy of idle frame 0 (parrot-art a42ccc2).
+    const IDLE_BRIDGE = ["takeoff", "land"];
     ROWS.forEach((r, i) => {
       expect(r.frames, r.state).toBeGreaterThanOrEqual(1);
-      expect(r.frames, r.state).toBeLessThanOrEqual(SPEC[i][1]);
+      expect(r.frames, r.state).toBeLessThanOrEqual(SPEC[i][1] + (IDLE_BRIDGE.includes(r.state) ? 1 : 0));
+      expect(r.frames, r.state).toBeLessThanOrEqual(COLUMNS);
     });
   });
 
