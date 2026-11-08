@@ -694,15 +694,17 @@ fn run(app: AppHandle) {
                 // Debug builds, PARROT_PROBE_TOGGLE=1: the same toggle every 10 s, only while nobody
                 // has touched the mouse or keyboard for 5 s, clickable for 150 ms.
                 #[cfg(debug_assertions)]
-                if ignoring && std::env::var("PARROT_PROBE_TOGGLE").as_deref() == Ok("1") && user_idle_ms() > 5_000 {
-                    if last_probe.elapsed() >= Duration::from_secs(10) {
-                        last_probe = Instant::now();
-                        debug_log(&app, "rust probe clickthrough off");
-                        let _ = window.set_ignore_cursor_events(false);
-                        thread::sleep(Duration::from_millis(150));
-                        let _ = window.set_ignore_cursor_events(true);
-                        debug_log(&app, "rust probe clickthrough on");
-                    }
+                if ignoring
+                    && std::env::var("PARROT_PROBE_TOGGLE").as_deref() == Ok("1")
+                    && user_idle_ms() > 5_000
+                    && last_probe.elapsed() >= Duration::from_secs(10)
+                {
+                    last_probe = Instant::now();
+                    debug_log(&app, "rust probe clickthrough off");
+                    let _ = window.set_ignore_cursor_events(false);
+                    thread::sleep(Duration::from_millis(150));
+                    let _ = window.set_ignore_cursor_events(true);
+                    debug_log(&app, "rust probe clickthrough on");
                 }
             }
             thread::sleep(HIT_TEST_EVERY);
