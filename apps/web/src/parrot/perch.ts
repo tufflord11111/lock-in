@@ -5,7 +5,8 @@
  */
 import manifest from "./sprites.manifest.json";
 import type { DisplayCell } from "./animator";
-import type { Box } from "./layout";
+import { birdBox, type Box } from "./layout";
+import type { BirdState } from "./machine";
 
 /** The branch's size and its perch point (where the bird's feet go), CSS px from its top-left. */
 export type Branch = { width: number; height: number; perchX: number; perchY: number };
@@ -70,4 +71,18 @@ export function unionBox(a: Box, b: Box, pad = 0): Box {
 export function branchImageFor(dpr: number, images: BranchImage[] = BRANCH_IMAGES): BranchImage | null {
   const sorted = [...images].sort((a, b) => a.scale - b.scale);
   return sorted.find((i) => i.scale >= dpr - 0.25) ?? sorted[sorted.length - 1] ?? null;
+}
+
+/**
+ * Where the cursor fades the bird: around it and the branch, only while it is
+ * perched there and not picked up or flying. Null otherwise.
+ */
+export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number): Box | null {
+  if (!s.onBranch || s.mode === "drag" || s.mode === "flight") return null;
+  return unionBox(birdBox(s, innerHeight), branchBox(innerWidth, innerHeight), FADE_NEAR_PX);
+}
+
+/** The boxes that take the cursor: the bird's first, except in the air, where it can't be caught. */
+export function cursorBoxes(s: BirdState, innerHeight: number, extra: Box[]): Box[] {
+  return s.mode === "flight" ? extra : [birdBox(s, innerHeight), ...extra];
 }

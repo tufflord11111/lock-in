@@ -30,6 +30,28 @@ body {
   will-change: transform;
   touch-action: none;
   cursor: pointer;
+  transition: opacity 150ms ease;
+}
+
+/* The branch at the right edge. Never takes the cursor: Rust doesn't hit-test it either. */
+.parrot-branch {
+  display: none;
+  position: fixed;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+/* A cursor near the perched bird: both step out of the way. */
+.parrot-faded {
+  opacity: 0.2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #bird,
+  .parrot-branch {
+    transition: none;
+  }
 }
 
 /* The blink's lid, over the art's eye. Its fill colour comes from the manifest. */

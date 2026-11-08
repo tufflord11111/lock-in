@@ -62,7 +62,19 @@ import {
   rowMs,
 } from "./machine";
 import { birdBox } from "./layout";
-import { BRANCH, DROP_ON_PERCH_PX, PERCH_HEIGHT, boxGap, branchBox, perchSpot, unionBox } from "./perch";
+import {
+  BRANCH,
+  DROP_ON_PERCH_PX,
+  FADE_NEAR_PX,
+  PERCH_HEIGHT,
+  boxGap,
+  branchBox,
+  branchImageFor,
+  cursorBoxes,
+  fadeZone,
+  perchSpot,
+  unionBox,
+} from "./perch";
 
 const WIDTH = 1000;
 const T0 = 1_000_000;
@@ -1100,5 +1112,39 @@ describe("dragged off the perch and dropped", () => {
     const s = go(perched(), { type: "resize", width: 1600, height: 1000 });
     expect(s.onBranch).toBe(true);
     expect(s).toMatchObject(perchSpot(1600, 1000, DISPLAY_CELL));
+  });
+});
+
+describe("what the overlay tells Rust", () => {
+  const perched = () => landed(beginFlight(start(), T0, perchFor(start()), true));
+
+  it("sends a fade zone only while perched: the bird and the branch, 120 px around", () => {
+    const s = perched();
+    const zone = fadeZone(s, s.width, s.height)!;
+    expect(FADE_NEAR_PX).toBe(120);
+    expect(zone).toEqual(unionBox(birdBox(s, s.height), branchBox(s.width, s.height), 120));
+    expect(fadeZone(start(), WIDTH, start().height)).toBeNull();
+    expect(fadeZone(go(s, { type: "dragStart" }), s.width, s.height)).toBeNull();
+    expect(fadeZone(beginFlight(s, T0, { x: 100, lift: 0 }, false), s.width, s.height)).toBeNull();
+  });
+
+  it("never offers the branch to the cursor, and the bird only when it isn't in the air", () => {
+    const s = perched();
+    const card = { x: 1, y: 2, w: 3, h: 4 };
+    expect(cursorBoxes(s, s.height, [card])).toEqual([birdBox(s, s.height), card]);
+    expect(cursorBoxes(beginFlight(s, T0, { x: 100, lift: 0 }, false), s.height, [card])).toEqual([card]);
+    const branch = branchBox(s.width, s.height);
+    expect(cursorBoxes(s, s.height, [])).not.toContainEqual(branch);
+  });
+
+  it("draws the branch from the drawing that matches the display", () => {
+    const images = [1, 1.5, 2].map((scale) => ({ scale, file: `b${scale}`, width: 10 * scale, height: 5 * scale }));
+    expect(branchImageFor(1, images)?.scale).toBe(1);
+    expect(branchImageFor(1.25, images)?.scale).toBe(1);
+    expect(branchImageFor(1.5, images)?.scale).toBe(1.5);
+    expect(branchImageFor(2, images)?.scale).toBe(2);
+    expect(branchImageFor(3, images)?.scale).toBe(2);
+    expect(branchImageFor(1, [])).toBeNull();
+    expect(BRANCH.width).toBeGreaterThan(0);
   });
 });

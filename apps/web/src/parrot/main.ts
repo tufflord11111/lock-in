@@ -45,6 +45,7 @@ async function boot() {
   if (first) applyWorld(first);
 
   await listen<NativeWorld>("parrot-world", (e) => applyWorld(e.payload));
+  await listen<boolean>("parrot-fade", (e) => bird.setFaded(e.payload));
   await listen<{ reason: string; timestamp: number }>("enforcer-stood-down", (e) => {
     const finished = finishedOnTime(e.payload.reason, plannedEndAt, e.payload.timestamp);
     plannedEndAt = null;

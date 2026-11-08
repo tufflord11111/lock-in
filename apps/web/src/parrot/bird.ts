@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { DISPLAY_CELL, LID_COLOUR, createLoop, eyeAt, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
+import { BRANCH, branchBox, branchImageFor, cursorBoxes, fadeZone } from "./perch";
 import { createSheetSwap } from "./sheetSwap";
 import {
   frameIndex,
@@ -32,6 +33,8 @@ export type Bird = {
   refreshHitboxes: () => void;
   /** Resolves once the first frame's image is decoded and on the element. */
   ready: () => Promise<void>;
+  /** Rust's word: the cursor is near the perched bird, so it and the branch fade. */
+  setFaded: (faded: boolean) => void;
 };
 
 export function createBird(
@@ -50,6 +53,28 @@ export function createBird(
   );
   el.style.width = `${DISPLAY_CELL.width}px`;
   el.style.height = `${DISPLAY_CELL.height}px`;
+
+  // The branch: drawn behind the bird, never hit-tested (it isn't in the boxes Rust gets).
+  const branch = document.createElement("div");
+  branch.className = "parrot-branch";
+  branch.setAttribute("aria-hidden", "true");
+  el.before(branch);
+  const placeBranch = () => {
+    const image = branchImageFor(window.devicePixelRatio);
+    if (!image) {
+      branch.style.display = "none";
+      return;
+    }
+    const box = branchBox(window.innerWidth, window.innerHeight);
+    branch.style.display = "block";
+    branch.style.left = `${box.x}px`;
+    branch.style.top = `${box.y}px`;
+    branch.style.width = `${BRANCH.width}px`;
+    branch.style.height = `${BRANCH.height}px`;
+    branch.style.backgroundImage = `url("${import.meta.env.BASE_URL}${image.file}")`;
+    branch.style.backgroundSize = `${BRANCH.width}px ${BRANCH.height}px`;
+  };
+  placeBranch();
   let lastPlan: LoopPlan["kind"] = "stop";
   let blink = firstBlink(Date.now(), Math.random());
 
@@ -107,15 +132,15 @@ export function createBird(
   const sendHitboxes = (now: number, force: boolean) => {
     if (!force && now - sentAt < HITBOX_EVERY_MS) return;
     const dpr = window.devicePixelRatio;
-    const boxes = [
-      birdBox(state, window.innerHeight),
-      ...options.extraRects().map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height })),
-    ].map((b) => physicalBox(b, dpr));
-    const key = JSON.stringify(boxes);
+    const extra = options.extraRects().map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height }));
+    const boxes = cursorBoxes(state, window.innerHeight, extra).map((b) => physicalBox(b, dpr));
+    const zone = fadeZone(state, window.innerWidth, window.innerHeight);
+    const fade = zone ? physicalBox(zone, dpr) : null;
+    const key = JSON.stringify([boxes, fade]);
     if (key === sentBoxes) return;
     sentBoxes = key;
     sentAt = now;
-    invoke("companion_set_hitbox", { boxes }).catch(() => {});
+    invoke("companion_set_hitbox", { boxes, fade }).catch(() => {});
   };
 
   /**
@@ -223,6 +248,7 @@ export function createBird(
   // A DPI change resizes the window too, so the sheet follows through draw().
   window.addEventListener("resize", () => {
     drawn = "";
+    placeBranch();
     dispatch({ type: "resize", width: window.innerWidth, height: window.innerHeight });
     sendHitboxes(Date.now(), true);
   });
@@ -234,5 +260,9 @@ export function createBird(
     state: () => state,
     refreshHitboxes: () => sendHitboxes(Date.now(), true),
     ready: () => sheet.ready,
+    setFaded: (faded) => {
+      el.classList.toggle("parrot-faded", faded);
+      branch.classList.toggle("parrot-faded", faded);
+    },
   };
 }
