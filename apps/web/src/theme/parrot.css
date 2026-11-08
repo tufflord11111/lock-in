@@ -16,6 +16,11 @@ body {
   color: #2b3a55;
 }
 
+/* The art's line colour, for the lid's lower edge. */
+:root {
+  --parrot-ink: #261c2a;
+}
+
 /* Its width and height come from the sprite manifest, set by bird.ts. */
 #bird {
   position: fixed;
@@ -25,6 +30,24 @@ body {
   will-change: transform;
   touch-action: none;
   cursor: pointer;
+}
+
+/* The blink's lid, over the art's eye. Its fill colour comes from the manifest. */
+.parrot-lid {
+  display: none;
+  position: absolute;
+  overflow: hidden;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.parrot-lid-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--parrot-ink);
 }
 
 .parrot-card {

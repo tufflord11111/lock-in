@@ -4,7 +4,8 @@
  * animation loop, the drag and the hitboxes.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { DISPLAY_CELL, createLoop, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, LID_COLOUR, createLoop, eyeAt, frameAt, frameSource, rowOf, scaleFor, type LoopPlan } from "./animator";
+import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { createSheetSwap } from "./sheetSwap";
 import {
@@ -41,6 +42,32 @@ export function createBird(
   el.style.width = `${DISPLAY_CELL.width}px`;
   el.style.height = `${DISPLAY_CELL.height}px`;
   let lastPlan: LoopPlan["kind"] = "stop";
+  let blink = firstBlink(Date.now(), Math.random());
+
+  // The lid: a disc over the art's eye, filled from the top, with an ink lower edge.
+  const lid = document.createElement("div");
+  lid.className = "parrot-lid";
+  const lidFill = document.createElement("div");
+  lidFill.className = "parrot-lid-fill";
+  if (LID_COLOUR) lidFill.style.background = LID_COLOUR;
+  lid.append(lidFill);
+  el.append(lid);
+  let lidShown = "";
+  const showLid = (over: ReturnType<typeof lidOver>) => {
+    const key = over ? `${over.eye.x}:${over.eye.y}:${over.eye.r}:${over.lid}` : "";
+    if (key === lidShown) return;
+    lidShown = key;
+    if (!over) {
+      lid.style.display = "none";
+      return;
+    }
+    const box = lidBox(over.eye, over.lid);
+    lid.style.display = "block";
+    lid.style.left = `${box.left}px`;
+    lid.style.top = `${box.top}px`;
+    lid.style.width = lid.style.height = `${box.size}px`;
+    lidFill.style.height = `${box.fill}px`;
+  };
   let drawn = "";
   let sentBoxes = "";
   let sentAt = 0;
@@ -90,12 +117,16 @@ export function createBird(
   const draw = (now: number) => {
     const name = spriteState(state);
     const frame = frameIndex(state, now, (s, elapsed) => frameAt(rowOf(s), elapsed));
-    const source = frameSource(scaleFor(window.devicePixelRatio), name, frame);
-    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${state.facing}`;
+    const scale = scaleFor(window.devicePixelRatio);
+    const source = frameSource(scale, name, frame);
+    const shut = canBlink(state, name) ? lidAt(blink, now) : 0;
+    const key = `${source.file}:${frame}:${state.x}:${state.lift}:${state.facing}:${shut}`;
     if (key === drawn) return;
     drawn = key;
     place();
     sheet.show(source);
+    // Only over the row the element is showing: while a new row decodes, the old one stays up.
+    showLid(sheet.shown() === source.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
   };
 
   const loop = createLoop(
@@ -108,8 +139,11 @@ export function createBird(
     () => {
       const now = Date.now();
       state = reduce(state, { type: "tick" }, now, Math.random());
+      const blinking = canBlink(state, spriteState(state));
+      blink = stepBlink(blink, now, blinking, Math.random(), Math.random());
       draw(now);
-      const plan = loopPlan(state, now);
+      // Asleep, hidden or under reduced motion the blink adds nothing, so a stopped loop stays stopped.
+      const plan = combinePlans(loopPlan(state, now), blinkPlan(blink, now, blinking));
       sendHitboxes(now, isStill(state));
       lastPlan = plan.kind;
       return plan;

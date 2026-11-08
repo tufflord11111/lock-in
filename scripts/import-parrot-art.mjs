@@ -27,6 +27,8 @@ const PUBLIC = join(WEB, "public");
 const MANIFEST = join(WEB, "src/parrot/sprites.manifest.json");
 const ROW_FILES_OVER_BYTES = 16 * 1024 * 1024;
 const WALK_FPS = 7.5;
+// The rows the blink layer draws over (apps/web/src/parrot/blink.ts BLINK_ROWS): only their eyes ship.
+const EYE_ROWS = ["idle", "walk", "talk", "peck", "perch"];
 const SCALES = [
   { name: "1x", maxDpr: 1.25 },
   { name: "1.5x", maxDpr: 1.75 },
@@ -56,6 +58,7 @@ console.log(`walk: ${walkStride} px per frame at ${WALK_FPS} fps = ${walkStride 
 
 let rows = null;
 let baseline = null;
+let lidColour = null;
 const scales = [];
 for (const { name, maxDpr } of SCALES) {
   const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta;
@@ -70,13 +73,27 @@ for (const { name, maxDpr } of SCALES) {
     ...(t.name === "walk" ? { stride: walkStride } : {}),
   }));
   if (name === "1x" && typeof meta.baseline === "number") baseline = meta.baseline;
+  if (name === "1x" && typeof meta.lidColour === "string") lidColour = meta.lidColour;
   if (rows === null) rows = these;
   else if (JSON.stringify(these) !== JSON.stringify(rows)) throw new Error(`parrot@${name}.json: rows differ from parrot@1x.json`);
 
   const scale = { maxDpr, cell, sheet };
+  // Eyes in this sheet's own px, for the blink rows; null frames kept so indexes line up.
+  let eyes = null;
+  if (meta.eyes) {
+    eyes = {};
+    for (const row of EYE_ROWS) {
+      const list = meta.eyes[row];
+      const frames = these.find((r) => r.state === row)?.frames;
+      if (!list) continue;
+      if (list.length !== frames) throw new Error(`parrot@${name}.json: ${row} has ${list.length} eyes for ${frames} frames`);
+      eyes[row] = list.map((e) => (e ? { x: e.x, y: e.y, r: e.r, open: e.open === true } : null));
+    }
+  }
   const big = decodedBytes(sheet.width, sheet.height) > ROW_FILES_OVER_BYTES;
   if (big) scale.rowFiles = `parrot/parrot-${name}/{state}.png`;
   else scale.file = `parrot/parrot-${name}.png`;
+  if (eyes) scale.eyes = eyes;
   scales.push(scale);
 
   const png = readFileSync(join(dir, `parrot@${name}.png`));
@@ -120,6 +137,7 @@ if (props.length === 0 && existsSync(join(PUBLIC, "parrot/props"))) rmSync(join(
 const manifest = {
   columns: current.columns,
   displayCell: baseline === null ? scales[0].cell : { ...scales[0].cell, baseline },
+  ...(lidColour ? { lidColour } : {}),
   scales,
   rows,
   ...(props.length ? { props } : {}),
@@ -129,6 +147,7 @@ const text = [
   "{",
   `  "columns": ${manifest.columns},`,
   `  "displayCell": ${line(manifest.displayCell)},`,
+  ...(manifest.lidColour ? [`  "lidColour": ${line(manifest.lidColour)},`] : []),
   '  "scales": [',
   ...manifest.scales.map((s, i) => `    ${line(s)}${i < manifest.scales.length - 1 ? "," : ""}`),
   "  ],",

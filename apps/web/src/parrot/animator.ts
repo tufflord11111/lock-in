@@ -20,10 +20,15 @@ export type Cell = { width: number; height: number };
 /** The display cell, plus where the feet stand in it (CSS px from its top), when the art says. */
 export type DisplayCell = Cell & { baseline?: number };
 
+/** Where the art's eye is in one frame: centre and radius in the cell, and whether the art draws it open. */
+export type Eye = { x: number; y: number; r: number; open: boolean };
+
 /**
  * One sheet per display scale. Either one PNG of the whole sheet (`file`), or
  * one PNG per row (`rowFiles`, with `{state}` for the row's name), each cropped
- * to that row's frames, so the page decodes only the rows it shows.
+ * to that row's frames, so the page decodes only the rows it shows. `eyes`
+ * holds, per row and frame, the eye in this sheet's px, or null where the art
+ * shows none.
  */
 export type SheetScale = {
   maxDpr: number | null;
@@ -31,6 +36,7 @@ export type SheetScale = {
   sheet: { width: number; height: number };
   file?: string;
   rowFiles?: string;
+  eyes?: Record<string, (Eye | null)[]>;
 };
 
 /** A whole sheet that would decode to more than this must ship as row files. */
@@ -42,6 +48,16 @@ export const COLUMNS = manifest.columns;
 /** The bird's box in CSS px, at every DPI. The 1× cell by convention. */
 export const DISPLAY_CELL: DisplayCell = manifest.displayCell;
 export const SCALES: SheetScale[] = manifest.scales;
+/** The lid's fill, from the face patch around the eye. Absent for art with no eye data. */
+export const LID_COLOUR: string | undefined = (manifest as { lidColour?: string }).lidColour;
+
+/** The eye in this frame of this row, in display-cell CSS px, from this scale's own measurements. */
+export function eyeAt(scale: SheetScale, state: string, frame: number): Eye | null {
+  const eye = scale.eyes?.[state]?.[frame];
+  if (!eye) return null;
+  const k = scale.cell.width / DISPLAY_CELL.width;
+  return { x: eye.x / k, y: eye.y / k, r: eye.r / k, open: eye.open };
+}
 export const SHEET_ROWS = ROWS.length;
 
 /** A whole sheet's size for this cell: columns across, one row per state down. */
