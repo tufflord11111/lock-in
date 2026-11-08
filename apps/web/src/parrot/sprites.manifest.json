@@ -10,7 +10,7 @@
     {"state": "idle", "frames": 6, "fps": 6, "loop": true},
     {"state": "idle_blink", "frames": 3, "fps": 12, "loop": false},
     {"state": "idle_preen", "frames": 8, "fps": 8, "loop": false},
-    {"state": "walk", "frames": 8, "fps": 10, "loop": true, "stride": 1.5},
+    {"state": "walk", "frames": 8, "fps": 7.5, "loop": true, "stride": 2},
     {"state": "takeoff", "frames": 4, "fps": 12, "loop": false, "from": "v0.2"},
     {"state": "fly", "frames": 6, "fps": 12, "loop": true, "from": "v0.2"},
     {"state": "land", "frames": 4, "fps": 12, "loop": false, "from": "v0.2"},

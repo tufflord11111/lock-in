@@ -10,7 +10,7 @@ export type SpriteRow = {
   fps: number;
   loop: boolean;
   from?: string;
-  /** walk only: how far the planted foot travels per frame, CSS px at 1x. Speed = stride x fps. */
+  /** walk only: how far the sprite moves per frame, CSS px, so planted feet don't slide. Speed = stride x fps. */
   stride?: number;
 };
 
@@ -41,9 +41,6 @@ export const ROWS: SpriteRow[] = manifest.rows;
 export const COLUMNS = manifest.columns;
 /** The bird's box in CSS px, at every DPI. The 1× cell by convention. */
 export const DISPLAY_CELL: DisplayCell = manifest.displayCell;
-
-/** Where a lean pivots: the middle of the feet, or the cell's bottom centre if the art gives no baseline. */
-export const FEET_ORIGIN = `50% ${(((DISPLAY_CELL.baseline ?? DISPLAY_CELL.height) / DISPLAY_CELL.height) * 100).toFixed(2)}%`;
 export const SCALES: SheetScale[] = manifest.scales;
 export const SHEET_ROWS = ROWS.length;
 

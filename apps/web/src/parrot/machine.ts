@@ -46,37 +46,24 @@ export type BirdEvent =
   | { type: "dragMove"; x: number; lift: number; maxLift: number }
   | { type: "dragEnd" };
 
-/**
- * Walking speed in CSS px/s: the art's stride per frame times the walk row's
- * fps, so the planted foot moves with the ground instead of sliding over it.
- */
-export function walkSpeed(row = rowOf("walk")): number {
+/** The art's stride: how far the sprite moves per walk frame, CSS px. */
+export function walkStride(row = rowOf("walk")): number {
   if (row.stride === undefined) throw new Error("The walk row needs a stride");
-  return row.stride * row.fps;
+  return row.stride;
 }
+
+/** Walking speed in CSS px/s: the stride times the walk row's fps. */
+export const walkSpeed = (row = rowOf("walk")): number => walkStride(row) * row.fps;
 export const WALK_PX_PER_S = walkSpeed();
 
-/** The body's rise per step, CSS px, and the lean into the walk, degrees. */
-export const BOB_PX = 2.5;
-export const LEAN_MIN_DEG = 1;
-export const LEAN_MAX_DEG = 2;
-
-/** A step is half the walk cycle: one foot, then the other. */
-export const stepMs = (row = rowOf("walk")) => (row.frames * 1000) / row.fps / 2;
-
 /**
- * The walking body's rise and lean, drawn between the art's frames. Eased with
- * a half cosine, so it starts and ends each step at rest: up by BOB_PX at
- * mid-step, leaning LEAN_MIN_DEG at the foot strike and LEAN_MAX_DEG at the
- * top. The lean is toward where it's going. Nothing outside a walk or under
- * reduced motion.
+ * How far a walk has gone after this long. It moves one stride each time the
+ * frame changes, on the frame's own clock, and not in between: the art has the
+ * body's motion in the frames, so gliding between them would slide the planted
+ * foot forward and snap it back.
  */
-export function walkPose(s: BirdState, now: number): { bob: number; lean: number } {
-  if (s.mode !== "walk" || s.reducedMotion) return { bob: 0, lean: 0 };
-  const step = stepMs();
-  const phase = (Math.max(0, now - s.enteredAt) % step) / step;
-  const ease = (1 - Math.cos(2 * Math.PI * phase)) / 2;
-  return { bob: BOB_PX * ease, lean: s.facing * (LEAN_MIN_DEG + (LEAN_MAX_DEG - LEAN_MIN_DEG) * ease) };
+export function walkDistance(elapsedMs: number, row = rowOf("walk")): number {
+  return Math.floor((Math.max(0, elapsedMs) * row.fps) / 1000) * walkStride(row);
 }
 export const FALL_PX_PER_S = 600;
 export const IDLE_MIN_MS = 4_000;
@@ -163,7 +150,7 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
       if (s.reducedMotion || now < s.nextAt) return s;
       return startWalk(s, now, rand);
     case "walk": {
-      const dist = (WALK_PX_PER_S * elapsed) / 1000;
+      const dist = walkDistance(elapsed);
       if (dist >= Math.abs(s.targetX - s.fromX)) return enterIdle({ ...s, x: s.targetX }, now, rand);
       return { ...s, x: s.fromX + s.facing * dist };
     }
@@ -250,8 +237,13 @@ export const isStill = (s: BirdState): boolean => STILL.includes(s.mode);
 /** Asleep it holds one frame and asks for no redraw at all: each one recomposites the whole overlay. */
 export const holdsOneFrame = (s: BirdState): boolean => s.reducedMotion || s.mode === "sleep";
 
-/** Walking draws on a timer at this rate: rAF would wake the page at the display's rate. */
-export const WALK_STEP_MS = 1000 / 15;
+/**
+ * Walking draws on a timer at this rate: rAF would wake the page at the
+ * display's rate. The walk row's fps divides it (7.5 on 15), so every frame
+ * shows for the same number of ticks.
+ */
+export const WALK_TICK_FPS = 15;
+export const WALK_STEP_MS = 1000 / WALK_TICK_FPS;
 
 /** What the animation loop does next. */
 export function loopPlan(s: BirdState, now: number): LoopPlan {

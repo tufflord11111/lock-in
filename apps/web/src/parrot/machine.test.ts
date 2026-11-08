@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { DISPLAY_CELL, frameAt, rowOf } from "./animator";
 import {
-  BOB_PX,
   FALL_PX_PER_S,
-  LEAN_MAX_DEG,
-  LEAN_MIN_DEG,
   STILL_STEP_MS,
   WALK_PX_PER_S,
-  stepMs,
-  walkPose,
+  WALK_STEP_MS,
+  WALK_TICK_FPS,
+  walkDistance,
   walkSpeed,
+  walkStride,
   frameIndex,
   holdsOneFrame,
   initialState,
@@ -235,7 +234,8 @@ describe("what the loop needs", () => {
 
   it("moving modes follow the row's own fps", () => {
     const s = { ...start(), mode: "walk", fromX: 0, targetX: 900, enteredAt: T0 } as BirdState;
-    expect(frameIndex(s, T0 + 300, byRow)).toBe(3);
+    const walk = rowOf("walk");
+    expect(frameIndex(s, T0 + 3 * (1000 / walk.fps) + 1, byRow)).toBe(3 % walk.frames);
   });
 
   it("hiding changes nothing but the flag", () => {
@@ -344,67 +344,42 @@ describe("a cell that isn't square", () => {
   });
 });
 
-describe("the walk, smoothed in code", () => {
+describe("the walk, locked to the art's frames", () => {
   const walk = rowOf("walk");
   const walking = (over: Partial<BirdState> = {}): BirdState =>
     ({ ...start({ x: 100 }), mode: "walk", fromX: 100, targetX: 900, facing: 1, enteredAt: T0, ...over }) as BirdState;
+  const frameMs = 1000 / walk.fps;
 
-  it("goes at the stride times the fps, so the planted foot keeps pace with the ground", () => {
-    expect(walk.stride).toBeGreaterThan(0);
+  it("plays at a rate that divides the 15 fps walk timer, so every frame shows for the same ticks", () => {
+    const ticksPerFrame = WALK_TICK_FPS / walk.fps;
+    expect(Number.isInteger(ticksPerFrame)).toBe(true);
+    // On the timer's own ticks the frame changes every ticksPerFrame ticks, never early or late.
+    const frames = Array.from({ length: 24 }, (_, k) => frameAt(walk, k * WALK_STEP_MS + 0.5));
+    frames.forEach((f, k) => expect(f).toBe(Math.floor(k / ticksPerFrame) % walk.frames));
+  });
+
+  it("goes at the stride times the fps", () => {
+    expect(walkStride()).toBe(walk.stride);
     expect(walkSpeed()).toBe(walk.stride! * walk.fps);
-    expect(walkSpeed({ ...walk, stride: 3, fps: 8 })).toBe(24);
-    expect(() => walkSpeed({ ...walk, stride: undefined })).toThrow();
+    expect(walkSpeed({ ...walk, stride: 5, fps: 7.5 })).toBe(37.5);
+    expect(() => walkStride({ ...walk, stride: undefined })).toThrow();
   });
 
-  it("travels exactly one stride per sprite frame, on the same clock, in sub-pixel steps", () => {
-    const frameMs = 1000 / walk.fps;
-    for (let n = 1; n <= 6; n++) {
-      const at = T0 + n * frameMs;
-      expect(frameAt(walk, at - T0)).toBe(n % walk.frames);
-      expect(tick(walking(), at).x).toBeCloseTo(100 + n * walk.stride!, 9);
+  it("moves one stride when the frame changes and not in between, so the planted foot stays put", () => {
+    for (let n = 0; n <= 6; n++) {
+      const frameStart = T0 + n * frameMs;
+      expect(frameAt(walk, frameStart - T0 + 1)).toBe(n % walk.frames);
+      // The whole frame, from its first ms to its last, at the same x.
+      expect(tick(walking(), frameStart + 1).x).toBe(100 + n * walk.stride!);
+      expect(tick(walking(), frameStart + frameMs - 1).x).toBe(100 + n * walk.stride!);
     }
-    // Between frames on the 15 fps timer it is wherever the clock puts it, not rounded.
-    const between = tick(walking(), T0 + 1000 / 15).x - 100;
-    expect(between).toBeCloseTo((walkSpeed() * (1000 / 15)) / 1000, 9);
-    expect(Number.isInteger(between)).toBe(false);
+    expect(walkDistance(-50)).toBe(0);
   });
 
-  it("bobs up to BOB_PX and back each step, eased at both ends", () => {
-    const step = stepMs();
-    expect(step).toBe((walk.frames * 1000) / walk.fps / 2);
-    const at = (f: number) => walkPose(walking(), T0 + f * step);
-    expect(at(0).bob).toBeCloseTo(0, 9);
-    expect(at(0.5).bob).toBeCloseTo(BOB_PX, 9);
-    expect(at(1).bob).toBeCloseTo(0, 9);
-    expect(at(0.25).bob).toBeCloseTo(at(0.75).bob, 9);
-    // Eased: it barely moves near the ends of a step and fastest in the middle.
-    expect(at(0.05).bob).toBeLessThan(0.1);
-    expect(at(0.3).bob - at(0.25).bob).toBeGreaterThan(at(0.05).bob - at(0).bob);
-    for (let f = 0; f <= 1; f += 0.05) {
-      expect(at(f).bob).toBeGreaterThanOrEqual(0);
-      expect(at(f).bob).toBeLessThanOrEqual(BOB_PX + 1e-9);
-    }
-    expect(BOB_PX).toBeGreaterThanOrEqual(2);
-    expect(BOB_PX).toBeLessThanOrEqual(3);
-  });
-
-  it("leans 1 to 2 degrees toward where it is going", () => {
-    const step = stepMs();
-    for (let f = 0; f <= 1; f += 0.1) {
-      const right = walkPose(walking(), T0 + f * step).lean;
-      const left = walkPose(walking({ facing: -1 }), T0 + f * step).lean;
-      expect(right).toBeGreaterThanOrEqual(LEAN_MIN_DEG - 1e-9);
-      expect(right).toBeLessThanOrEqual(LEAN_MAX_DEG + 1e-9);
-      expect(left).toBeCloseTo(-right, 9);
-    }
-    expect([LEAN_MIN_DEG, LEAN_MAX_DEG]).toEqual([1, 2]);
-  });
-
-  it("does nothing outside a walk, under reduced motion, or asleep, and asleep still asks for no redraw", () => {
-    expect(walkPose(walking({ reducedMotion: true }), T0 + 100)).toEqual({ bob: 0, lean: 0 });
-    expect(walkPose(start(), T0 + 100)).toEqual({ bob: 0, lean: 0 });
-    const asleep = initialState(T0, WIDTH, false, true, 0);
-    expect(walkPose(asleep, T0 + 100)).toEqual({ bob: 0, lean: 0 });
-    expect(loopPlan(asleep, T0 + 100).kind).toBe("stop");
+  it("still stops exactly at its target", () => {
+    const s = walking({ targetX: 100 + 2.5 * walk.stride! });
+    const done = tick(s, T0 + 3 * frameMs);
+    expect(done.mode).toBe("idle");
+    expect(done.x).toBe(100 + 2.5 * walk.stride!);
   });
 });

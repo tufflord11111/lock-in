@@ -12,11 +12,11 @@
  * overlay decodes only the rows it shows. Any branch@*.png in <dir> is copied
  * as a static prop, listed under "props" in the manifest; nothing draws it yet.
  *
- * The walk row's stride (planted-foot travel per frame, CSS px at 1x) sets the
- * walking speed. It is kept from the current manifest unless --walk-stride=<px>
- * is given. When <dir>/../picks.json has the art pipeline's measured stride, it
- * is printed: a measured stride under 1 px per frame means the frames walk in
- * place, and using it would stop the bird, so it is never applied by itself.
+ * The walk row plays at WALK_FPS, whatever its frameTag says, so it divides
+ * the overlay's 15 fps walk timer. Its stride (how far the sprite moves per
+ * frame, CSS px) comes from meta.walkSpeed.pxPerFrame divided by each sheet's
+ * scale, which must agree across the three; --walk-stride=<px> overrides it,
+ * and without either the current manifest's stride is kept.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -26,6 +26,7 @@ const WEB = "apps/web";
 const PUBLIC = join(WEB, "public");
 const MANIFEST = join(WEB, "src/parrot/sprites.manifest.json");
 const ROW_FILES_OVER_BYTES = 16 * 1024 * 1024;
+const WALK_FPS = 7.5;
 const SCALES = [
   { name: "1x", maxDpr: 1.25 },
   { name: "1.5x", maxDpr: 1.75 },
@@ -42,18 +43,16 @@ if (!dir) {
 const current = JSON.parse(readFileSync(MANIFEST, "utf8"));
 const fromMarks = new Map(current.rows.map((r) => [r.state, r.from]));
 const keptStride = current.rows.find((r) => r.state === "walk")?.stride;
-const walkStride = strideArg ? Number(strideArg.split("=")[1]) : keptStride;
-if (!(walkStride > 0)) throw new Error("No walk stride: pass --walk-stride=<px per frame at 1x>");
-const picks = join(dir, "..", "picks.json");
-if (existsSync(picks)) {
-  const measured = JSON.parse(readFileSync(picks, "utf8")).walk?.built?.stride_px_1x;
-  if (measured) {
-    const mean = measured.reduce((n, v) => n + Math.abs(v ?? 0), 0) / measured.length;
-    console.log(`walk stride measured by the art pipeline: ${JSON.stringify(measured)} px per frame (mean |step| ${mean.toFixed(2)})`);
-    if (mean < 1) console.log("  under 1 px per frame: these frames walk in place, so it is not used");
-  }
-}
-console.log(`walk stride used: ${walkStride} px per frame at 1x`);
+// The art's own stride, CSS px per frame, from every scale; they must agree.
+const artStrides = SCALES.map(({ name }) => {
+  const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta;
+  return meta.walkSpeed ? meta.walkSpeed.pxPerFrame / meta.scale : null;
+});
+if (artStrides.some((s) => s !== artStrides[0])) throw new Error(`walkSpeed.pxPerFrame disagrees across scales: ${artStrides}`);
+const walkStride = strideArg ? Number(strideArg.split("=")[1]) : (artStrides[0] ?? keptStride);
+if (!(walkStride > 0)) throw new Error("No walk stride: the art has no meta.walkSpeed; pass --walk-stride=<px per frame>");
+console.log(`walk: ${walkStride} px per frame at ${WALK_FPS} fps = ${walkStride * WALK_FPS} px/s` +
+  (strideArg ? " (--walk-stride)" : artStrides[0] !== null ? " (meta.walkSpeed)" : " (kept)"));
 
 let rows = null;
 let baseline = null;
@@ -65,7 +64,7 @@ for (const { name, maxDpr } of SCALES) {
   const these = meta.frameTags.map((t) => ({
     state: t.name,
     frames: t.to - t.from + 1,
-    fps: t.fps,
+    fps: t.name === "walk" ? WALK_FPS : t.fps,
     loop: t.loop,
     ...(fromMarks.get(t.name) ? { from: fromMarks.get(t.name) } : {}),
     ...(t.name === "walk" ? { stride: walkStride } : {}),
