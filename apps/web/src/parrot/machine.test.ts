@@ -506,9 +506,9 @@ describe("starting and stopping a walk", () => {
       expect(tick(s, s.stepAt + 1).x).toBe(from);
       expect(tick(s, s.stepAt + frameMs - 1).x).toBe(from);
       expect(frameIndex(s, s.stepAt + frameMs - 1, byRow)).toBe(0);
-      // Then frame 1, one stride on.
-      expect(frameIndex(s, s.stepAt + frameMs, byRow)).toBe(1);
-      expect(tick(s, s.stepAt + frameMs).x).toBe(from + s.facing * walkStride());
+      // Then frame 1, one stride on. (1 ms past each boundary: k x 133.33 ms is not exact in floats.)
+      expect(frameIndex(s, s.stepAt + frameMs + 1, byRow)).toBe(1);
+      expect(tick(s, s.stepAt + frameMs + 1).x).toBe(from + s.facing * walkStride());
     }
   });
 
@@ -525,7 +525,7 @@ describe("starting and stopping a walk", () => {
       // Still that contact frame, still walking, to the end of its frame-time.
       expect(tick(s, arrive + frameMs - 1).mode).toBe("walk");
       expect(frameIndex(s, arrive + frameMs - 1, byRow)).toBe(k % walk.frames);
-      const done = tick(s, arrive + frameMs);
+      const done = tick(s, arrive + frameMs + 1);
       expect(done.mode).toBe("idle");
       expect(done.x).toBe(s.targetX);
     }
