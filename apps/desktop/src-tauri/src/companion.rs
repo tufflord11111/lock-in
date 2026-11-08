@@ -200,6 +200,68 @@ fn cursor_hits(cursor: (f64, f64), boxes: &[Hitbox]) -> bool {
     })
 }
 
+/// While perched: a cursor in the fade zone (the bird and the branch, grown by 120 CSS px,
+/// sent by the page) fades both and makes the bird click-through, so whatever is under
+/// them at the screen's edge can be used. Back after the cursor has been out of the zone
+/// FADE_AWAY_MS. Resting still on the faded bird for FADE_HOLD_MS brings it back solid,
+/// to be picked up, until the cursor leaves the zone. Never during a drag. Decided on the
+/// hit-test's own polls, so no hooks.
+const FADE_AWAY_MS: u64 = 1_000;
+const FADE_HOLD_MS: u64 = 500;
+/// How far the cursor may wander between polls and still count as resting, physical px.
+const FADE_STILL_PX: f64 = 3.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Fade {
+    faded: bool,
+    /// Rested on the bird: solid and clickable until the cursor leaves the zone.
+    held: bool,
+    /// Since when the cursor has been out of the zone, faded.
+    away_since: Option<u64>,
+    /// Since when it has rested on the faded bird.
+    still_since: Option<u64>,
+    last: Option<(f64, f64)>,
+}
+
+fn inside(cursor: (f64, f64), b: &Hitbox) -> bool {
+    cursor.0 >= b.x && cursor.0 <= b.x + b.w && cursor.1 >= b.y && cursor.1 <= b.y + b.h
+}
+
+/// One poll's step. `zone` is None unless the bird is perched; `bird` is its box.
+fn step_fade(f: Fade, now_ms: u64, cursor: (f64, f64), zone: Option<Hitbox>, bird: Option<Hitbox>, dragging: bool) -> Fade {
+    let Some(zone) = zone.filter(|_| !dragging) else { return Fade::default() };
+    let near = inside(cursor, &zone);
+    let rested = f.last.is_some_and(|l| (l.0 - cursor.0).hypot(l.1 - cursor.1) <= FADE_STILL_PX);
+    let last = Some(cursor);
+    if f.held {
+        return if near { Fade { last, ..f } } else { Fade { last, ..Fade::default() } };
+    }
+    if !f.faded {
+        return if near { Fade { faded: true, last, ..Fade::default() } } else { Fade { last, ..Fade::default() } };
+    }
+    if !near {
+        let away_since = f.away_since.unwrap_or(now_ms);
+        if now_ms - away_since >= FADE_AWAY_MS {
+            return Fade { last, ..Fade::default() };
+        }
+        return Fade { away_since: Some(away_since), still_since: None, last, ..f };
+    }
+    let on_bird = bird.is_some_and(|b| cursor_hits(cursor, &[b]));
+    if on_bird && rested {
+        let still_since = f.still_since.unwrap_or(now_ms);
+        if now_ms - still_since >= FADE_HOLD_MS {
+            return Fade { held: true, last, ..Fade::default() };
+        }
+        return Fade { away_since: None, still_since: Some(still_since), last, ..f };
+    }
+    Fade { away_since: None, still_since: None, last, ..f }
+}
+
+/// The bird and the cards take the cursor where they are, unless faded; a drag always does.
+fn takes_cursor(cursor: (f64, f64), boxes: &[Hitbox], faded: bool, dragging: bool) -> bool {
+    dragging || (!faded && cursor_hits(cursor, boxes))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Fit {
     x: i32,
@@ -236,6 +298,8 @@ struct Shared {
     page_ready: bool,
     created_at: Option<Instant>,
     hitboxes: Vec<Hitbox>,
+    /// The page's fade zone while the bird is perched.
+    fade_zone: Option<Hitbox>,
     dragging: bool,
     world: World,
 }
@@ -537,6 +601,8 @@ fn run(app: AppHandle) {
     let mut clear_polls = 0u8;
     let mut next_poll = Instant::now();
     let mut fit: Option<Fit> = None;
+    let mut fade = Fade::default();
+    let started = Instant::now();
 
     loop {
         {
@@ -546,6 +612,7 @@ fn run(app: AppHandle) {
                 ignoring = true;
                 clear_polls = 0;
                 fit = None;
+                fade = Fade::default();
                 while !shared.active {
                     shared = state.wake.wait(shared).unwrap_or_else(|e| e.into_inner());
                 }
@@ -604,10 +671,17 @@ fn run(app: AppHandle) {
 
         if shown {
             if let (Ok(cursor), Some(f)) = (app.cursor_position(), fit) {
+                let at = (cursor.x - f.x as f64, cursor.y - f.y as f64);
                 let inside = {
                     let shared = state.shared.lock().unwrap_or_else(|e| e.into_inner());
-                    shared.dragging
-                        || cursor_hits((cursor.x - f.x as f64, cursor.y - f.y as f64), &shared.hitboxes)
+                    let now_ms = started.elapsed().as_millis() as u64;
+                    let next = step_fade(fade, now_ms, at, shared.fade_zone, shared.hitboxes.first().copied(), shared.dragging);
+                    let changed = next.faded != fade.faded;
+                    fade = next;
+                    if changed {
+                        let _ = app.emit_to(LABEL, "parrot-fade", fade.faded);
+                    }
+                    takes_cursor(at, &shared.hitboxes, fade.faded, shared.dragging)
                 };
                 if ignoring == inside {
                     let _ = window.set_ignore_cursor_events(!inside);
@@ -667,11 +741,13 @@ pub fn companion_ready(app: AppHandle, state: State<'_, CompanionState>) -> Resu
     Ok(())
 }
 
+/// The bird's box first, then any cards. `fade` is the fade zone, only while perched.
 #[tauri::command]
-pub fn companion_set_hitbox(boxes: Vec<Hitbox>, state: State<'_, CompanionState>) -> Result<(), String> {
+pub fn companion_set_hitbox(boxes: Vec<Hitbox>, fade: Option<Hitbox>, state: State<'_, CompanionState>) -> Result<(), String> {
     let mut shared = state.shared.lock().map_err(|e| e.to_string())?;
     shared.hitboxes = boxes;
     shared.hitboxes.truncate(MAX_HITBOXES);
+    shared.fade_zone = fade;
     Ok(())
 }
 
@@ -737,6 +813,88 @@ mod tests {
         assert!(!cursor_hits((91.0, 200.0), &[HITBOX]));
         assert!(!cursor_hits((150.0, 305.0), &[HITBOX]));
         assert!(!cursor_hits((150.0, 250.0), &[]));
+    }
+
+    const ZONE: Hitbox = Hitbox { x: 1000.0, y: 300.0, w: 500.0, h: 400.0 };
+    const BIRD_BOX: Hitbox = Hitbox { x: 1250.0, y: 450.0, w: 168.0, h: 152.0 };
+    const AT_NEAR: (f64, f64) = (1100.0, 350.0);
+    const AT_BIRD: (f64, f64) = (1300.0, 500.0);
+    const AT_FAR: (f64, f64) = (200.0, 200.0);
+
+    fn poll(f: Fade, t: u64, at: (f64, f64)) -> Fade {
+        step_fade(f, t, at, Some(ZONE), Some(BIRD_BOX), false)
+    }
+
+    #[test]
+    fn a_cursor_near_the_perched_bird_fades_it_at_once_and_makes_it_click_through() {
+        let f = poll(Fade::default(), 0, AT_FAR);
+        assert!(!f.faded);
+        let f = poll(f, 100, AT_NEAR);
+        assert!(f.faded);
+        // Faded, even the bird's own box lets the click through.
+        assert!(!takes_cursor(AT_BIRD, &[BIRD_BOX], f.faded, false));
+        assert!(takes_cursor(AT_BIRD, &[BIRD_BOX], false, false));
+    }
+
+    #[test]
+    fn it_comes_back_after_the_cursor_has_been_away_a_second() {
+        let mut f = poll(Fade::default(), 0, AT_NEAR);
+        f = poll(f, 100, AT_FAR);
+        for t in (200..1_100).step_by(100) {
+            f = poll(f, t, AT_FAR);
+            assert!(f.faded, "still faded at {t} ms");
+        }
+        f = poll(f, 1_100, AT_FAR);
+        assert!(!f.faded);
+    }
+
+    #[test]
+    fn coming_back_near_within_the_second_starts_the_wait_again() {
+        let mut f = poll(Fade::default(), 0, AT_NEAR);
+        f = poll(f, 100, AT_FAR);
+        f = poll(f, 900, AT_NEAR);
+        f = poll(f, 1_000, AT_FAR);
+        f = poll(f, 1_500, AT_FAR);
+        assert!(f.faded);
+        f = poll(f, 2_000, AT_FAR);
+        assert!(!f.faded);
+    }
+
+    #[test]
+    fn resting_on_the_faded_bird_half_a_second_brings_it_back_to_be_picked_up() {
+        let mut f = poll(Fade::default(), 0, AT_NEAR);
+        f = poll(f, 100, AT_BIRD);
+        // Resting from the poll at 200 ms, when it was where it had been at 100 ms.
+        for t in (200..700).step_by(100) {
+            f = poll(f, t, AT_BIRD);
+            assert!(f.faded, "still faded at {t} ms");
+        }
+        f = poll(f, 700, AT_BIRD);
+        assert!(!f.faded && f.held);
+        assert!(takes_cursor(AT_BIRD, &[BIRD_BOX], f.faded, false));
+        // Held while the cursor stays near; out of the zone it is ready to fade again.
+        f = poll(f, 800, AT_NEAR);
+        assert!(!f.faded && f.held);
+        f = poll(f, 900, AT_FAR);
+        assert!(!f.held);
+        assert!(poll(f, 1_000, AT_NEAR).faded);
+    }
+
+    #[test]
+    fn moving_over_the_bird_is_not_resting_on_it() {
+        let mut f = poll(Fade::default(), 0, AT_NEAR);
+        for (i, t) in (100..2_000).step_by(100).enumerate() {
+            f = poll(f, t, (AT_BIRD.0 + (i % 2) as f64 * 10.0, AT_BIRD.1));
+        }
+        assert!(f.faded && !f.held);
+    }
+
+    #[test]
+    fn no_fade_unless_perched_and_never_during_a_drag() {
+        let f = poll(Fade::default(), 0, AT_NEAR);
+        assert!(!step_fade(f, 100, AT_NEAR, None, Some(BIRD_BOX), false).faded);
+        assert!(!step_fade(f, 100, AT_NEAR, Some(ZONE), Some(BIRD_BOX), true).faded);
+        assert!(takes_cursor(AT_FAR, &[BIRD_BOX], true, true));
     }
 
     #[test]
