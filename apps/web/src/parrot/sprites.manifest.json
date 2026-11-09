@@ -27,10 +27,9 @@
     {"state":"yawn","frames":8,"fps":8,"loop":false,"from":"v0.2"},
     {"state":"droopy_idle","frames":6,"fps":4,"loop":true,"from":"v0.2"}
   ],
-  "props": [
-    {"name":"branch","scale":1,"file":"parrot/props/branch-1x.png","width":182,"height":118},
-    {"name":"branch","scale":1.5,"file":"parrot/props/branch-1.5x.png","width":273,"height":177},
-    {"name":"branch","scale":2,"file":"parrot/props/branch-2x.png","width":364,"height":238}
-  ],
-  "branch": {"width":182,"height":118,"perchX":82,"perchY":60}
+  "branches": [
+    {"scale":1,"file":"parrot/props/branch-1x.png","width":182,"height":69,"perchX":87,"perchY":18,"feetX":90,"front":{"file":"parrot/props/branch-front-1x.png","x":67,"y":14,"w":40,"h":9}},
+    {"scale":1.5,"file":"parrot/props/branch-1.5x.png","width":273,"height":103,"perchX":130,"perchY":25,"feetX":138,"front":{"file":"parrot/props/branch-front-1.5x.png","x":100,"y":20,"w":60,"h":9}},
+    {"scale":2,"file":"parrot/props/branch-2x.png","width":364,"height":138,"perchX":173,"perchY":35,"feetX":182,"front":{"file":"parrot/props/branch-front-2x.png","x":133,"y":28,"w":80,"h":11}}
+  ]
 }
