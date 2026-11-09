@@ -47,8 +47,12 @@ import {
   type BirdEvent,
   type BirdState,
   ARC_PEAK_PX,
-  BRANCH_CHANCE,
-  BRANCH_SIT_MIN_MS,
+  BRANCH_FIDGET_MAX_MS,
+  BRANCH_FIDGET_MIN_MS,
+  BRANCH_GAP_MAX_MS,
+  BRANCH_GAP_MIN_MS,
+  BRANCH_STAY_MAX_MS,
+  BRANCH_STAY_MIN_MS,
   FLY_PX_PER_S,
   LEAVE_MAX_MS,
   LEAVE_MIN_MS,
@@ -84,6 +88,7 @@ const WIDTH = 1000;
 const T0 = 1_000_000;
 const start = (over: Partial<BirdState> = {}): BirdState => ({
   ...initialState(T0, WIDTH, false, false, 0),
+  branchDueAt: Infinity,
   ...over,
 });
 const go = (s: BirdState, e: BirdEvent, now = T0, rand = 0.5) => reduce(s, e, now, rand);
@@ -390,7 +395,7 @@ describe("what the loop plans", () => {
 
 describe("a cell that isn't square", () => {
   const WIDE = { width: 128, height: 80 };
-  const wide = (over: Partial<BirdState> = {}): BirdState => ({ ...initialState(T0, WIDTH, false, false, 0, WIDE), ...over });
+  const wide = (over: Partial<BirdState> = {}): BirdState => ({ ...initialState(T0, WIDTH, false, false, 0, WIDE), branchDueAt: Infinity, ...over });
 
   it("rests, walks and stops by the cell's width, never its height", () => {
     expect(maxX(WIDTH, WIDE)).toBe(WIDTH - 128);
@@ -625,6 +630,11 @@ function simulate(hours: number, seed: number, over: Partial<BirdState> = {}, wi
   const time: Partial<Record<Mode, number>> = {};
   const walks: number[] = [];
   const rests: { length: number; fidgets: Mode[]; branch: boolean }[] = [];
+  /** Each visit: when it landed on the branch and when it left. */
+  const visits: { landed: number; left: number }[] = [];
+  let onBranchSince: number | null = null;
+  let branchTime = 0;
+  let flightTime = 0;
   let branch = false;
   let flights = 0;
   let walkStart = 0;
@@ -648,6 +658,13 @@ function simulate(hours: number, seed: number, over: Partial<BirdState> = {}, wi
       branch = false;
     }
     if (s.onBranch) branch = true;
+    if (s.onBranch) branchTime += STEP;
+    if (s.mode === "flight") flightTime += STEP;
+    if (s.onBranch && onBranchSince === null) onBranchSince = t;
+    if (!s.onBranch && onBranchSince !== null) {
+      visits.push({ landed: onBranchSince, left: t });
+      onBranchSince = null;
+    }
     if (s.mode === "flight" && prev !== "flight") flights++;
     if (s.mode !== prev && ["peck", "preen", "mutter"].includes(s.mode)) fidgets.push(s.mode);
     if (s.lift === 0 && s.mode !== "flight") {
@@ -657,11 +674,13 @@ function simulate(hours: number, seed: number, over: Partial<BirdState> = {}, wi
     prev = s.mode;
   }
   const total = Object.values(time).reduce((a, b) => a + (b ?? 0), 0);
-  return { time, total, walks, rests: rests.slice(1), minX, maxX: maxXs, end: s, flights };
+  // On the ground: everything but the branch and the air.
+  const ground = total - branchTime - flightTime;
+  return { time, total, ground, walks, rests: rests.slice(1), visits, minX, maxX: maxXs, end: s, flights, hours };
 }
 
-describe("the awake rhythm: short walks, longer rests", () => {
-  const runs = [1, 7, 42].map((seed) => simulate(2, seed));
+describe("the awake rhythm: short walks, longer rests, the branch now and then", () => {
+  const runs = [1, 7, 42].map((seed) => simulate(3, seed));
 
   it("walks for 1 to 4 s at a time, turn and held frames included", () => {
     for (const { walks } of runs) {
@@ -674,28 +693,43 @@ describe("the awake rhythm: short walks, longer rests", () => {
     }
   });
 
-  it("rests 6 to 20 s between walks; a rest on the branch has its flights in it", () => {
+  it("rests 6 to 20 s between walks on the ground", () => {
     for (const { rests } of runs) {
       for (const r of rests.filter((r) => !r.branch)) {
         expect(r.length).toBeGreaterThanOrEqual(REST_MIN_MS - 50);
         expect(r.length).toBeLessThanOrEqual(REST_MAX_MS + 50);
       }
-      // The flight down is to a random spot, so it may run a little longer than the one up.
-      for (const r of rests.filter((r) => r.branch)) {
-        expect(r.length).toBeGreaterThanOrEqual(REST_MIN_MS);
-        expect(r.length).toBeLessThanOrEqual(REST_MAX_MS + 4_000);
+    }
+  });
+
+  it("flies to the branch at most 6 times an hour over 3 hours: one visit, up and back, per 10 to 15 minutes at most", () => {
+    for (const { flights, visits, hours } of runs) {
+      expect(visits.length / hours).toBeLessThanOrEqual(6);
+      // Each visit is two flights, up and down, give or take one in the air when the run ends.
+      expect(flights).toBeLessThanOrEqual(2 * visits.length + 1);
+      expect(flights / hours).toBeLessThanOrEqual(12);
+      // It does go: at least one visit an hour.
+      expect(visits.length).toBeGreaterThanOrEqual(hours);
+    }
+  });
+
+  it("stays on the branch 2 to 5 minutes each visit", () => {
+    for (const { visits } of runs) {
+      for (const v of visits) {
+        expect(v.left - v.landed).toBeGreaterThanOrEqual(BRANCH_STAY_MIN_MS - 50);
+        expect(v.left - v.landed).toBeLessThanOrEqual(BRANCH_STAY_MAX_MS + 50);
       }
     }
   });
 
-  it("spends about a quarter of its rests on the branch, flying up and back down", () => {
-    for (const { rests, flights } of runs) {
-      const share = rests.filter((r) => r.branch).length / rests.length;
-      expect(share).toBeGreaterThan(BRANCH_CHANCE - 0.06);
-      expect(share).toBeLessThan(BRANCH_CHANCE + 0.06);
-      // Up and down for each, give or take the one in the air when the run ends.
-      const onBranch = rests.filter((r) => r.branch).length;
-      expect(Math.abs(flights - 2 * onBranch)).toBeLessThanOrEqual(4);
+  it("leaves 10 to 15 minutes between leaving the branch and the next visit, plus the walk it finishes first", () => {
+    for (const { visits } of runs) {
+      for (let i = 1; i < visits.length; i++) {
+        const gap = visits[i].landed - visits[i - 1].left;
+        expect(gap).toBeGreaterThanOrEqual(BRANCH_GAP_MIN_MS);
+        // The gap, then the walk and the rest it is in the middle of, then the flight up.
+        expect(gap).toBeLessThanOrEqual(BRANCH_GAP_MAX_MS + REST_MAX_MS + WALK_MAX_MS + 10_000);
+      }
     }
   });
 
@@ -712,20 +746,21 @@ describe("the awake rhythm: short walks, longer rests", () => {
     expect(seen.has("idle")).toBe(true);
   });
 
-  it("walks about a quarter of its awake time", () => {
-    for (const { time, total } of runs) {
-      const walking = (time.walk ?? 0) / total;
+  it("walks about a quarter of its time on the ground", () => {
+    for (const { time, ground } of runs) {
+      const walking = (time.walk ?? 0) / ground;
       expect(walking).toBeGreaterThan(0.22);
       expect(walking).toBeLessThan(0.28);
     }
   });
 
-  it("pecks, preens and mutters now and then while it rests, never mid-walk", () => {
+  it("pecks, preens and mutters now and then while it rests on the ground, never mid-walk", () => {
     for (const { rests, time, total } of runs) {
-      const all = rests.flatMap((r) => r.fidgets);
+      const ground = rests.filter((r) => !r.branch);
+      const all = ground.flatMap((r) => r.fidgets);
       for (const mode of ["peck", "preen", "mutter"] as const) expect(all).toContain(mode);
       // Occasional: most rests have one or two, none is busy, and fidgets are a small share of the time.
-      const counts = rests.map((r) => r.fidgets.length);
+      const counts = ground.map((r) => r.fidgets.length);
       expect(Math.max(...counts)).toBeLessThanOrEqual(7);
       expect(counts.reduce((a, b) => a + b, 0) / counts.length).toBeLessThan(2.5);
       const fidgeting = ((time.peck ?? 0) + (time.preen ?? 0) + (time.mutter ?? 0)) / total;
@@ -975,33 +1010,58 @@ describe("when it flies", () => {
     expect(again.flight).toEqual(flying.flight);
   });
 
-  it("on a branch rest outside a session it sits for its rest, then flies down", () => {
-    const up = beginFlight(start(), T0, perchFor(start()), true);
-    const sitting = landed(up);
-    expect(sitting.mode).toBe("idle");
-    expect(sitting.onBranch).toBe(true);
-    const flown = up.flight!.endAt - T0;
-    expect(sitting.restUntil - up.flight!.endAt).toBeGreaterThanOrEqual(BRANCH_SIT_MIN_MS);
-    expect(sitting.restUntil - up.flight!.endAt).toBeLessThanOrEqual(Math.max(BRANCH_SIT_MIN_MS, REST_MAX_MS - 2 * flown));
+  it("on a visit it stays 2 to 5 minutes, preening only every 8 to 20 s, then flies down", () => {
+    expect([BRANCH_STAY_MIN_MS, BRANCH_STAY_MAX_MS]).toEqual([120_000, 300_000]);
+    expect([BRANCH_FIDGET_MIN_MS, BRANCH_FIDGET_MAX_MS]).toEqual([8_000, 20_000]);
+    for (const rand of [0.01, 0.3, 0.6, 0.99]) {
+      const up = beginFlight(start(), T0, perchFor(start()), true);
+      const sitting = landed(up, rand);
+      expect(sitting.mode).toBe("idle");
+      expect(sitting.onBranch).toBe(true);
+      const stay = sitting.restUntil - up.flight!.endAt;
+      expect(stay).toBeGreaterThanOrEqual(BRANCH_STAY_MIN_MS);
+      expect(stay).toBeLessThanOrEqual(BRANCH_STAY_MAX_MS);
+      const firstPreen = sitting.nextAt - up.flight!.endAt;
+      expect(firstPreen).toBeGreaterThanOrEqual(BRANCH_FIDGET_MIN_MS);
+      expect(firstPreen).toBeLessThanOrEqual(BRANCH_FIDGET_MAX_MS);
+    }
   });
 
-  it("goes to the branch from about a quarter of its walks", () => {
-    let up = 0;
-    const N = 1000;
-    for (let i = 0; i < N; i++) {
-      const rand = (i + 0.5) / N;
-      const walking = beginWalk(start({ x: 300 }), T0, 1, 2000)!;
-      const after = tick(walking, T0 + 60_000, rand);
-      if (after.mode === "flight") up++;
+  it("a bubble on the branch doesn't make the visit longer", () => {
+    const sitting = landed(beginFlight(start(), T0, perchFor(start()), true));
+    const talked = go(go(sitting, { type: "talkStart" }, T0 + 30_000), { type: "talkEnd" }, T0 + 33_000, 0.9);
+    expect(talked.onBranch).toBe(true);
+    expect(talked.restUntil).toBe(sitting.restUntil);
+  });
+
+  it("goes up at the end of the first walk once a visit is due, and not before", () => {
+    const walking = (dueAt: number) => beginWalk(start({ x: 300, branchDueAt: dueAt }), T0, 1, 2000)!;
+    for (const rand of [0.05, 0.5, 0.95]) {
+      expect(tick(walking(T0 + 3_600_000), T0 + 60_000, rand).mode).not.toBe("flight");
+      const up = tick(walking(T0), T0 + 60_000, rand);
+      expect(up.mode).toBe("flight");
+      expect(up.flight!.toBranch).toBe(true);
     }
-    expect(up / N).toBeGreaterThan(BRANCH_CHANCE - 0.05);
-    expect(up / N).toBeLessThan(BRANCH_CHANCE + 0.05);
+  });
+
+  it("schedules the next visit 10 to 15 minutes after it leaves the branch, and from the start", () => {
+    expect([BRANCH_GAP_MIN_MS, BRANCH_GAP_MAX_MS]).toEqual([600_000, 900_000]);
+    const boot = initialState(T0, WIDTH, false, false, 0.4);
+    expect(boot.branchDueAt - T0).toBeGreaterThanOrEqual(BRANCH_GAP_MIN_MS);
+    expect(boot.branchDueAt - T0).toBeLessThanOrEqual(BRANCH_GAP_MAX_MS);
+    const sitting = landed(beginFlight(start(), T0, perchFor(start()), true));
+    const down = tick({ ...sitting, nextAt: sitting.restUntil }, sitting.restUntil);
+    expect(down.mode).toBe("flight");
+    expect(down.branchDueAt - sitting.restUntil).toBeGreaterThanOrEqual(BRANCH_GAP_MIN_MS);
+    expect(down.branchDueAt - sitting.restUntil).toBeLessThanOrEqual(BRANCH_GAP_MAX_MS);
+    // Picked up off the branch counts as leaving it too.
+    const lifted = go(sitting, { type: "dragStart" }, T0 + 50_000);
+    expect(lifted.branchDueAt - (T0 + 50_000)).toBeGreaterThanOrEqual(BRANCH_GAP_MIN_MS);
   });
 
   describe("never", () => {
-    // A rand that picks the branch when flying is allowed.
-    const UP = Array.from({ length: 1000 }, (_, i) => (i + 0.5) / 1000).find((r) => mix(r, 7) < BRANCH_CHANCE)!;
-    const walkDone = (over: Partial<BirdState>) => tick(beginWalk(start({ x: 300, ...over }), T0, 1, 2000)!, T0 + 60_000, UP);
+    // A visit is due, so a walk's end would fly up if it could.
+    const walkDone = (over: Partial<BirdState>) => tick(beginWalk(start({ x: 300, branchDueAt: T0, ...over }), T0, 1, 2000)!, T0 + 60_000, 0.5);
 
     it("checks: only with motion, shown, and nothing open", () => {
       expect(canFly(start())).toBe(true);
@@ -1205,7 +1265,7 @@ describe("the rows decoded ahead", () => {
   it("already holds every row the bird changes to, through hours of everything it does", () => {
     let r = 9;
     const rand = () => (r = (r * 16807) % 2147483647) / 2147483647;
-    let s = start({ height: 900 });
+    let s = start({ height: 900, branchDueAt: T0 });
     let changes = 0;
     let dropAt = Infinity;
     const misses = new Map<string, number>();
@@ -1232,7 +1292,7 @@ describe("the rows decoded ahead", () => {
         if (!ahead.includes(after)) misses.set(`${before}->${after}`, (misses.get(`${before}->${after}`) ?? 0) + 1);
       }
     }
-    expect(changes).toBeGreaterThan(1000);
+    expect(changes).toBeGreaterThan(500);
     expect([...misses]).toEqual([]);
   });
 });
@@ -1278,7 +1338,7 @@ describe("on the perch it faces into the screen", () => {
   it("never faces the edge on the perch, through hours of rests, fidgets, talk, sessions and blinks", () => {
     let r = 5;
     const rand = () => (r = (r * 16807) % 2147483647) / 2147483647;
-    let s = start({ height: 900 });
+    let s = start({ height: 900, branchDueAt: T0 });
     let perchedTicks = 0;
     for (let t = T0; t < T0 + 4 * 3_600_000; t += 50) {
       const roll = rand();

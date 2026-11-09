@@ -77,6 +77,8 @@ export type BirdState = {
   talking: boolean;
   /** A session ended with the bird on the branch: the next rest there is short. */
   leaveSoon: boolean;
+  /** Outside sessions, the next visit to the branch is due from here: BRANCH_GAP after it last left. */
+  branchDueAt: number;
   /** The bird's box in CSS px, from the manifest. */
   cell: Cell;
   /** Over a full-screen app: the window is hidden and nothing needs drawing. */
@@ -231,16 +233,25 @@ export const maxX = (width: number, cell: Cell = DISPLAY_CELL) => Math.max(0, wi
 /*
  * Flight: the takeoff row in place, the fly row along an arc that eases in and
  * out and rises ARC_PEAK_PX above the straight line at its middle, at about
- * FLY_PX_PER_S, then the land row in place. Outside a session BRANCH_CHANCE of
- * the rests are spent on the branch; after a session the bird stays there
- * LEAVE_MIN_MS to LEAVE_MAX_MS once awake, then flies down.
+ * FLY_PX_PER_S, then the land row in place.
+ *
+ * Outside a session the branch is a now-and-then thing: a visit comes
+ * BRANCH_GAP_MIN_MS to BRANCH_GAP_MAX_MS after the bird last left it (or
+ * started), at the end of the first walk after that, and lasts
+ * BRANCH_STAY_MIN_MS to BRANCH_STAY_MAX_MS, idling, preening every
+ * BRANCH_FIDGET_MIN_MS to BRANCH_FIDGET_MAX_MS, and blinking, before it flies
+ * down. After a session it stays LEAVE_MIN_MS to LEAVE_MAX_MS once awake.
  */
 export const FLY_PX_PER_S = 350;
 export const ARC_PEAK_PX = 80;
-export const BRANCH_CHANCE = 0.25;
+export const BRANCH_GAP_MIN_MS = 10 * 60_000;
+export const BRANCH_GAP_MAX_MS = 15 * 60_000;
+export const BRANCH_STAY_MIN_MS = 2 * 60_000;
+export const BRANCH_STAY_MAX_MS = 5 * 60_000;
+export const BRANCH_FIDGET_MIN_MS = 8_000;
+export const BRANCH_FIDGET_MAX_MS = 20_000;
 export const LEAVE_MIN_MS = 2_000;
 export const LEAVE_MAX_MS = 5_000;
-export const BRANCH_SIT_MIN_MS = 4_000;
 /** Until the overlay says how tall it is: a typical work area. */
 export const DEFAULT_HEIGHT = 900;
 
@@ -306,7 +317,7 @@ export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boole
 /** Dropped by the branch: onto the perch at once, then the land row. Under reduced motion, just there. */
 function dropOntoPerch(s: BirdState, now: number, rand: number): BirdState {
   const spot = perchFor(s);
-  if (s.reducedMotion) return settle(teleport(s, spot, true), now, rand);
+  if (s.reducedMotion) return settle({ ...teleport(s, spot, true), restUntil: 0 }, now, rand);
   return {
     ...faceTo(teleport(s, spot, false), INTO_SCREEN, now),
     mode: "flight",
@@ -329,15 +340,18 @@ const teleport = (s: BirdState, to: Spot, onBranch: boolean): BirdState => ({
 /** A random spot on the bottom edge to fly down to. */
 const groundSpot = (s: BirdState, u: number): Spot => ({ x: Math.round(u * maxX(s.width, s.cell)), lift: 0 });
 
+/** Off the branch now: the next visit is a gap away. */
+const leftBranch = (s: BirdState, now: number, rand: number): BirdState => ({ ...s, branchDueAt: now + branchGap(mix(rand, 10)) });
+
 /** The rest on the branch is over: fly down, or where it may not fly, be there. */
 function leaveBranch(s: BirdState, now: number, rand: number): BirdState {
   if (s.reducedMotion || s.hidden) {
     const to = s.reducedMotion ? { x: restingX(s.width, s.cell), lift: 0 } : groundSpot(s, mix(rand, 9));
-    return enterRest(teleport(s, to, false), now, rand);
+    return enterRest(leftBranch(teleport(s, to, false), now, rand), now, rand);
   }
   // A bubble or the menu is open: ask again shortly.
   if (s.talking) return { ...s, nextAt: now + STILL_STEP_MS };
-  return beginFlight(s, now, groundSpot(s, mix(rand, 9)), false);
+  return beginFlight(leftBranch(s, now, rand), now, groundSpot(s, mix(rand, 9)), false);
 }
 
 /** The bird is wherever the flight was going, its flight over. */
@@ -346,7 +360,8 @@ function arrive(s: BirdState, now: number, rand: number): BirdState {
   const landed = { ...teleport(s, f.to, f.toBranch), enteredAt: now };
   // On the branch it rests, or sleeps in a session. Back on the ground the rest is over: walk.
   if (landed.sessionActive) return settle(landed, now, rand);
-  if (f.toBranch) return enterRest(landed, now, rand, now - s.enteredAt);
+  // A visit starts: its stay is counted from now.
+  if (f.toBranch) return enterRest({ ...landed, restUntil: 0 }, now, rand);
   return startWalk(landed, now, rand);
 }
 export const restingX = (width: number, cell: Cell = DISPLAY_CELL) => Math.round(maxX(width, cell) * 0.85);
@@ -362,6 +377,11 @@ export function mix(rand: number, salt: number): number {
 export const walkLength = (u: number) => between(u ** WALK_SKEW, WALK_MIN_MS, WALK_MAX_MS);
 export const restLength = (u: number) => between(u ** REST_SKEW, REST_MIN_MS, REST_MAX_MS);
 export const fidgetGap = (u: number) => between(u, FIDGET_MIN_MS, FIDGET_MAX_MS);
+export const branchGap = (u: number) => between(u, BRANCH_GAP_MIN_MS, BRANCH_GAP_MAX_MS);
+export const branchStay = (u: number) => between(u, BRANCH_STAY_MIN_MS, BRANCH_STAY_MAX_MS);
+export const branchFidgetGap = (u: number) => between(u, BRANCH_FIDGET_MIN_MS, BRANCH_FIDGET_MAX_MS);
+/** How long until the next fidget, where it is. */
+const nextFidget = (s: BirdState, u: number) => (s.onBranch ? branchFidgetGap(u) : fidgetGap(u));
 
 export function pickFidget(u: number): Mode {
   let acc = 0;
@@ -408,6 +428,7 @@ export function initialState(
     flight: null,
     talking: false,
     leaveSoon: false,
+    branchDueAt: now + branchGap(mix(rand, 10)),
     cell,
     hidden: false,
     reducedMotion,
@@ -418,21 +439,23 @@ export function initialState(
 
 /**
  * A new rest between walks: idle, or now and then perched, for a rest length.
- * On the branch always idle, for the rest less the flights there and back
- * (`flownMs` is the flight up), and at least BRANCH_SIT_MIN_MS; just after a
- * session, only LEAVE_MIN_MS to LEAVE_MAX_MS.
+ * On the branch always idle, until the visit's stay is over (a talk there
+ * doesn't restart it); a visit that starts now stays BRANCH_STAY_MIN_MS to
+ * BRANCH_STAY_MAX_MS; just after a session, only LEAVE_MIN_MS to LEAVE_MAX_MS.
  */
-export function enterRest(s: BirdState, now: number, rand: number, flownMs = 0): BirdState {
+export function enterRest(s: BirdState, now: number, rand: number): BirdState {
   if (s.onBranch) {
-    // The flights up and down come out of the rest, so the rhythm keeps its quarter of walking.
-    const sit = Math.max(BRANCH_SIT_MIN_MS, restLength(mix(rand, 4)) - 2 * flownMs);
-    const until = now + (s.leaveSoon ? between(mix(rand, 8), LEAVE_MIN_MS, LEAVE_MAX_MS) : sit);
+    const until = s.leaveSoon
+      ? now + between(mix(rand, 8), LEAVE_MIN_MS, LEAVE_MAX_MS)
+      : s.restUntil > now
+        ? s.restUntil
+        : now + branchStay(mix(rand, 4));
     return {
       ...s,
       mode: "idle",
       enteredAt: now,
       restUntil: until,
-      nextAt: s.reducedMotion ? until : Math.min(until, now + fidgetGap(mix(rand, 5))),
+      nextAt: s.reducedMotion ? until : Math.min(until, now + branchFidgetGap(mix(rand, 5))),
       leaveSoon: false,
       happyAfterWake: false,
     };
@@ -452,12 +475,12 @@ export function enterRest(s: BirdState, now: number, rand: number, flownMs = 0):
 /** After a fidget: back to idle for what is left of the same rest. */
 function backToRest(s: BirdState, now: number, rand: number): BirdState {
   if (s.sessionActive) return { ...s, mode: "sleep", enteredAt: now, happyAfterWake: false };
-  return { ...s, mode: "idle", enteredAt: now, nextAt: Math.min(s.restUntil, now + fidgetGap(mix(rand, 5))) };
+  return { ...s, mode: "idle", enteredAt: now, nextAt: Math.min(s.restUntil, now + nextFidget(s, mix(rand, 5))) };
 }
 
-/** After a walk: a quarter of the rests are on the branch, flown up to. */
+/** After a walk: up to the branch if a visit is due and it may fly, else a rest on the ground. */
 function restAfterWalk(s: BirdState, now: number, rand: number): BirdState {
-  if (!s.sessionActive && canFly(s) && mix(rand, 7) < BRANCH_CHANCE) return beginFlight(s, now, perchFor(s), true);
+  if (!s.sessionActive && canFly(s) && now >= s.branchDueAt) return beginFlight(s, now, perchFor(s), true);
   return enterRest(s, now, rand);
 }
 
@@ -633,9 +656,11 @@ function step(s: BirdState, event: BirdEvent, now: number, rand: number): BirdSt
       const quiet = { ...s, talking: false };
       return s.mode === "talk" ? settle(quiet, now, rand) : quiet;
     }
-    case "dragStart":
+    case "dragStart": {
       // fromX: where it was picked up, so a bird lifted off the perch, which overhangs the edge, doesn't jump.
-      return { ...s, mode: "drag", enteredAt: now, onBranch: false, flight: null, fromX: s.x };
+      const lifted = { ...s, mode: "drag" as const, enteredAt: now, onBranch: false, flight: null, fromX: s.x };
+      return s.onBranch ? leftBranch(lifted, now, rand) : lifted;
+    }
     case "dragMove":
       if (s.mode !== "drag") return s;
       return {
