@@ -23,13 +23,13 @@ import {
 import manifest from "./sprites.manifest.json";
 
 describe("the manifest", () => {
-  it("has the 17 rows of the art spec, in order, none longer than the spec's 96 frames allow", () => {
+  it("has the 18 rows of the rig spec, in order, none longer than the spec's 102 frames allow", () => {
     const SPEC: [string, number][] = [
       ["idle", 6], ["idle_blink", 3], ["idle_preen", 8], ["walk", 8], ["takeoff", 4], ["fly", 6], ["land", 4],
       ["perch", 4], ["sleep", 4], ["talk", 6], ["drag", 4], ["wake", 5], ["peck", 6], ["happy", 8], ["sad", 6],
-      ["yawn", 8], ["droopy_idle", 6],
+      ["yawn", 8], ["droopy_idle", 6], ["pet", 6],
     ];
-    expect(SPEC.reduce((n, [, f]) => n + f, 0)).toBe(96);
+    expect(SPEC.reduce((n, [, f]) => n + f, 0)).toBe(102);
     expect(ROWS.map((r) => r.state)).toEqual(SPEC.map(([state]) => state));
     // The art may cut a row short (the gen walk and idle have 4 frames), never make it longer,
     // except that takeoff may open and land close on a copy of idle frame 0 (parrot-art a42ccc2).
@@ -41,9 +41,9 @@ describe("the manifest", () => {
     });
   });
 
-  it("sizes every sheet as 12 columns by 17 rows of its cell, width and height apart", () => {
+  it("sizes every sheet as 12 columns by 18 rows of its cell, width and height apart", () => {
     expect(COLUMNS).toBe(12);
-    expect(ROWS.length).toBe(17);
+    expect(ROWS.length).toBe(18);
     for (const s of SCALES) expect(s.sheet).toEqual(sheetSize(s.cell));
   });
 
@@ -92,7 +92,7 @@ describe("frames", () => {
     const wide: Cell = { width: 128, height: 80 };
     expect(cellOffset("walk", 2, wide)).toEqual({ x: -256, y: -240 });
     expect(cellOffset("droopy_idle", 5, wide)).toEqual({ x: -640, y: -16 * 80 });
-    expect(sheetSize(wide)).toEqual({ width: 12 * 128, height: 17 * 80 });
+    expect(sheetSize(wide)).toEqual({ width: 12 * 128, height: 18 * 80 });
   });
 
   it("come from a whole sheet by column and row, or from a row file by column alone", () => {
@@ -109,7 +109,7 @@ describe("frames", () => {
     const rows: SheetScale = { ...whole, file: undefined, rowFiles: "parrot/parrot-2x/{state}.png" };
     expect([...scaleFiles(whole)]).toEqual([["parrot/parrot-2x.png", 2304 * 2720 * 4]]);
     const files = scaleFiles(rows);
-    expect(files.size).toBe(17);
+    expect(files.size).toBe(18);
     expect(files.get("parrot/parrot-2x/walk.png")).toBe(rowOf("walk").frames * 192 * 160 * 4);
   });
 
