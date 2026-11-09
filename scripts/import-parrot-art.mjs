@@ -37,9 +37,12 @@
  * meta.loops gives a row the frames it loops on while it is held (the pet row
  * loops 2 to 3 while the bird is being rubbed); it becomes that row's
  * "loopFrames". meta.head (the pet row's head centre and radius, per frame)
- * and meta.contact (every row's footprint per frame: the centre cx and width w
- * of the toes and belly bottom on the feet line, null where it is in the air)
- * go into each scale in its own px, like the eyes.
+ * goes into each scale in its own px, like the eyes. meta.contact (every
+ * row's footprint per frame: the centre cx and width w of the toes and belly
+ * bottom on the feet line, null where it is in the air) is taken from the 1x
+ * JSON only, so in CSS px, as the manifest's "contact": the shadow drawn from
+ * it is soft, and the larger sheets' measurements disagree in places (81dfb9e:
+ * 1.5x idle frame 0 is 43 px wide where 1x and 2x are 24).
  *
  * The delivered rows must start with the manifest's rows, in order: new rows
  * are added after them, never in between, so a row's place on the sheet keeps
@@ -94,6 +97,7 @@ let rows = null;
 let ink = null;
 let baseline = null;
 let lidColour = null;
+let contact = null;
 const scales = [];
 for (const { name, maxDpr } of SCALES) {
   const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta;
@@ -145,9 +149,8 @@ for (const { name, maxDpr } of SCALES) {
       head[row] = list.map((h) => (h ? { x: h.x, y: h.y, r: h.r } : null));
     }
   }
-  // The footprint, every row, for the contact shadow; null where the bird is in the air.
-  let contact = null;
-  if (meta.contact) {
+  // The footprint, every row, for the contact shadow; null where the bird is in the air. 1x only.
+  if (name === "1x" && meta.contact) {
     contact = {};
     for (const row of these) {
       const list = meta.contact[row.state];
@@ -161,7 +164,6 @@ for (const { name, maxDpr } of SCALES) {
   else scale.file = `parrot/parrot-${name}.png`;
   if (eyes) scale.eyes = eyes;
   if (head) scale.head = head;
-  if (contact) scale.contact = contact;
   scales.push(scale);
 
   const png = readFileSync(join(dir, `parrot@${name}.png`));
@@ -238,6 +240,7 @@ const manifest = {
   scales,
   rows,
   ...(branches.length ? { branches } : {}),
+  ...(contact ? { contact } : {}),
 };
 const line = (o) => JSON.stringify(o);
 const text = [
@@ -251,8 +254,9 @@ const text = [
   "  ],",
   '  "rows": [',
   ...manifest.rows.map((r, i) => `    ${line(r)}${i < manifest.rows.length - 1 ? "," : ""}`),
-  branches.length ? "  ]," : "  ]",
-  ...(branches.length ? ['  "branches": [', ...branches.map((b, i) => `    ${line(b)}${i < branches.length - 1 ? "," : ""}`), "  ]"] : []),
+  branches.length || contact ? "  ]," : "  ]",
+  ...(branches.length ? ['  "branches": [', ...branches.map((b, i) => `    ${line(b)}${i < branches.length - 1 ? "," : ""}`), contact ? "  ]," : "  ]"] : []),
+  ...(contact ? [`  "contact": ${line(contact)}`] : []),
   "}",
   "",
 ].join("\n");
