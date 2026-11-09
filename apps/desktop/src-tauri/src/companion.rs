@@ -258,6 +258,12 @@ fn step_fade(f: Fade, now_ms: u64, cursor: (f64, f64), zone: Option<Hitbox>, bir
 }
 
 /// The bird and the cards take the cursor where they are, unless faded; a drag always does.
+/// The bird goes click-through with a fade only when it is in it (perched). A fade of the
+/// branch alone, with the bird elsewhere, leaves the bird to be clicked as ever.
+fn fades_bird(faded: bool, fade_bird: bool) -> bool {
+    faded && fade_bird
+}
+
 fn takes_cursor(cursor: (f64, f64), boxes: &[Hitbox], faded: bool, dragging: bool) -> bool {
     dragging || (!faded && cursor_hits(cursor, boxes))
 }
@@ -300,6 +306,8 @@ struct Shared {
     hitboxes: Vec<Hitbox>,
     /// The page's fade zone while the bird is perched.
     fade_zone: Option<Hitbox>,
+    /// Whether the bird is in the fade (perched), and so goes click-through when it fades.
+    fade_bird: bool,
     dragging: bool,
     world: World,
 }
@@ -677,13 +685,15 @@ fn run(app: AppHandle) {
                 let inside = {
                     let shared = state.shared.lock().unwrap_or_else(|e| e.into_inner());
                     let now_ms = started.elapsed().as_millis() as u64;
-                    let next = step_fade(fade, now_ms, at, shared.fade_zone, shared.hitboxes.first().copied(), shared.dragging);
+                    // Resting on the bird to bring it back only means something when the bird is in the fade.
+                    let bird = shared.hitboxes.first().copied().filter(|_| shared.fade_bird);
+                    let next = step_fade(fade, now_ms, at, shared.fade_zone, bird, shared.dragging);
                     let changed = next.faded != fade.faded;
                     fade = next;
                     if changed {
                         let _ = app.emit_to(LABEL, "parrot-fade", fade.faded);
                     }
-                    takes_cursor(at, &shared.hitboxes, fade.faded, shared.dragging)
+                    takes_cursor(at, &shared.hitboxes, fades_bird(fade.faded, shared.fade_bird), shared.dragging)
                 };
                 if ignoring == inside {
                     let _ = window.set_ignore_cursor_events(!inside);
@@ -762,11 +772,18 @@ pub fn companion_ready(app: AppHandle, state: State<'_, CompanionState>) -> Resu
 
 /// The bird's box first, then any cards. `fade` is the fade zone, only while perched.
 #[tauri::command]
-pub fn companion_set_hitbox(boxes: Vec<Hitbox>, fade: Option<Hitbox>, state: State<'_, CompanionState>) -> Result<(), String> {
+pub fn companion_set_hitbox(
+    boxes: Vec<Hitbox>,
+    fade: Option<Hitbox>,
+    fade_bird: Option<bool>,
+    state: State<'_, CompanionState>,
+) -> Result<(), String> {
     let mut shared = state.shared.lock().map_err(|e| e.to_string())?;
     shared.hitboxes = boxes;
     shared.hitboxes.truncate(MAX_HITBOXES);
     shared.fade_zone = fade;
+    // An older page sends no word: then the zone was only ever the perched bird's.
+    shared.fade_bird = fade_bird.unwrap_or(true);
     Ok(())
 }
 
@@ -927,6 +944,22 @@ mod tests {
             f = poll(f, t, (AT_BIRD.0 + (i % 2) as f64 * 10.0, AT_BIRD.1));
         }
         assert!(f.faded && !f.held);
+    }
+
+    #[test]
+    fn a_fade_of_the_branch_alone_leaves_the_bird_clickable() {
+        // The branch is shown with the bird on its way up or just gone: a cursor near it fades
+        // the branch, and the bird, wherever it is, still takes the cursor on its own box.
+        let f = poll(Fade::default(), 0, AT_NEAR);
+        assert!(f.faded);
+        assert!(takes_cursor(AT_BIRD, &[BIRD_BOX], fades_bird(f.faded, false), false));
+        assert!(!takes_cursor(AT_BIRD, &[BIRD_BOX], fades_bird(f.faded, true), false));
+        // Not in the fade, it can't be brought back by resting on it either: there's nothing to bring back.
+        let mut g = step_fade(Fade::default(), 0, AT_NEAR, Some(ZONE), None, false);
+        for t in (100..2_000).step_by(100) {
+            g = step_fade(g, t, AT_BIRD, Some(ZONE), None, false);
+        }
+        assert!(g.faded && !g.held);
     }
 
     #[test]

@@ -6,7 +6,7 @@
  */
 import { DISPLAY_CELL, playedOnce, rowOf, type DisplayCell, type LoopPlan } from "./animator";
 import { birdBox } from "./layout";
-import { DROP_ON_PERCH_PX, INTO_SCREEN, boxGap, branchBox, perchSpot } from "./perch";
+import { BRANCH, DROP_ON_PERCH_PX, INTO_SCREEN, boxGap, branchBox, perchSpot, type Branch } from "./perch";
 
 type Cell = DisplayCell;
 
@@ -42,6 +42,8 @@ export type Flight = {
   landRowAt: number;
   endAt: number;
   toBranch: boolean;
+  /** It set off from the branch: its feet are on it until the takeoff row is done. */
+  fromBranch: boolean;
 };
 
 export type BirdState = {
@@ -71,6 +73,8 @@ export type BirdState = {
   height: number;
   /** On the branch at the right edge, rather than the bottom edge. */
   onBranch: boolean;
+  /** The branch as the overlay draws it, CSS px: where its perch is. */
+  branch: Branch;
   /** flight: where from, where to, and when each part of it happens. */
   flight: Flight | null;
   /** A bubble or the menu is open, whatever the mode. */
@@ -92,7 +96,7 @@ export type BirdState = {
 
 export type BirdEvent =
   | { type: "tick" }
-  | { type: "resize"; width: number; height?: number }
+  | { type: "resize"; width: number; height?: number; branch?: Branch }
   | { type: "session"; active: boolean }
   | { type: "stoodDown"; finished: boolean }
   | { type: "hidden"; hidden: boolean }
@@ -282,7 +286,8 @@ export function arcLength(from: Spot, to: Spot): number {
 export const flyMs = (from: Spot, to: Spot): number => (arcLength(from, to) / FLY_PX_PER_S) * 1000;
 
 /** Where the perch puts the bird in this window. */
-export const perchFor = (s: { width: number; height: number; cell: Cell }): Spot => perchSpot(s.width, s.height, s.cell);
+export const perchFor = (s: { width: number; height: number; cell: Cell; branch?: Branch }): Spot =>
+  perchSpot(s.width, s.height, s.cell, s.branch ?? BRANCH);
 
 /**
  * Never under reduced motion, while hidden, or while a bubble or the menu is
@@ -310,7 +315,7 @@ export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boole
     holdRow,
     holdFrame,
     onBranch: false,
-    flight: { from, to, takeoffAt, flyAt, landAt, landRowAt, endAt: landRowAt + rowMs("land"), toBranch },
+    flight: { from, to, takeoffAt, flyAt, landAt, landRowAt, endAt: landRowAt + rowMs("land"), toBranch, fromBranch: s.onBranch },
   };
 }
 
@@ -323,7 +328,7 @@ function dropOntoPerch(s: BirdState, now: number, rand: number): BirdState {
     mode: "flight",
     enteredAt: now,
     stepAt: now,
-    flight: { from: spot, to: spot, takeoffAt: now, flyAt: now, landAt: now, landRowAt: now, endAt: now + rowMs("land"), toBranch: true },
+    flight: { from: spot, to: spot, takeoffAt: now, flyAt: now, landAt: now, landRowAt: now, endAt: now + rowMs("land"), toBranch: true, fromBranch: false },
   };
 }
 
@@ -404,7 +409,7 @@ export function initialState(
   const x = restingX(width, cell);
   const restUntil = now + restLength(mix(rand, 4));
   // In a session already: asleep on the perch, put there.
-  const perch = sessionActive ? perchSpot(width, height, cell) : null;
+  const perch = sessionActive ? perchSpot(width, height, cell, BRANCH) : null;
   return {
     mode: sessionActive ? "sleep" : "idle",
     enteredAt: now,
@@ -425,6 +430,7 @@ export function initialState(
     width,
     height,
     onBranch: perch !== null,
+    branch: BRANCH,
     flight: null,
     talking: false,
     leaveSoon: false,
@@ -600,7 +606,7 @@ function step(s: BirdState, event: BirdEvent, now: number, rand: number): BirdSt
     case "tick":
       return tick(s, now, rand);
     case "resize": {
-      const sized = { ...s, width: event.width, height: event.height ?? s.height };
+      const sized = { ...s, width: event.width, height: event.height ?? s.height, branch: event.branch ?? s.branch };
       // The perch moves with the window's edges; a flight in the air finishes where it was going.
       if (s.mode === "flight" && s.flight) {
         const to = s.flight.toBranch ? perchFor(sized) : { x: Math.min(s.flight.to.x, maxX(sized.width, s.cell)), lift: 0 };
@@ -684,7 +690,7 @@ const headedForBranch = (s: BirdState): boolean => s.onBranch || (s.mode === "fl
 
 /** Dropped within DROP_ON_PERCH_PX of the branch. */
 export const nearBranch = (s: BirdState): boolean =>
-  boxGap(birdBox(s, s.height), branchBox(s.width, s.height)) <= DROP_ON_PERCH_PX;
+  boxGap(birdBox(s, s.height), branchBox(s.width, s.height, s.branch)) <= DROP_ON_PERCH_PX;
 
 /**
  * The sprite row to draw. `fall` has no row in the sheet; it reuses `drag`. A

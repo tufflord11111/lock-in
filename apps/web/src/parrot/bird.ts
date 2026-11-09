@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { DISPLAY_CELL, LID_COLOUR, createLoop, eyeAt, frameAt, frameRect, rowOf, scaleFiles, scaleFor, type LoopPlan } from "./animator";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
-import { BRANCH, branchBox, branchImageFor, cursorBoxes, fadeZone } from "./perch";
+import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, isPerched, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
 import { DEBUG, createFrameLog } from "./frameCheck";
 import {
@@ -35,7 +35,7 @@ export type Bird = {
   refreshHitboxes: () => void;
   /** Resolves once the first frame's image is decoded and on the element. */
   ready: () => Promise<void>;
-  /** Rust's word: the cursor is near the perched bird, so it and the branch fade. */
+  /** Rust's word: the cursor is near the branch (and the perched bird), so they fade. */
   setFaded: (faded: boolean) => void;
   /** Debug builds: a line in the frame check's log. */
   debugNote: (text: string) => void;
@@ -60,27 +60,54 @@ export function createBird(
   el.style.width = `${DISPLAY_CELL.width}px`;
   el.style.height = `${DISPLAY_CELL.height}px`;
 
-  // The branch: drawn behind the bird, never hit-tested (it isn't in the boxes Rust gets).
+  // The branch, behind the bird, and its front lip, over the bird's toes: drawn
+  // branch, bird, lip. Neither is ever hit-tested (neither is in the boxes Rust
+  // gets). Both are there only when needed; branchShown and frontShown say when.
   const branch = document.createElement("div");
   branch.className = "parrot-branch";
   branch.setAttribute("aria-hidden", "true");
   el.before(branch);
-  const placeBranch = () => {
-    const image = branchImageFor(window.devicePixelRatio);
-    if (!image) {
-      branch.style.display = "none";
-      return;
-    }
-    const box = branchBox(window.innerWidth, window.innerHeight);
-    branch.style.display = "block";
-    branch.style.left = `${box.x}px`;
-    branch.style.top = `${box.y}px`;
-    branch.style.width = `${BRANCH.width}px`;
-    branch.style.height = `${BRANCH.height}px`;
-    branch.style.backgroundImage = `url("${import.meta.env.BASE_URL}${image.file}")`;
-    branch.style.backgroundSize = `${BRANCH.width}px ${BRANCH.height}px`;
+  const front = document.createElement("div");
+  front.className = "parrot-branch-front";
+  front.setAttribute("aria-hidden", "true");
+  el.after(front);
+  const url = (file: string) => `url("${import.meta.env.BASE_URL}${file}")`;
+  const setBox = (node: HTMLElement, box: { x: number; y: number; w: number; h: number } | null, file?: string) => {
+    node.style.display = box && file ? "block" : "none";
+    if (!box || !file) return;
+    node.style.left = `${box.x}px`;
+    node.style.top = `${box.y}px`;
+    node.style.width = `${box.w}px`;
+    node.style.height = `${box.h}px`;
+    node.style.backgroundImage = url(file);
+    node.style.backgroundSize = `${box.w}px ${box.h}px`;
   };
-  placeBranch();
+  /** Places the drawing for this display, and says where its perch is. */
+  const placeBranch = (): Branch => {
+    const drawing = branchDrawingFor(window.devicePixelRatio);
+    const b = branchOf(drawing);
+    setBox(branch, drawing ? branchBox(window.innerWidth, window.innerHeight, b) : null, drawing?.file);
+    setBox(front, drawing?.front ? frontBox(window.innerWidth, window.innerHeight, b) : null, drawing?.front?.file);
+    return b;
+  };
+  state = { ...state, branch: placeBranch() };
+  if (state.onBranch) state = reduce(state, { type: "resize", width: state.width, height: state.height }, Date.now(), Math.random());
+  let faded = false;
+  let propsKey = "";
+  /** The branch and the lip shown or not, and faded by a nearby cursor; the bird fades only while perched. */
+  const showProps = (now: number) => {
+    const shown = branchShown(state, now);
+    const lip = frontShown(state, now);
+    const perched = isPerched(state);
+    const key = `${shown}:${lip}:${perched}:${faded}`;
+    if (key === propsKey) return;
+    propsKey = key;
+    branch.classList.toggle("parrot-shown", shown);
+    front.classList.toggle("parrot-shown", lip);
+    branch.classList.toggle("parrot-faded", faded && shown);
+    front.classList.toggle("parrot-faded", faded && lip);
+    el.classList.toggle("parrot-faded", faded && perched);
+  };
   let lastPlan: LoopPlan["kind"] = "stop";
   let blink = firstBlink(Date.now(), Math.random());
 
@@ -170,13 +197,15 @@ export function createBird(
     const dpr = window.devicePixelRatio;
     const extra = options.extraRects().map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height }));
     const boxes = cursorBoxes(state, window.innerHeight, extra).map((b) => physicalBox(b, dpr));
-    const zone = fadeZone(state, window.innerWidth, window.innerHeight);
-    const fade = zone ? physicalBox(zone, dpr) : null;
-    const key = JSON.stringify([boxes, fade]);
+    const zone = fadeZone(state, window.innerWidth, window.innerHeight, now);
+    const fade = zone ? physicalBox(zone.zone, dpr) : null;
+    // Whether the bird is in the fade, and so goes click-through with it: only perched.
+    const fadeBird = zone?.bird ?? false;
+    const key = JSON.stringify([boxes, fade, fadeBird]);
     if (key === sentBoxes) return;
     sentBoxes = key;
     sentAt = now;
-    invoke("companion_set_hitbox", { boxes, fade }).catch(() => {});
+    invoke("companion_set_hitbox", { boxes, fade, fadeBird }).catch(() => {});
   };
 
   /**
@@ -197,6 +226,7 @@ export function createBird(
     const shut = canBlink(state, name) ? lidAt(blink, now) : 0;
     const { scaleX, dip } = turnPose(state, now);
     const key = `${rect.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}`;
+    showProps(now);
     if (key === drawn) return;
     drawn = key;
     place(now);
@@ -313,8 +343,7 @@ export function createBird(
   window.addEventListener("resize", () => {
     drawn = "";
     fileBytes = scaleFiles(scaleFor(window.devicePixelRatio));
-    placeBranch();
-    dispatch({ type: "resize", width: window.innerWidth, height: window.innerHeight });
+    dispatch({ type: "resize", width: window.innerWidth, height: window.innerHeight, branch: placeBranch() });
     sendHitboxes(Date.now(), true);
   });
 
@@ -327,9 +356,9 @@ export function createBird(
     refreshHitboxes: () => sendHitboxes(Date.now(), true),
     ready: () => firstFrame,
     spriteBytes: () => sprites.bytes(),
-    setFaded: (faded) => {
-      el.classList.toggle("parrot-faded", faded);
-      branch.classList.toggle("parrot-faded", faded);
+    setFaded: (on) => {
+      faded = on;
+      showProps(Date.now());
     },
   };
 }

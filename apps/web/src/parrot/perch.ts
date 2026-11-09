@@ -8,14 +8,30 @@ import type { DisplayCell } from "./animator";
 import { birdBox, type Box } from "./layout";
 import type { BirdState } from "./machine";
 
-/** The branch's size and its perch point (where the bird's feet go), CSS px from its top-left. */
-export type Branch = { width: number; height: number; perchX: number; perchY: number };
+/** A rectangle on the branch, from its top-left. */
+export type Rect = { x: number; y: number; w: number; h: number };
 
-/** One drawing of the branch per sheet scale, in that drawing's px. */
-export type BranchImage = { scale: number; file: string; width: number; height: number };
+/**
+ * The branch in CSS px, from its top-left: its size, the perch point (where
+ * the bird's feet go), where the feet are in the bird's cell facing right
+ * (feetX; the cell's middle if the art doesn't say), and the trunk's front lip,
+ * drawn over the perched bird's toes so they curl round the bark.
+ */
+export type Branch = { width: number; height: number; perchX: number; perchY: number; feetX?: number; front?: Rect };
 
-type Prop = { name: string; scale: number; file: string; width: number; height: number };
-const m = manifest as { props?: Prop[]; branch?: Branch; ink?: Ink; displayCell: { width: number } };
+/** One drawing of the branch per sheet scale, in that drawing's px, as the manifest has it. */
+export type BranchDrawing = {
+  scale: number;
+  file: string;
+  width: number;
+  height: number;
+  perchX?: number;
+  perchY?: number;
+  feetX?: number;
+  front?: Rect & { file: string };
+};
+
+const m = manifest as { branches?: BranchDrawing[]; ink?: Ink; displayCell: { width: number } };
 
 /** How far the drawing reaches across the display cell in any frame: [left, right), CSS px from its left. */
 export type Ink = { left: number; right: number };
@@ -26,20 +42,35 @@ export const INTO_SCREEN = -1 as const;
 /** Kept between the bird's drawing and the screen's right edge. */
 export const PERCH_MARGIN_PX = 2;
 
-export const BRANCH_IMAGES: BranchImage[] = (m.props ?? []).filter((p) => p.name === "branch");
+export const BRANCH_DRAWINGS: BranchDrawing[] = [...(m.branches ?? [])].sort((a, b) => a.scale - b.scale);
 
 /**
- * From the art's meta.branch. Without it, the 1x drawing's size with a guessed
- * perch: 45% in from the free (left) end, 55% of the way down.
+ * A drawing's branch in CSS px: its own px over its scale, so the bird stands
+ * where that drawing has its perch. Without meta.branch, a guessed perch: 45%
+ * in from the free (left) end, 55% of the way down.
  */
-function branchFromManifest(): Branch {
-  if (m.branch) return m.branch;
-  const one = BRANCH_IMAGES.find((b) => b.scale === 1) ?? BRANCH_IMAGES[0];
-  const width = one ? one.width / one.scale : 96;
-  const height = one ? one.height / one.scale : 64;
-  return { width, height, perchX: Math.round(width * 0.45), perchY: Math.round(height * 0.55) };
+export function branchOf(d: BranchDrawing | undefined): Branch {
+  if (!d) return { width: 96, height: 64, perchX: 43, perchY: 35 };
+  const k = d.scale;
+  const width = d.width / k;
+  const height = d.height / k;
+  return {
+    width,
+    height,
+    perchX: d.perchX !== undefined ? d.perchX / k : Math.round(width * 0.45),
+    perchY: d.perchY !== undefined ? d.perchY / k : Math.round(height * 0.55),
+    ...(d.feetX !== undefined ? { feetX: d.feetX / k } : {}),
+    ...(d.front ? { front: { x: d.front.x / k, y: d.front.y / k, w: d.front.w / k, h: d.front.h / k } } : {}),
+  };
 }
-export const BRANCH: Branch = branchFromManifest();
+
+/** The drawing for this display: the smallest at least as sharp as the screen, else the sharpest. */
+export function branchDrawingFor(dpr: number, drawings: BranchDrawing[] = BRANCH_DRAWINGS): BranchDrawing | undefined {
+  return drawings.find((d) => d.scale >= dpr - 0.25) ?? drawings[drawings.length - 1];
+}
+
+/** The 1x branch: the machine's default until the overlay says which drawing it shows. */
+export const BRANCH: Branch = branchOf(BRANCH_DRAWINGS[0]);
 
 /** The perch point sits this far down the work area. */
 export const PERCH_HEIGHT = 0.55;
@@ -55,8 +86,10 @@ export function branchBox(width: number, height: number, b: Branch = BRANCH): Bo
 
 /**
  * Where the bird stands on the perch: x and lift, as the machine keeps them.
- * Feet on the perch point, centred; but moved in along the branch as far as it
- * takes to keep the whole drawing on the screen, facing in as it perches or
+ * Its feet on the perch point, facing into the screen: the cell is mirrored
+ * about its middle, so feet that are feetX from its left facing right are
+ * width - feetX from it facing in. Moved in along the branch only if it takes
+ * that to keep the whole drawing on the screen, facing in as it perches or
  * facing the edge as it arrives. `ink` defaults to the art's, for the art's cell.
  */
 export function perchSpot(
@@ -70,9 +103,10 @@ export function perchSpot(
   const feetX = box.x + b.perchX;
   const feetY = box.y + b.perchY;
   const baseline = cell.baseline ?? cell.height;
+  const feetInCell = cell.width - (b.feetX ?? cell.width / 2);
   // Mirrored, the drawing reaches cell.width - ink.left past x; facing the edge, ink.right.
   const reach = Math.max(cell.width - ink.left, ink.right);
-  const x = Math.min(Math.round(feetX - cell.width / 2), Math.floor(width - PERCH_MARGIN_PX - reach));
+  const x = Math.min(Math.round(feetX - feetInCell), Math.floor(width - PERCH_MARGIN_PX - reach));
   return { x, lift: Math.round(height - (feetY - baseline) - cell.height) };
 }
 
@@ -90,19 +124,52 @@ export function unionBox(a: Box, b: Box, pad = 0): Box {
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) + pad - x, h: Math.max(a.y + a.h, b.y + b.h) + pad - y };
 }
 
-/** The drawing for this display: the smallest at least as sharp as the screen, else the sharpest. */
-export function branchImageFor(dpr: number, images: BranchImage[] = BRANCH_IMAGES): BranchImage | null {
-  const sorted = [...images].sort((a, b) => a.scale - b.scale);
-  return sorted.find((i) => i.scale >= dpr - 0.25) ?? sorted[sorted.length - 1] ?? null;
+/** The front lip's box on the screen, if the branch has one. */
+export function frontBox(width: number, height: number, b: Branch = BRANCH): Box | null {
+  if (!b.front) return null;
+  const box = branchBox(width, height, b);
+  return { x: box.x + b.front.x, y: box.y + b.front.y, w: b.front.w, h: b.front.h };
+}
+
+/** Perched: on the branch and not picked up or flying. */
+export const isPerched = (s: BirdState): boolean => s.onBranch && s.mode !== "drag" && s.mode !== "flight";
+
+/**
+ * The branch is only there when it is needed: from the moment the bird sets
+ * off for it (a visit, a session, a drop by it) while it is there, and until
+ * it has left (the flight down past its takeoff). The overlay fades it in and
+ * out around this.
+ */
+export function branchShown(s: BirdState, now: number): boolean {
+  if (s.onBranch) return true;
+  const f = s.flight;
+  if (s.mode !== "flight" || !f) return false;
+  return f.toBranch || (f.fromBranch && now < f.flyAt);
 }
 
 /**
- * Where the cursor fades the bird: around it and the branch, only while it is
- * perched there and not picked up or flying. Null otherwise.
+ * The front lip goes over the bird's toes whenever its feet are on the
+ * branch: perched, asleep there, landing (the land row), taking off (the
+ * takeoff row). Not in the air.
  */
-export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number): Box | null {
-  if (!s.onBranch || s.mode === "drag" || s.mode === "flight") return null;
-  return unionBox(birdBox(s, innerHeight), branchBox(innerWidth, innerHeight), FADE_NEAR_PX);
+export function frontShown(s: BirdState, now: number): boolean {
+  if (s.onBranch && s.mode !== "drag") return true;
+  const f = s.flight;
+  if (s.mode !== "flight" || !f) return false;
+  return (f.toBranch && now >= f.landRowAt) || (f.fromBranch && now < f.flyAt);
+}
+
+/**
+ * Where a cursor fades things out of its way: the branch and its lip whenever
+ * they are shown, and the bird too while it is perched, 120 px around. `bird`
+ * says whether the bird is in it, and so goes click-through when it fades.
+ */
+export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number, now: number): { zone: Box; bird: boolean } | null {
+  if (!branchShown(s, now)) return null;
+  const branch = branchBox(innerWidth, innerHeight, s.branch);
+  const pad = (b: Box): Box => ({ x: b.x - FADE_NEAR_PX, y: b.y - FADE_NEAR_PX, w: b.w + 2 * FADE_NEAR_PX, h: b.h + 2 * FADE_NEAR_PX });
+  if (!isPerched(s)) return { zone: pad(branch), bird: false };
+  return { zone: unionBox(birdBox(s, innerHeight), branch, FADE_NEAR_PX), bird: true };
 }
 
 /** The boxes that take the cursor: the bird's first, except in the air, where it can't be caught. */

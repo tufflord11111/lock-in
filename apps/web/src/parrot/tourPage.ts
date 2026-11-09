@@ -11,3 +11,5 @@ const el = document.getElementById("bird");
 if (!el) throw new Error("No #bird element");
 const bird = createBird(el, { sessionActive: false, onClick: () => {}, extraRects: () => [] });
 startTour(bird);
+// For a test harness to drive the bird directly.
+(window as unknown as { __bird?: typeof bird }).__bird = bird;

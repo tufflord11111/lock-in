@@ -33,23 +33,48 @@ body {
   transition: opacity 150ms ease;
 }
 
-/* The branch at the right edge. Never takes the cursor: Rust doesn't hit-test it either. */
-.parrot-branch {
+/*
+ * The branch at the right edge, and its front lip over the perched bird's toes.
+ * Neither takes the cursor: Rust doesn't hit-test them either. Both are there
+ * only when needed: the branch fades in over 300 ms as the bird sets off for
+ * it and out over 500 ms once it has left; the lip goes on and off with the
+ * bird's feet on the branch.
+ */
+.parrot-branch,
+.parrot-branch-front {
   display: none;
   position: fixed;
   background-repeat: no-repeat;
   pointer-events: none;
-  transition: opacity 150ms ease;
+  opacity: 0;
 }
 
-/* A cursor near the perched bird: both step out of the way. */
-.parrot-faded {
+.parrot-branch {
+  transition: opacity 500ms ease;
+}
+
+.parrot-branch.parrot-shown {
+  opacity: 1;
+  transition: opacity 300ms ease;
+}
+
+.parrot-branch-front.parrot-shown {
+  opacity: 1;
+}
+
+/* A cursor nearby: the branch, the lip and the perched bird step out of the way. */
+.parrot-shown.parrot-faded,
+#bird.parrot-faded {
   opacity: 0.2;
+  transition: opacity 150ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
   #bird,
-  .parrot-branch {
+  .parrot-branch,
+  .parrot-branch.parrot-shown,
+  .parrot-shown.parrot-faded,
+  #bird.parrot-faded {
     transition: none;
   }
 }
