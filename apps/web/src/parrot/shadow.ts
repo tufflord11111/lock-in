@@ -12,9 +12,8 @@ export const SHADOW_WIDTH = 1.1;
 export const SHADOW_HEIGHT = 0.18;
 /** Its soft edge, CSS px (so 3 device px at 1x). */
 export const SHADOW_BLUR_PX = 3;
-/** Darker on the branch, where it falls on bark, than on whatever is under the screen's bottom edge. */
+/** On the bark. On the ground there is none: the underband's border stands the bird on the edge instead. */
 export const SHADOW_ALPHA_BRANCH = 0.35;
-export const SHADOW_ALPHA_GROUND = 0.2;
 /** The rows where it is leaving the surface or coming down onto it: the shadow fades with the footprint. */
 const LIFTING = ["takeoff", "land"];
 
@@ -22,16 +21,16 @@ const LIFTING = ["takeoff", "land"];
 export type Shadow = { x: number; y: number; w: number; h: number; alpha: number };
 
 /**
- * The shadow for this frame: centred on the footprint, on the feet line. None
- * where the art has the bird in the air. Taking off and landing it shrinks
+ * The shadow for this frame, on the branch: centred on the footprint, on the
+ * feet line. None on the ground, and none where the art has the bird in the air. Taking off and landing it shrinks
  * with the footprint and fades as it does, against the footprint standing.
  */
 export function shadowFor(row: string, frame: number, onBranch: boolean): Shadow | null {
   const c = contactAt(row, frame);
-  if (!c || c.w <= 0) return null;
+  if (!onBranch || !c || c.w <= 0) return null;
   const w = c.w * SHADOW_WIDTH;
   const h = c.w * SHADOW_HEIGHT;
-  let alpha = onBranch ? SHADOW_ALPHA_BRANCH : SHADOW_ALPHA_GROUND;
+  let alpha = SHADOW_ALPHA_BRANCH;
   if (LIFTING.includes(row)) {
     const standing = contactAt("idle", 0);
     if (standing && standing.w > 0) alpha *= Math.min(1, c.w / standing.w);

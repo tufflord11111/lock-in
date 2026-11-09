@@ -855,7 +855,8 @@ describe("the branch and the perch", () => {
     const box = birdBox({ ...spot, cell: DISPLAY_CELL }, H);
     const branch = branchBox(1440, H);
     const feetX = box.x + DISPLAY_CELL.width - (BRANCH.feetX ?? DISPLAY_CELL.width / 2);
-    expect(box.y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height)).toBeCloseTo(branch.y + BRANCH.perchY, 0);
+    // On the perch point, lowered by dropIn: facing in, the mirrored near foot is over lower bark.
+    expect(box.y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height)).toBeCloseTo(branch.y + BRANCH.perchY + (BRANCH.dropIn ?? 0), 0);
     expect(feetX).toBeGreaterThan(branch.x);
     expect(feetX).toBeLessThanOrEqual(branch.x + BRANCH.perchX);
     // On the perch point, unless that would overhang the edge; then moved in, no further than needed.
@@ -1358,7 +1359,7 @@ describe("the bird grips the branch: branch, bird, then the front lip", () => {
       // The bird stands on whole CSS px: at 2x a half-px perch point is one device px off.
       expect(Math.abs(feet - (box.x + b.perchX))).toBeLessThanOrEqual(0.5);
       const feetY = birdBox({ ...spot, cell: DISPLAY_CELL }, 900).y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height);
-      expect(feetY).toBeCloseTo(box.y + b.perchY, 0);
+      expect(Math.abs(feetY - (box.y + b.perchY + (b.dropIn ?? 0)))).toBeLessThanOrEqual(0.5);
       // The toes sit under the lip.
       const lip = frontBox(1440, 900, b)!;
       expect(feet).toBeGreaterThanOrEqual(lip.x);

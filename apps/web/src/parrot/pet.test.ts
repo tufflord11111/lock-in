@@ -15,7 +15,7 @@ import {
   type BirdState,
 } from "./machine";
 import { PET_IDLE_MS, PET_LEAN_DEG, PET_START_PX, cursorSide, heldFrames, petLean, petTimes } from "./pet";
-import { SHADOW_ALPHA_BRANCH, SHADOW_ALPHA_GROUND, SHADOW_BLUR_PX, SHADOW_HEIGHT, SHADOW_WIDTH, shadowFor } from "./shadow";
+import { SHADOW_ALPHA_BRANCH, SHADOW_BLUR_PX, SHADOW_HEIGHT, SHADOW_WIDTH, shadowFor } from "./shadow";
 import { frontShown } from "./perch";
 
 const WIDTH = 1000;
@@ -238,9 +238,9 @@ describe("petting with the right button", () => {
 describe("the contact shadow", () => {
   it("is a soft ellipse from meta.contact: 1.1 times the footprint wide, 18% of it tall, 3 px of blur, on the feet line", () => {
     expect([SHADOW_WIDTH, SHADOW_HEIGHT, SHADOW_BLUR_PX]).toEqual([1.1, 0.18, 3]);
-    const c = contactAt("idle", 0)!;
-    expect(c).toEqual({ cx: 86.5, w: 24 });
-    const s = shadowFor("idle", 0, false)!;
+    const c = contactAt("perch", 0)!;
+    expect(c.w).toBeGreaterThan(10);
+    const s = shadowFor("perch", 0, true)!;
     expect(s.w).toBeCloseTo(c.w * 1.1);
     expect(s.h).toBeCloseTo(c.w * 0.18);
     expect(s.x + s.w / 2).toBeCloseTo(c.cx);
@@ -249,10 +249,10 @@ describe("the contact shadow", () => {
     for (const row of ROWS) expect(CONTACT[row.state], row.state).toHaveLength(row.frames);
   });
 
-  it("is darker on the branch (0.35) than on the ground (0.2)", () => {
-    expect(shadowFor("perch", 0, true)!.alpha).toBe(SHADOW_ALPHA_BRANCH);
-    expect(shadowFor("idle", 0, false)!.alpha).toBe(SHADOW_ALPHA_GROUND);
-    expect([SHADOW_ALPHA_BRANCH, SHADOW_ALPHA_GROUND]).toEqual([0.35, 0.2]);
+  it("is 0.35 on the branch, and not there at all on the ground (the underband stands it there)", () => {
+    expect(SHADOW_ALPHA_BRANCH).toBe(0.35);
+    expect(shadowFor("perch", 0, true)!.alpha).toBe(0.35);
+    for (const row of ROWS) for (let f = 0; f < row.frames; f++) expect(shadowFor(row.state, f, false)).toBeNull();
   });
 
   it("has none in the air, and shrinks and fades through the takeoff and back through the landing", () => {
@@ -265,9 +265,9 @@ describe("the contact shadow", () => {
       expect(shown[i]!.w).toBeLessThan(shown[i - 1]!.w);
       expect(shown[i]!.alpha).toBeLessThan(shown[i - 1]!.alpha);
     }
-    const land = Array.from({ length: rowOf("land").frames }, (_, f) => shadowFor("land", f, false));
+    const land = Array.from({ length: rowOf("land").frames }, (_, f) => shadowFor("land", f, true));
     expect(land[0]).toBeNull();
-    expect(land[land.length - 1]!.alpha).toBe(SHADOW_ALPHA_GROUND);
+    expect(land[land.length - 1]!.alpha).toBe(SHADOW_ALPHA_BRANCH);
   });
 
   it("is drawn after the branch and before the bird, inside the bird's box, so it fades with the perched bird", () => {

@@ -4,13 +4,14 @@
  * animation loop, the drag and the hitboxes.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameRect, headAt, rowOf, scaleFiles, scaleFor, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameRect, headAt, layerRect, rowOf, scaleFiles, scaleFor, type LoopPlan } from "./animator";
+import { lookFor, wantedFiles } from "./look";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, isPerched, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
 import { PET_IDLE_MS, PET_START_PX, cursorSide, petLean } from "./pet";
-import { SHADOW_BLUR_PX, shadowFor } from "./shadow";
+import { SHADOW_BLUR_PX, type Shadow } from "./shadow";
 import { DEBUG, createFrameLog } from "./frameCheck";
 import {
   frameIndex,
@@ -247,12 +248,21 @@ export function createBird(
     sizeCanvas();
     // On the screen it leans toward the cursor; inside the mirrored box that is the other way when facing in.
     canvas.style.transform = lean === 0 ? "" : `rotate(${lean * Math.sign(scaleX)}deg)`;
-    // This row, and the rows it may need next, decoded and held.
-    sprites.want(nextRows(state, now).map((row) => frameRect(scale, row, 0).file));
+    // This row, and the rows it may need next, with their layers, decoded and held.
+    sprites.want(wantedFiles(state, now, scale));
+    // The look for where its feet are: the underband on the ground; the toerim, with the shadow, on the branch.
+    const look = lookFor(name, frame, onBranch);
+    const layer = look.layer ? layerRect(scale, look.layer, name, frame) : null;
     const bitmap = sprites.get(rect.file);
-    const frameKey = `${rect.file}:${rect.sx}:${rect.sy}:${canvas.width}`;
-    if (bitmap && ctx && frameKey !== drawnFrame) {
+    const layerBitmap = layer ? sprites.get(layer.file) : undefined;
+    const frameKey = `${rect.file}:${rect.sx}:${rect.sy}:${canvas.width}:${layer ? `${layer.file}:${layer.sx}` : ""}`;
+    // The layer and the bird go up together, on the same frame, or the last frame stays.
+    if (bitmap && (!layer || layerBitmap) && ctx && frameKey !== drawnFrame) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (layer && layerBitmap) {
+        const k = canvas.height / scale.cell.height;
+        ctx.drawImage(layerBitmap, layer.sx, layer.sy, layer.sw, layer.sh, 0, layer.dy * k, canvas.width, layer.sh * k);
+      }
       ctx.drawImage(bitmap, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
       drawnFrame = frameKey;
       if (shownFile === "") resolveReady();
@@ -260,7 +270,8 @@ export function createBird(
     }
     // Only over the row on the canvas: while a new row decodes, the old frame stays up.
     showLid(shownFile === rect.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
-    if (shownFile === rect.file) showShadow(shadowFor(name, frame, onBranch));
+    // The shadow changes with the canvas, never ahead of it.
+    if (drawnFrame === frameKey) showShadow(look.shadow);
     frameLog?.frame(
       {
         row: name,
@@ -281,7 +292,7 @@ export function createBird(
   };
 
   /** The shadow element set to this ellipse; touched only when it changes, so a held frame costs nothing. */
-  const showShadow = (s: ReturnType<typeof shadowFor>) => {
+  const showShadow = (s: Shadow | null) => {
     const r = (v: number) => Math.round(v * 10) / 10;
     const key = s ? `${r(s.x)}:${r(s.y)}:${r(s.w)}:${r(s.h)}:${s.alpha}` : "";
     if (key === shadowShown) return;

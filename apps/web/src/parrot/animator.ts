@@ -49,7 +49,18 @@ export type SheetScale = {
   eyes?: Record<string, (Eye | null)[]>;
   /** The pet row's head, per frame, in this sheet's px. */
   head?: Record<string, (Head | null)[]>;
+  /** The bird's lowest px per row and frame, in this sheet's px (meta.feetBottom); null in the air. */
+  feetBottom?: Record<string, (number | null)[]>;
+  /** The look layers drawn under the bird: per row, a strip cropped to the pixel rows it has. */
+  layers?: Record<string, LayerSheet>;
 };
+
+/**
+ * One look layer at one scale (meta.layers): the same cells as the sheet, each
+ * row a file cropped to its pixel rows, from y for h in the cell. A row it
+ * doesn't list has nothing in it.
+ */
+export type LayerSheet = { rowFiles: string; use?: string; rows: Record<string, { y: number; h: number }> };
 
 /** A whole sheet that would decode to more than this must ship as row files. */
 export const ROW_FILES_OVER_BYTES = 16 * 1024 * 1024;
@@ -59,7 +70,7 @@ export const ROWS: SpriteRow[] = manifest.rows;
 export const COLUMNS = manifest.columns;
 /** The bird's box in CSS px, at every DPI. The 1× cell by convention. */
 export const DISPLAY_CELL: DisplayCell = manifest.displayCell;
-export const SCALES: SheetScale[] = manifest.scales;
+export const SCALES: SheetScale[] = manifest.scales as SheetScale[];
 /** The lid's fill, from the face patch around the eye. Absent for art with no eye data. */
 export const LID_COLOUR: string | undefined = (manifest as { lidColour?: string }).lidColour;
 
@@ -125,11 +136,28 @@ export function frameRect(scale: SheetScale, state: string, frame: number): Fram
   return { file: scale.file, sx: frame * width, sy: ROWS.indexOf(rowOf(state)) * height, sw: width, sh: height };
 }
 
-/** The files of this scale, each with what it holds once decoded: a row's frames, or the whole sheet. */
+/** A layer's strip for one frame: where to draw from, and dy, the strip's top in the cell, in the sheet's px. */
+export type LayerRect = FrameRect & { dy: number };
+
+export function layerRect(scale: SheetScale, layer: string, state: string, frame: number): LayerRect | null {
+  const sheet = scale.layers?.[layer];
+  const row = sheet?.rows[state];
+  if (!sheet || !row) return null;
+  return { file: sheet.rowFiles.replace("{state}", state), sx: frame * scale.cell.width, sy: 0, sw: scale.cell.width, sh: row.h, dy: row.y };
+}
+
+/** The files of this scale, each with what it holds once decoded: a row's frames, or the whole sheet, and the layers' strips. */
 export function scaleFiles(scale: SheetScale): Map<string, number> {
-  if (!scale.rowFiles) return new Map(scale.file ? [[scale.file, decodedBytes(scale.sheet)]] : []);
-  const pattern = scale.rowFiles;
-  return new Map(ROWS.map((r) => [pattern.replace("{state}", r.state), r.frames * scale.cell.width * scale.cell.height * 4]));
+  const files = new Map<string, number>();
+  if (!scale.rowFiles) {
+    if (scale.file) files.set(scale.file, decodedBytes(scale.sheet));
+  } else {
+    for (const r of ROWS) files.set(scale.rowFiles.replace("{state}", r.state), r.frames * scale.cell.width * scale.cell.height * 4);
+  }
+  for (const sheet of Object.values(scale.layers ?? {})) {
+    for (const [state, { h }] of Object.entries(sheet.rows)) files.set(sheet.rowFiles.replace("{state}", state), rowOf(state).frames * scale.cell.width * h * 4);
+  }
+  return files;
 }
 
 export const FRAME_BUDGET_MS = 1000 / 30;

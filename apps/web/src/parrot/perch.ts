@@ -17,7 +17,7 @@ export type Rect = { x: number; y: number; w: number; h: number };
  * (feetX; the cell's middle if the art doesn't say), and the trunk's front lip,
  * drawn over the perched bird's toes so they curl round the bark.
  */
-export type Branch = { width: number; height: number; perchX: number; perchY: number; feetX?: number; front?: Rect };
+export type Branch = { width: number; height: number; perchX: number; perchY: number; feetX?: number; front?: Rect; sinkPx?: number; dropIn?: number };
 
 /** One drawing of the branch per sheet scale, in that drawing's px, as the manifest has it. */
 export type BranchDrawing = {
@@ -29,6 +29,10 @@ export type BranchDrawing = {
   perchY?: number;
   feetX?: number;
   front?: Rect & { file: string };
+  /** How far below the trunk's top line, at the perch point, the feet sink (meta.branch.sinkPx). */
+  sinkPx?: number;
+  /** How much lower the bird perches facing into the screen than the perch point says (see the importer). */
+  dropIn?: number;
 };
 
 const m = manifest as { branches?: BranchDrawing[]; ink?: Ink; displayCell: { width: number } };
@@ -61,6 +65,8 @@ export function branchOf(d: BranchDrawing | undefined): Branch {
     perchY: d.perchY !== undefined ? d.perchY / k : Math.round(height * 0.55),
     ...(d.feetX !== undefined ? { feetX: d.feetX / k } : {}),
     ...(d.front ? { front: { x: d.front.x / k, y: d.front.y / k, w: d.front.w / k, h: d.front.h / k } } : {}),
+    ...(d.sinkPx !== undefined ? { sinkPx: d.sinkPx / k } : {}),
+    ...(d.dropIn !== undefined ? { dropIn: d.dropIn / k } : {}),
   };
 }
 
@@ -101,7 +107,9 @@ export function perchSpot(
 ): { x: number; lift: number } {
   const box = branchBox(width, height, b);
   const feetX = box.x + b.perchX;
-  const feetY = box.y + b.perchY;
+  // The perch point, lowered by dropIn: the art's perch is measured facing right, and facing in
+  // the mirrored near foot is over lower bark.
+  const feetY = box.y + b.perchY + (b.dropIn ?? 0);
   const baseline = cell.baseline ?? cell.height;
   const feetInCell = cell.width - (b.feetX ?? cell.width / 2);
   // Mirrored, the drawing reaches cell.width - ink.left past x; facing the edge, ink.right.
