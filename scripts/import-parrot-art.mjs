@@ -33,6 +33,17 @@
  * from meta.walkContact, else --walk-contact=<i,j>, else the app's default of 0
  * and half way. Row frame numbers, not gait phases: a row that starts part way
  * round the cycle has its contacts elsewhere.
+ *
+ * meta.loops gives a row the frames it loops on while it is held (the pet row
+ * loops 2 to 3 while the bird is being rubbed); it becomes that row's
+ * "loopFrames". meta.head (the pet row's head centre and radius, per frame)
+ * and meta.contact (every row's footprint per frame: the centre cx and width w
+ * of the toes and belly bottom on the feet line, null where it is in the air)
+ * go into each scale in its own px, like the eyes.
+ *
+ * The delivered rows must start with the manifest's rows, in order: new rows
+ * are added after them, never in between, so a row's place on the sheet keeps
+ * its meaning.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -45,6 +56,8 @@ const ROW_FILES_OVER_BYTES = 16 * 1024 * 1024;
 const WALK_FPS = 7.5;
 // The rows the blink layer draws over (apps/web/src/parrot/blink.ts BLINK_ROWS): only their eyes ship.
 const EYE_ROWS = ["idle", "walk", "talk", "peck", "perch"];
+// The rows whose head the overlay uses: petting leans toward the cursor from the head.
+const HEAD_ROWS = ["pet"];
 const SCALES = [
   { name: "1x", maxDpr: 1.25 },
   { name: "1.5x", maxDpr: 1.75 },
@@ -86,14 +99,22 @@ for (const { name, maxDpr } of SCALES) {
   const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta;
   const cell = { width: meta.cell.w, height: meta.cell.h };
   const sheet = { width: meta.size.w, height: meta.size.h };
-  const these = meta.frameTags.map((t) => ({
-    state: t.name,
-    frames: t.to - t.from + 1,
-    fps: t.name === "walk" ? WALK_FPS : t.fps,
-    loop: t.loop,
-    ...(fromMarks.get(t.name) ? { from: fromMarks.get(t.name) } : {}),
-    ...(t.name === "walk" ? { stride: walkStride, ...(walkContact ? { contact: walkContact } : {}) } : {}),
-  }));
+  const these = meta.frameTags.map((t) => {
+    const frames = t.to - t.from + 1;
+    const held = meta.loops?.[t.name];
+    if (held && !(Number.isInteger(held.from) && Number.isInteger(held.to) && held.from >= 0 && held.from <= held.to && held.to < frames)) {
+      throw new Error(`parrot@${name}.json: meta.loops.${t.name} is ${JSON.stringify(held)} for ${frames} frames`);
+    }
+    return {
+      state: t.name,
+      frames,
+      fps: t.name === "walk" ? WALK_FPS : t.fps,
+      loop: t.loop,
+      ...(fromMarks.get(t.name) ? { from: fromMarks.get(t.name) } : {}),
+      ...(t.name === "walk" ? { stride: walkStride, ...(walkContact ? { contact: walkContact } : {}) } : {}),
+      ...(held ? { loopFrames: { from: held.from, to: held.to } } : {}),
+    };
+  });
   if (name === "1x" && typeof meta.baseline === "number") baseline = meta.baseline;
   if (name === "1x" && typeof meta.lidColour === "string") lidColour = meta.lidColour;
   if (rows === null) rows = these;
@@ -112,10 +133,35 @@ for (const { name, maxDpr } of SCALES) {
       eyes[row] = list.map((e) => (e ? { x: e.x, y: e.y, r: e.r, open: e.open === true } : null));
     }
   }
+  // The head, for the rows that lean from it; null frames kept so indexes line up.
+  let head = null;
+  if (meta.head) {
+    head = {};
+    for (const row of HEAD_ROWS) {
+      const list = meta.head[row];
+      if (!list) continue;
+      const frames = these.find((r) => r.state === row)?.frames;
+      if (list.length !== frames) throw new Error(`parrot@${name}.json: meta.head.${row} has ${list.length} entries for ${frames} frames`);
+      head[row] = list.map((h) => (h ? { x: h.x, y: h.y, r: h.r } : null));
+    }
+  }
+  // The footprint, every row, for the contact shadow; null where the bird is in the air.
+  let contact = null;
+  if (meta.contact) {
+    contact = {};
+    for (const row of these) {
+      const list = meta.contact[row.state];
+      if (!list) continue;
+      if (list.length !== row.frames) throw new Error(`parrot@${name}.json: meta.contact.${row.state} has ${list.length} entries for ${row.frames} frames`);
+      contact[row.state] = list.map((c) => (c ? { cx: c.cx, w: c.w } : null));
+    }
+  }
   const big = decodedBytes(sheet.width, sheet.height) > ROW_FILES_OVER_BYTES;
   if (big) scale.rowFiles = `parrot/parrot-${name}/{state}.png`;
   else scale.file = `parrot/parrot-${name}.png`;
   if (eyes) scale.eyes = eyes;
+  if (head) scale.head = head;
+  if (contact) scale.contact = contact;
   scales.push(scale);
 
   const png = readFileSync(join(dir, `parrot@${name}.png`));
@@ -138,9 +184,12 @@ for (const { name, maxDpr } of SCALES) {
   );
 }
 
-if (rows.length !== current.rows.length || rows.some((r, i) => r.state !== current.rows[i].state)) {
-  throw new Error("the delivered rows are not the manifest's rows in order");
+if (rows.length < current.rows.length || current.rows.some((r, i) => r.state !== rows[i].state)) {
+  throw new Error("the delivered rows do not start with the manifest's rows in order");
 }
+const added = rows.slice(current.rows.length).map((r) => r.state);
+if (added.length) console.log(`new rows: ${added.join(", ")}`);
+console.log(`rows: ${rows.length}, ${rows.reduce((n, r) => n + r.frames, 0)} frames`);
 if (rows.some((r) => r.frames > current.columns)) throw new Error(`a row has more than ${current.columns} frames`);
 
 console.log(`ink: x ${ink.left} to ${ink.right} of the ${scales[0].cell.width} px cell`);
