@@ -13,11 +13,25 @@ export type Rect = { x: number; y: number; w: number; h: number };
 
 /**
  * The branch in CSS px, from its top-left: its size, the perch point (where
- * the bird's feet go), where the feet are in the bird's cell facing right
+ * the bird's feet go), where the feet are in the bird's cell as it is drawn perched, mirrored
  * (feetX; the cell's middle if the art doesn't say), and the trunk's front lip,
  * drawn over the perched bird's toes so they curl round the bark.
  */
-export type Branch = { width: number; height: number; perchX: number; perchY: number; feetX?: number; front?: Rect; sinkPx?: number; dropIn?: number };
+export type Branch = {
+  width: number;
+  height: number;
+  perchX: number;
+  perchY: number;
+  feetX?: number;
+  front?: Rect;
+  sinkPx?: number;
+  /** The drawing's scale: its px per CSS px. Positions on it are kept on whole device px. */
+  scale?: number;
+  /** B's rule (meta.branch): the perched (mirrored) cell's top-left from the branch's, CSS px. */
+  cell?: { x: number; y: number };
+  /** B's rule: how much lower each row sits perched, CSS px; 0 for a row not listed. */
+  rowDy?: Record<string, number>;
+};
 
 /** One drawing of the branch per sheet scale, in that drawing's px, as the manifest has it. */
 export type BranchDrawing = {
@@ -29,10 +43,12 @@ export type BranchDrawing = {
   perchY?: number;
   feetX?: number;
   front?: Rect & { file: string };
-  /** How far below the trunk's top line, at the perch point, the feet sink (meta.branch.sinkPx). */
+  /** How far below the trunk's top line, under both feet, the feet sink (meta.branch.sinkPx). */
   sinkPx?: number;
-  /** How much lower the bird perches facing into the screen than the perch point says (see the importer). */
-  dropIn?: number;
+  /** The mirrored cell's top-left from the branch's, this drawing's px: perchX - birdFeetX, round(perchY - baseline). */
+  cell?: { x: number; y: number };
+  /** meta.branch.rowDy, this drawing's px. */
+  rowDy?: Record<string, number>;
 };
 
 const m = manifest as { branches?: BranchDrawing[]; ink?: Ink; displayCell: { width: number } };
@@ -66,7 +82,9 @@ export function branchOf(d: BranchDrawing | undefined): Branch {
     ...(d.feetX !== undefined ? { feetX: d.feetX / k } : {}),
     ...(d.front ? { front: { x: d.front.x / k, y: d.front.y / k, w: d.front.w / k, h: d.front.h / k } } : {}),
     ...(d.sinkPx !== undefined ? { sinkPx: d.sinkPx / k } : {}),
-    ...(d.dropIn !== undefined ? { dropIn: d.dropIn / k } : {}),
+    scale: k,
+    ...(d.cell ? { cell: { x: d.cell.x / k, y: d.cell.y / k } } : {}),
+    ...(d.rowDy ? { rowDy: Object.fromEntries(Object.entries(d.rowDy).map(([row, dy]) => [row, dy / k])) } : {}),
   };
 }
 
@@ -87,8 +105,13 @@ export const FADE_NEAR_PX = 120;
 
 /** The branch's box: flush with the right edge, its perch point PERCH_HEIGHT down. */
 export function branchBox(width: number, height: number, b: Branch = BRANCH): Box {
-  return { x: width - b.width, y: Math.round(height * PERCH_HEIGHT - b.perchY), w: b.width, h: b.height };
+  // On a whole device px of its drawing's scale, so the bird placed from it by B's rule is too.
+  const k = b.scale ?? 1;
+  return { x: width - b.width, y: Math.round((height * PERCH_HEIGHT - b.perchY) * k) / k, w: b.width, h: b.height };
 }
+
+/** B's rule: how much lower this row sits perched, CSS px (0 for a row meta.branch.rowDy doesn't list). */
+export const perchDy = (b: Branch, row: string): number => b.rowDy?.[row] ?? 0;
 
 /**
  * Where the bird stands on the perch: x and lift, as the machine keeps them.
@@ -106,14 +129,19 @@ export function perchSpot(
   ink: Ink = cell.width === m.displayCell.width ? INK : { left: 0, right: cell.width },
 ): { x: number; lift: number } {
   const box = branchBox(width, height, b);
-  const feetX = box.x + b.perchX;
-  // The perch point, lowered by dropIn: the art's perch is measured facing right, and facing in
-  // the mirrored near foot is over lower bark.
-  const feetY = box.y + b.perchY + (b.dropIn ?? 0);
-  const baseline = cell.baseline ?? cell.height;
-  const feetInCell = cell.width - (b.feetX ?? cell.width / 2);
   // Mirrored, the drawing reaches cell.width - ink.left past x; facing the edge, ink.right.
   const reach = Math.max(cell.width - ink.left, ink.right);
+  if (b.cell) {
+    // B's rule, measured for the mirrored bird: the cell's top-left straight from the branch's, on
+    // whole device px (rowDy is added per row as it is drawn: perchDy).
+    const k = b.scale ?? 1;
+    const x = Math.min(box.x + b.cell.x, Math.floor((width - PERCH_MARGIN_PX - reach) * k) / k);
+    return { x, lift: height - (box.y + b.cell.y) - cell.height };
+  }
+  const feetX = box.x + b.perchX;
+  const feetY = box.y + b.perchY;
+  const baseline = cell.baseline ?? cell.height;
+  const feetInCell = cell.width - (b.feetX ?? cell.width / 2);
   const x = Math.min(Math.round(feetX - feetInCell), Math.floor(width - PERCH_MARGIN_PX - reach));
   return { x, lift: Math.round(height - (feetY - baseline) - cell.height) };
 }

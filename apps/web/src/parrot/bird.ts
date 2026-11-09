@@ -8,7 +8,7 @@ import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameR
 import { lookFor, wantedFiles } from "./look";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
-import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, isPerched, type Branch } from "./perch";
+import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, isPerched, perchDy, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
 import { PET_IDLE_MS, PET_START_PX, cursorSide, petLean } from "./pet";
 import { SHADOW_BLUR_PX, type Shadow } from "./shadow";
@@ -228,8 +228,10 @@ export function createBird(
    */
   const place = (now = Date.now()) => {
     const { scaleX, dip } = turnPose(state, now);
-    el.style.transform = `translate3d(${state.x}px, ${dip - state.lift}px, 0) scaleX(${scaleX})`;
+    el.style.transform = `translate3d(${state.x}px, ${dip - state.lift + rowDy(now)}px, 0) scaleX(${scaleX})`;
   };
+  /** B's rule: with its feet on the branch, each row sits rowDy lower (sleep rests its belly on the bark). */
+  const rowDy = (now: number) => (frontShown(state, now) ? perchDy(state.branch, spriteState(state, now)) : 0);
 
   const draw = (now: number) => {
     const name = spriteState(state, now);
@@ -240,7 +242,7 @@ export function createBird(
     const { scaleX, dip } = turnPose(state, now);
     const onBranch = frontShown(state, now);
     const lean = leanNow(now, scale, frame, scaleX);
-    const key = `${rect.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}:${onBranch}:${lean}`;
+    const key = `${rect.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}:${onBranch}:${lean}:${rowDy(now)}`;
     showProps(now);
     if (key === drawn) return;
     drawn = key;

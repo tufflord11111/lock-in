@@ -855,14 +855,13 @@ describe("the branch and the perch", () => {
     const box = birdBox({ ...spot, cell: DISPLAY_CELL }, H);
     const branch = branchBox(1440, H);
     const feetX = box.x + DISPLAY_CELL.width - (BRANCH.feetX ?? DISPLAY_CELL.width / 2);
-    // On the perch point, lowered by dropIn: facing in, the mirrored near foot is over lower bark.
-    expect(box.y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height)).toBeCloseTo(branch.y + BRANCH.perchY + (BRANCH.dropIn ?? 0), 0);
+    // B's rule: the mirrored cell's top-left straight from the branch's.
+    expect(box.y - branch.y).toBe(BRANCH.cell!.y);
+    expect(box.x - branch.x).toBe(BRANCH.cell!.x);
     expect(feetX).toBeGreaterThan(branch.x);
-    expect(feetX).toBeLessThanOrEqual(branch.x + BRANCH.perchX);
-    // On the perch point, unless that would overhang the edge; then moved in, no further than needed.
+    // Unless that would overhang the edge; then moved in, no further than needed.
     const reach = Math.max(DISPLAY_CELL.width - INK.left, INK.right);
-    const onPoint = Math.round(branch.x + BRANCH.perchX - (DISPLAY_CELL.width - (BRANCH.feetX ?? DISPLAY_CELL.width / 2)));
-    expect(spot.x).toBe(Math.min(onPoint, Math.floor(1440 - PERCH_MARGIN_PX - reach)));
+    expect(spot.x).toBe(Math.min(branch.x + BRANCH.cell!.x, Math.floor(1440 - PERCH_MARGIN_PX - reach)));
   });
 
   it("keeps the whole perched bird, beak and tail, inside the work area, facing in or arriving facing the edge", () => {
@@ -1354,12 +1353,12 @@ describe("the bird grips the branch: branch, bird, then the front lip", () => {
       const b = branchOf(d);
       const spot = perchSpot(1440, 900, DISPLAY_CELL, b);
       const box = branchBox(1440, 900, b);
-      // Facing in, the cell is mirrored about its middle: feet feetX from its left become width - feetX.
-      const feet = spot.x + DISPLAY_CELL.width - (b.feetX ?? DISPLAY_CELL.width / 2);
-      // The bird stands on whole CSS px: at 2x a half-px perch point is one device px off.
-      expect(Math.abs(feet - (box.x + b.perchX))).toBeLessThanOrEqual(0.5);
+      // birdFeetX is in the mirrored cell: the feet are feetX from the drawn cell's left.
+      const feet = spot.x + (b.feetX ?? DISPLAY_CELL.width / 2);
+      expect(Math.abs(feet - (box.x + b.perchX))).toBeLessThan(1e-9);
+      // The baseline on perchY, to B's rounding: within half a px of the drawing's scale.
       const feetY = birdBox({ ...spot, cell: DISPLAY_CELL }, 900).y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height);
-      expect(Math.abs(feetY - (box.y + b.perchY + (b.dropIn ?? 0)))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(feetY - (box.y + b.perchY))).toBeLessThanOrEqual(0.5 / d.scale + 1e-9);
       // The toes sit under the lip.
       const lip = frontBox(1440, 900, b)!;
       expect(feet).toBeGreaterThanOrEqual(lip.x);

@@ -1,75 +1,196 @@
 // The perched bird composited on the branch at every scale, in device px,
-// from the PNGs that ship and placed exactly as the overlay places it (the
-// CSS-px rounding included). An .mjs so that the app's tsconfig, which has no
-// Node types, leaves it alone.
+// from the PNGs that ship, placed as the overlay places it, checked against
+// B's rule (meta.branch, parrot-art 95c5814) and B's no-float check
+// (transitions.py perch_float), ported here. An .mjs so that the app's
+// tsconfig, which has no Node types, leaves it alone.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { decodePng } from "../../../../scripts/parrot-png.mjs";
-import { DISPLAY_CELL, SCALES } from "./animator";
+import { DISPLAY_CELL, SCALES, rowOf } from "./animator";
 import { birdBox } from "./layout";
-import { BRANCH_DRAWINGS, branchBox, branchOf, perchSpot } from "./perch";
+import { BRANCH_DRAWINGS, branchBox, branchOf, perchDy, perchSpot } from "./perch";
 
 const publicDir = fileURLToPath(new URL("../../public/", import.meta.url));
 const png = (file) => decodePng(readFileSync(publicDir + file));
-const alpha = (img, x, y) => img.pixels[(y * img.width + x) * 4 + 3];
 const WIDTH = 1440;
 const HEIGHT = 900;
+/** The rows the app may show perched (transitions.py PERCH_ROWS). */
+const PERCH_ROWS = ["idle", "perch", "sleep", "pet"];
+// transitions.py: the toes are the bottom within TOE_ZONE of the lowest point; a body whose lowest point is
+// within BELLY_REST of the toes rests on it; an opening of BELLY_LEGS takes the legs and toes away. 1x px.
+const TOE_ZONE = 5;
+const BELLY_REST = 7;
+const BELLY_LEGS = 6;
 
-/** Each scale: the branch drawing and sheet it goes with, the perch row's frame 0, and where the app puts both, device px. */
-function perched(d) {
-  const sheet = SCALES.find((s) => s.cell.width === DISPLAY_CELL.width * d.scale);
+/** A mask, w by h, true where the image's alpha is over 127. */
+function opaque(img, x0, y0, w, h) {
+  const m = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) m[y * w + x] = img.pixels[((y0 + y) * img.width + x0 + x) * 4 + 3] > 127 ? 1 : 0;
+  return m;
+}
+
+/** cv2.getStructuringElement(MORPH_ELLIPSE, 2r+1), r as cutter.disc rounds it: per dy, the half-width dx. */
+function disc(r) {
+  r = Math.max(1, Math.round(r));
+  const rows = [];
+  for (let dy = -r; dy <= r; dy++) rows.push([dy, Math.round(Math.sqrt(r * r - dy * dy))]);
+  return rows;
+}
+
+/**
+ * cv2 erode / dilate with OpenCV's default border (outside counts as set for erode, unset for dilate),
+ * by per-row prefix sums: a disc row's span is all set (erode) or has any set (dilate) in one lookup.
+ */
+function morph(m, w, h, k, erode) {
+  const pre = new Int32Array(h * (w + 1));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) pre[y * (w + 1) + x + 1] = pre[y * (w + 1) + x] + m[y * w + x];
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let v = erode ? 1 : 0;
+      for (const [dy, dx] of k) {
+        const yy = y + dy;
+        // Rows past the edge: set for erode, unset for dilate; neither changes the answer.
+        if (yy < 0 || yy >= h) continue;
+        const x0 = x - dx;
+        const x1 = x + dx;
+        const a = Math.max(0, x0);
+        const b = Math.min(w - 1, x1);
+        const set = pre[yy * (w + 1) + b + 1] - pre[yy * (w + 1) + a];
+        // Columns past the edge count as set for erode, unset for dilate.
+        if (erode ? set < b - a + 1 : set > 0) {
+          v = erode ? 0 : 1;
+          break;
+        }
+      }
+      out[y * w + x] = v;
+    }
+  }
+  return out;
+}
+
+/** One mirrored frame (the app perches the bird facing in): RGBA for column x of the drawn cell. */
+function mirroredFrame(strip, frame, cw, ch) {
+  const rgba = (x, y) => {
+    const i = (y * strip.width + frame * cw + (cw - 1 - x)) * 4;
+    return strip.pixels.subarray(i, i + 4);
+  };
+  return rgba;
+}
+
+/**
+ * transitions.py contact(): where a mirrored cell rests. bottom[x], its lowest opaque row; cols, the toes
+ * (bottom within TOE_ZONE of the lowest point, not the red tail), plus, where the body rests low (sleep), the
+ * belly beside the feet where the body itself is the bottom, within a px of the lowest of them.
+ */
+function contact(rgba, cw, ch, s) {
+  const op = new Uint8Array(cw * ch);
+  const red = new Uint8Array(cw * ch);
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const [r, g, b, a] = rgba(x, y);
+      op[y * cw + x] = a > 127 ? 1 : 0;
+      red[y * cw + x] = a > 127 && r > 170 && g < 130 && b < 130 && r - g > 70 ? 1 : 0;
+    }
+  }
+  const lowestIn = (m) => Array.from({ length: cw }, (_, x) => {
+    for (let y = ch - 1; y >= 0; y--) if (m[y * cw + x]) return y;
+    return -1;
+  });
+  const bottom = lowestIn(op);
+  const low = Math.max(...bottom);
+  if (low < 0) return { bottom, cols: [] };
+  const redNear = morph(red, cw, ch, disc(3 * s), false);
+  const toes = bottom.map((bt, x) => bt >= 0 && bt >= low - TOE_ZONE * s && !redNear[bt * cw + x]);
+  const k = disc(BELLY_LEGS * s);
+  const body = morph(morph(op.map((v, i) => (v && !red[i] ? 1 : 0)), cw, ch, k, true), cw, ch, k, false);
+  const bb = lowestIn(body);
+  const cols = toes.slice();
+  const blow = Math.max(...bb);
+  if (blow >= 0 && blow >= low - BELLY_REST * s) {
+    const tx = toes.flatMap((t, x) => (t ? [x] : []));
+    const bare = bb.map((b, x) => b >= 0 && bottom[x] - b <= s && (!tx.length || x < Math.min(...tx) || x > Math.max(...tx)));
+    if (bare.some(Boolean)) {
+      const top = Math.max(...bb.filter((_, x) => bare[x]));
+      bare.forEach((on, x) => {
+        if (on && bb[x] >= top - s) cols[x] = true;
+      });
+    }
+  }
+  return { bottom, cols: cols.flatMap((c, x) => (c ? [x] : [])) };
+}
+
+/** Each scale: its drawing, sheet, the bark mask (branch with the front lip), and the app's placement, device px. */
+function setup(d) {
   const k = d.scale;
+  const sheet = SCALES.find((s) => s.cell.width === DISPLAY_CELL.width * k);
   const b = branchOf(d);
   const box = branchBox(WIDTH, HEIGHT, b);
   const bird = birdBox({ ...perchSpot(WIDTH, HEIGHT, DISPLAY_CELL, b), cell: DISPLAY_CELL }, HEIGHT);
   const branch = png(d.file);
-  const strip = png(sheet.rowFiles.replace("{state}", "perch"));
+  const bark = opaque(branch, 0, 0, branch.width, branch.height);
+  const lip = png(d.front.file);
+  for (let y = 0; y < lip.height; y++) for (let x = 0; x < lip.width; x++) if (lip.pixels[(y * lip.width + x) * 4 + 3] > 127) bark[(d.front.y + y) * branch.width + d.front.x + x] = 1;
   const barkTop = (x) => {
-    for (let y = 0; y < branch.height; y++) if (alpha(branch, x, y) > 127) return y;
+    for (let y = 0; y < branch.height; y++) if (bark[y * branch.width + x]) return y;
     return null;
   };
-  return { d, k, sheet, branch, strip, barkTop, birdTop: (bird.y - box.y) * k, birdLeft: (bird.x - box.x) * k };
+  return { k, sheet, b, box, bird, branch, barkTop };
 }
 
-describe("the perched bird's feet in the bark, at every scale", () => {
-  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: meta.feetBottom lands sinkPx below the trunk's top line (plus the facing-in drop), within a device px", (_, d) => {
-    const { k, sheet, barkTop, birdTop } = perched(d);
-    expect(d.sinkPx, "meta.branch.sinkPx").toBeGreaterThan(0);
-    // The trunk's top line at the perch point is where meta.branch says: perchY less sinkPx.
-    expect(barkTop(d.perchX)).toBe(d.perchY - d.sinkPx);
-    const feetBottom = sheet.feetBottom.perch[0];
-    const sink = birdTop + feetBottom - barkTop(d.perchX);
-    expect(Math.abs(sink - (d.sinkPx + (d.dropIn ?? 0))), `sinks ${sink} device px`).toBeLessThanOrEqual(1);
-    // Never the bark's other side: the lowest toe stays under the front lip.
-    expect(birdTop + feetBottom).toBeLessThanOrEqual(d.front.y + d.front.h + 1);
-    expect(k).toBe(d.scale);
+describe("the perched bird on the branch, by B's rule (meta.branch), at every scale", () => {
+  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: the mirrored cell is placed exactly where the rule says, on whole device px", (_, d) => {
+    const { k, sheet, b, box, bird } = setup(d);
+    const baseline = (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height) * k;
+    expect(d.cell).toEqual({ x: d.perchX - d.feetX, y: Math.round(d.perchY - baseline) });
+    // The branch on a whole device px; the cell's top-left from it, device px, as the rule has it.
+    expect(Number.isInteger(box.y * k)).toBe(true);
+    expect((bird.x - box.x) * k).toBeCloseTo(d.perchX - d.feetX, 9);
+    for (const row of PERCH_ROWS) {
+      const top = (bird.y + perchDy(b, row) - box.y) * k;
+      expect(top, row).toBeCloseTo(Math.round(d.perchY - baseline) + (d.rowDy?.[row] ?? 0), 9);
+    }
+    // A row the rule doesn't list sits 0 lower.
+    expect(perchDy(b, "talk")).toBe(0);
+    expect(sheet.cell.width).toBe(DISPLAY_CELL.width * k);
   });
 
-  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: facing in, the drop brings the mirrored near foot down by dropIn toward the bark", (_, d) => {
-    const { k, sheet, strip, barkTop, birdTop, birdLeft } = perched(d);
+  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: no toe or resting belly floats over the bark in any idle, perch, sleep or pet frame (0 device px)", { timeout: 60_000 }, (_, d) => {
+    const { k, sheet, b, box, bird, branch, barkTop } = setup(d);
     const cw = sheet.cell.width;
-    const baseline = (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height) * k;
-    const feetIn = cw - d.feetX;
-    let worst = -Infinity;
-    for (let c = Math.round(feetIn - 30 * k); c <= Math.round(feetIn + 30 * k); c++) {
-      const bx = Math.round(birdLeft + c);
-      if (bx < 0 || bx >= d.width) continue;
-      // Mirrored: column c of the bird facing in is column cw-1-c of the art.
-      let low = -1;
-      for (let y = sheet.cell.height - 1; y >= 0; y--) {
-        if (alpha(strip, cw - 1 - c, y) > 127) {
-          low = y;
-          break;
+    const ch = sheet.cell.height;
+    const ox = Math.round((bird.x - box.x) * k);
+    const bad = [];
+    for (const row of PERCH_ROWS) {
+      const strip = png(sheet.rowFiles.replace("{state}", row));
+      const oy = Math.round((bird.y + perchDy(b, row) - box.y) * k);
+      for (let f = 0; f < rowOf(row).frames; f++) {
+        const { bottom, cols } = contact(mirroredFrame(strip, f, cw, ch), cw, ch, k);
+        expect(cols.length, `${row} ${f} rests on something`).toBeGreaterThan(0);
+        let worst = 0;
+        for (const x of cols) {
+          const bx = x + ox;
+          const top = bx >= 0 && bx < branch.width ? barkTop(bx) : null;
+          if (top === null) {
+            worst = Infinity;
+            break;
+          }
+          worst = Math.max(worst, top - (bottom[x] + oy) - 1);
         }
+        if (worst > 0) bad.push(`${row} ${f}: ${worst} px`);
       }
-      if (low < 0 || low < baseline - 10 * k) continue;
-      worst = Math.max(worst, barkTop(bx) - (birdTop + low));
     }
-    // Where B's perch point alone would put it, these toes floated by dropIn more.
-    const atPerchPoint = worst + (d.dropIn ?? 0);
-    expect(d.dropIn).toBeGreaterThan(0);
-    expect(worst).toBeLessThan(atPerchPoint);
-    console.log(`${d.scale}x facing in: the near toes floated ${atPerchPoint.toFixed(1)} device px over the bark, now ${Math.max(0, worst).toFixed(1)} (lowered ${d.dropIn})`);
+    expect(bad).toEqual([]);
+  });
+
+  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: meta.feetBottom lands sinkPx below the trunk's top line under the feet, and under the lip", (_, d) => {
+    const { k, sheet, b, box, bird, barkTop } = setup(d);
+    const oy = Math.round((bird.y + perchDy(b, "perch") - box.y) * k);
+    const feet = (bird.x - box.x) * k + d.feetX;
+    const sink = oy + sheet.feetBottom.perch[0] - barkTop(Math.round(feet));
+    // perchY is sinkPx below the trunk's top line; rowDy may take the feet lower, never higher.
+    expect(sink).toBeGreaterThanOrEqual(d.sinkPx + (d.rowDy?.perch ?? 0) - 1);
+    expect(oy + sheet.feetBottom.perch[0]).toBeLessThanOrEqual(d.front.y + d.front.h);
   });
 });
