@@ -4,7 +4,7 @@
  * work area, so the branch is on that monitor only.
  */
 import manifest from "./sprites.manifest.json";
-import type { DisplayCell } from "./animator";
+import { SCALES, type DisplayCell } from "./animator";
 import { birdBox, type Box } from "./layout";
 import type { BirdState } from "./machine";
 
@@ -102,6 +102,25 @@ export function branchOf(d: BranchDrawing | undefined): Branch {
 export function branchDrawingFor(dpr: number, drawings: BranchDrawing[] = BRANCH_DRAWINGS): BranchDrawing | undefined {
   return drawings.find((d) => d.scale >= dpr - 0.25) ?? drawings[drawings.length - 1];
 }
+
+/**
+ * The rows the bird may play with its feet on the branch: those the art gives
+ * a front-grip cell (meta.layers.frontGrip) at every scale and its own rowDy
+ * (meta.branch.rowDy) in every drawing. Any other row would stand there with
+ * its toes bare over the bark, or at the wrong height, so the machine never
+ * plays it there (parrot-art da9d6b2: idle, perch, sleep, pet, wake, land,
+ * takeoff).
+ */
+export const BRANCH_ROWS: ReadonlySet<string> = new Set(
+  Object.keys(SCALES[0]?.layers?.frontGrip?.rows ?? {}).filter(
+    (row) =>
+      SCALES.every((s) => s.layers?.frontGrip?.rows[row] !== undefined) &&
+      m.branches !== undefined &&
+      m.branches.length > 0 &&
+      m.branches.every((d) => d.rowDy?.[row] !== undefined),
+  ),
+);
+export const playsOnBranch = (row: string): boolean => BRANCH_ROWS.has(row);
 
 /** The 1x branch: the machine's default until the overlay says which drawing it shows. */
 export const BRANCH: Branch = branchOf(BRANCH_DRAWINGS[0]);

@@ -6,7 +6,7 @@
  */
 import { DISPLAY_CELL, playedOnce, rowOf, type DisplayCell, type LoopPlan } from "./animator";
 import { birdBox } from "./layout";
-import { BRANCH, DROP_ON_PERCH_PX, INTO_SCREEN, boxGap, branchBox, perchSpot, type Branch } from "./perch";
+import { BRANCH, DROP_ON_PERCH_PX, INTO_SCREEN, boxGap, branchBox, perchSpot, playsOnBranch, type Branch } from "./perch";
 import { PET_IDLE_MS, petEndAt, petFrame, petTimes, stoppedAt, type Pet } from "./pet";
 
 type Cell = DisplayCell;
@@ -46,6 +46,11 @@ export type Flight = {
   toBranch: boolean;
   /** It set off from the branch: its feet are on it until the takeoff row is done. */
   fromBranch: boolean;
+  /**
+   * Off the branch it takes off still facing in, and turns in the air, from flyAt, to face
+   * the way it goes: a turn on the branch would flip the front grip off its toes.
+   */
+  faceInAir?: 1 | -1;
 };
 
 export type BirdState = {
@@ -252,9 +257,11 @@ export const maxX = (width: number, cell: Cell = DISPLAY_CELL) => Math.max(0, wi
  * Outside a session the branch is a now-and-then thing: a visit comes
  * BRANCH_GAP_MIN_MS to BRANCH_GAP_MAX_MS after the bird last left it (or
  * started), at the end of the first walk after that, and lasts
- * BRANCH_STAY_MIN_MS to BRANCH_STAY_MAX_MS, idling, preening every
- * BRANCH_FIDGET_MIN_MS to BRANCH_FIDGET_MAX_MS, and blinking, before it flies
- * down. After a session it stays LEAVE_MIN_MS to LEAVE_MAX_MS once awake.
+ * BRANCH_STAY_MIN_MS to BRANCH_STAY_MAX_MS, idling and blinking (and
+ * preening every BRANCH_FIDGET_MIN_MS to BRANCH_FIDGET_MAX_MS, once the art
+ * gives the preen row a grip and a rowDy: perch.ts playsOnBranch), before it
+ * flies down. After a session it stays LEAVE_MIN_MS to LEAVE_MAX_MS once awake.
+ * Nothing is played on the branch that the art hasn't fitted to it.
  */
 export const FLY_PX_PER_S = 350;
 export const ARC_PEAK_PX = 80;
@@ -310,7 +317,8 @@ export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boole
   const facing: 1 | -1 = to.x === s.x ? s.facing : to.x > s.x ? 1 : -1;
   const holdRow = spriteState(s, now);
   const holdFrame = frameIndex(s, now, () => 0);
-  const turned = faceTo(s, facing, now);
+  // Off the branch it never turns on it: it takes off facing in and turns once in the air.
+  const turned = s.onBranch ? s : faceTo(s, facing, now);
   const from = { x: s.x, lift: s.lift };
   const takeoffAt = turned !== s && turned.turnStart === now ? now + TURN_MS : now;
   const flyAt = takeoffAt + rowMs("takeoff");
@@ -325,7 +333,18 @@ export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boole
     holdRow,
     holdFrame,
     onBranch: false,
-    flight: { from, to, takeoffAt, flyAt, landAt, landRowAt, endAt: landRowAt + rowMs("land"), toBranch, fromBranch: s.onBranch },
+    flight: {
+      from,
+      to,
+      takeoffAt,
+      flyAt,
+      landAt,
+      landRowAt,
+      endAt: landRowAt + rowMs("land"),
+      toBranch,
+      fromBranch: s.onBranch,
+      ...(s.onBranch && facing !== s.facing ? { faceInAir: facing } : {}),
+    },
   };
 }
 
@@ -333,8 +352,11 @@ export function beginFlight(s: BirdState, now: number, to: Spot, toBranch: boole
 function dropOntoPerch(s: BirdState, now: number, rand: number): BirdState {
   const spot = perchFor(s);
   if (s.reducedMotion) return settle({ ...teleport(s, spot, true), restUntil: 0 }, now, rand);
+  // It comes down onto the perch already facing in: a turn there would flip the grip off its toes.
   return {
-    ...faceTo(teleport(s, spot, false), INTO_SCREEN, now),
+    ...teleport(s, spot, false),
+    facing: INTO_SCREEN,
+    turnStart: null,
     mode: "flight",
     enteredAt: now,
     stepAt: now,
@@ -473,7 +495,7 @@ export function enterRest(s: BirdState, now: number, rand: number): BirdState {
       mode: "idle",
       enteredAt: now,
       restUntil: until,
-      nextAt: s.reducedMotion ? until : Math.min(until, now + branchFidgetGap(mix(rand, 5))),
+      nextAt: s.reducedMotion || !playsOnBranch("idle_preen") ? until : Math.min(until, now + branchFidgetGap(mix(rand, 5))),
       leaveSoon: false,
       happyAfterWake: false,
     };
@@ -569,6 +591,8 @@ function stopWalkForPet(s: BirdState, now: number): BirdState {
 
 function rub(s: BirdState, now: number): BirdState {
   if (s.hidden) return s;
+  // On the branch only if the art fits the pet row to it.
+  if (s.onBranch && !playsOnBranch("pet")) return s;
   if (s.mode === "pet" && s.pet) {
     const p = s.pet;
     if (stoppedAt(p, now) === null) return { ...s, pet: { ...p, lastRubAt: now } };
@@ -588,7 +612,7 @@ function afterPet(s: BirdState, now: number, rand: number): BirdState {
   const back = (s.pet?.back ?? "idle") as PetBack;
   const done = { ...s, pet: null };
   if (done.sessionActive) return settle(done, now, rand);
-  if (back === "talk" && done.talking) return { ...done, mode: "talk", enteredAt: now };
+  if (back === "talk" && done.talking && (!done.onBranch || playsOnBranch("talk"))) return { ...done, mode: "talk", enteredAt: now };
   if (back === "perch") return { ...done, mode: "perch", enteredAt: now };
   if (back === "idle") return backToRest(done, now, rand);
   return enterRest(done, now, rand);
@@ -606,8 +630,8 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
       if (s.onBranch) {
         if (now < s.nextAt) return s;
         if (now >= s.restUntil) return leaveBranch(s, now, rand);
-        // On the branch it preens; under reduced motion it waits for the rest to end.
-        if (s.reducedMotion || now + FIDGET_LONGEST_MS > s.restUntil) return { ...s, nextAt: s.restUntil };
+        // On the branch it preens, if the art fits the preen row to it; under reduced motion it waits for the rest to end.
+        if (s.reducedMotion || !playsOnBranch("idle_preen") || now + FIDGET_LONGEST_MS > s.restUntil) return { ...s, nextAt: s.restUntil };
         return { ...s, mode: "preen", enteredAt: now };
       }
       if (s.reducedMotion || now < s.nextAt) return s;
@@ -634,7 +658,7 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
       return elapsed >= MUTTER_MS ? backToRest(s, now, rand) : s;
     case "wake":
       if (!playedOnce(rowOf("wake"), elapsed)) return s;
-      return s.happyAfterWake && !s.sessionActive
+      return s.happyAfterWake && !s.sessionActive && (!s.onBranch || playsOnBranch("happy"))
         ? { ...s, mode: "happy", enteredAt: now, happyAfterWake: false }
         : settle(s, now, rand);
     case "happy":
@@ -644,6 +668,8 @@ function tick(s: BirdState, now: number, rand: number): BirdState {
       if (!f) return settle(s, now, rand);
       if (now >= f.endAt) return arrive(s, now, rand);
       if (now < f.flyAt) return s.x === f.from.x && s.lift === f.from.lift ? s : { ...s, ...f.from };
+      // Off the branch: the turn to face the way it goes, in the air, from the moment it leaves.
+      if (f.faceInAir !== undefined && s.facing !== f.faceInAir) s = faceTo(s, f.faceInAir, f.flyAt);
       if (now >= f.landAt) {
         // At the perch: turn in the air to face into the screen, from the moment it got there.
         const there = { ...s, ...f.to };
@@ -729,6 +755,8 @@ function step(s: BirdState, event: BirdEvent, now: number, rand: number): BirdSt
       }
     case "talkStart":
       if (s.mode === "drag" || s.mode === "sleep" || s.mode === "fall" || s.mode === "flight") return { ...s, talking: true };
+      // On the branch the talk row has no grip: the bubble opens, the bird stays as it is.
+      if (s.onBranch && !playsOnBranch("talk")) return { ...s, talking: true };
       return { ...s, mode: "talk", enteredAt: now, talking: true };
     case "talkEnd": {
       const quiet = { ...s, talking: false };
@@ -812,8 +840,8 @@ const NEXT_ROWS: Record<Mode, readonly string[]> = {
   flight: ["takeoff", "fly", "land", "idle", "walk", "sleep"],
   pet: ["idle", "perch", "talk", "walk", "drag", "takeoff"],
 };
-/** On the branch a rest preens, talks, sleeps, is petted or flies down. */
-const NEXT_ON_BRANCH: readonly string[] = ["idle_preen", "takeoff", "fly", "talk", "sleep", "drag", "pet"];
+/** On the branch a rest sleeps, is petted or flies down; it preens or talks only where the art fits those rows to it. */
+const NEXT_ON_BRANCH: readonly string[] = [...["idle_preen", "talk", "sleep", "pet"].filter(playsOnBranch), "takeoff", "fly", "drag"];
 
 /** The row it is drawing, then the rows it may draw next. */
 export function nextRows(s: BirdState, now: number): string[] {

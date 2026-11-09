@@ -84,6 +84,7 @@ import {
   branchShown,
   feetOnBranch,
   perchDy,
+  playsOnBranch,
   shadowBox,
   cursorBoxes,
   fadeZone,
@@ -176,14 +177,19 @@ describe("sessions", () => {
     expect(tick(s, at + 86_400_000)).toBe(s);
   });
 
-  it("wakes happy when a session ran to its end", () => {
+  it("a session that ran to its end wakes it on the perch, and it stays as it is there: the happy row has no grip", () => {
     let { s, at } = asleepOnPerch();
     s = go(s, { type: "stoodDown", finished: true }, at);
     expect(s.mode).toBe("wake");
+    expect(playsOnBranch("happy")).toBe(false);
     s = tick(s, at + 500);
-    expect(s.mode).toBe("happy");
-    s = tick(s, at + 500 + 800);
     expect(s.mode).toBe("idle");
+    expect(s.onBranch).toBe(true);
+  });
+
+  it("would wake happy where the art fits the happy row (off the branch)", () => {
+    const awake = { ...start(), mode: "wake" as const, enteredAt: T0, happyAfterWake: true };
+    expect(tick(awake, T0 + 500).mode).toBe("happy");
   });
 
   it("wakes without the celebration on any other ending", () => {
@@ -194,11 +200,13 @@ describe("sessions", () => {
     expect(s.mode).toBe("idle");
   });
 
-  it("is still happy if the poll woke it just before the event", () => {
+  it("keeps the finished word if the poll woke it just before the event", () => {
     let { s, at } = asleepOnPerch();
     s = go(s, { type: "session", active: false }, at);
     s = go(s, { type: "stoodDown", finished: true }, at);
-    expect(tick(s, at + 500).mode).toBe("happy");
+    expect(s.happyAfterWake).toBe(true);
+    // On the perch it settles rather than play a row the art hasn't fitted there.
+    expect(tick(s, at + 500).mode).toBe("idle");
   });
 
   it("goes back to sleep if a new session starts while it wakes", () => {
@@ -959,8 +967,14 @@ describe("flight", () => {
     expect(f.turnStart).toBe(T0);
     expect(f.flight!.takeoffAt).toBe(T0 + TURN_MS);
     expect(spriteState(f, T0 + 10)).toBe("idle");
+    // Off the branch: no turn on it; it takes off as it faces and turns in the air.
     const down = beginFlight({ ...away, onBranch: true, facing: 1, ...perchFor(away) }, T0, { x: 100, lift: 0 }, false);
-    expect(down.facing).toBe(-1);
+    expect(down.facing).toBe(1);
+    expect(down.flight!.takeoffAt).toBe(T0);
+    expect(down.flight!.faceInAir).toBe(-1);
+    const flying = tick(down, down.flight!.flyAt + 1);
+    expect(flying.facing).toBe(-1);
+    expect(flying.turnStart).toBe(down.flight!.flyAt);
   });
 
   it("costs frames only while flying; asleep on the perch it asks for none", () => {
@@ -1018,7 +1032,7 @@ describe("when it flies", () => {
     expect(again.flight).toEqual(flying.flight);
   });
 
-  it("on a visit it stays 2 to 5 minutes, preening only every 8 to 20 s, then flies down", () => {
+  it("on a visit it stays 2 to 5 minutes, idling (the preen row has no grip, so no preening), then flies down", () => {
     expect([BRANCH_STAY_MIN_MS, BRANCH_STAY_MAX_MS]).toEqual([120_000, 300_000]);
     expect([BRANCH_FIDGET_MIN_MS, BRANCH_FIDGET_MAX_MS]).toEqual([8_000, 20_000]);
     for (const rand of [0.01, 0.3, 0.6, 0.99]) {
@@ -1029,9 +1043,9 @@ describe("when it flies", () => {
       const stay = sitting.restUntil - up.flight!.endAt;
       expect(stay).toBeGreaterThanOrEqual(BRANCH_STAY_MIN_MS);
       expect(stay).toBeLessThanOrEqual(BRANCH_STAY_MAX_MS);
-      const firstPreen = sitting.nextAt - up.flight!.endAt;
-      expect(firstPreen).toBeGreaterThanOrEqual(BRANCH_FIDGET_MIN_MS);
-      expect(firstPreen).toBeLessThanOrEqual(BRANCH_FIDGET_MAX_MS);
+      // Nothing comes due before the stay is over.
+      expect(playsOnBranch("idle_preen")).toBe(false);
+      expect(sitting.nextAt).toBe(sitting.restUntil);
     }
   });
 
@@ -1538,6 +1552,6 @@ describe("on the perch it faces into the screen", () => {
   it("a mistake that left it facing the edge on the perch is put right", () => {
     const perched = landed(beginFlight(start(), T0, perchFor(start()), true));
     const wrong = { ...perched, facing: 1 as const };
-    expect(tick(wrong, perched.nextAt).facing).toBe(into);
+    expect(go(wrong, { type: "resize", width: wrong.width, height: wrong.height }, perched.enteredAt + 1000).facing).toBe(into);
   });
 });
