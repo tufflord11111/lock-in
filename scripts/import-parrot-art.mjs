@@ -11,13 +11,13 @@
  * than 16 MiB is written as one strip per row, cropped to its frames, so the
  * overlay decodes only the rows it shows.
  *
- * The branch: branch@<s>x.png for each scale, and branch-front@<s>x.png, the
- * trunk's front lip drawn over the perched bird's toes, are copied to
+ * The branch: branch@<s>x.png for each scale, and its contact shadow
+ * (meta.branch.shadow: image, and where it goes on the branch), are copied to
  * parrot/props/. Each scale's meta.branch (size, perch point, where the
- * bird's feet are in its cell, and the lip's rectangle, all in that scale's
- * px, the right side flush with the screen's edge) goes with it into the
- * manifest's "branches", one entry per scale. Without meta.branch the overlay
- * guesses a perch point on the drawing.
+ * bird's feet are in its cell, sinkPx, outlinePx, rowDy, the shadow and
+ * drawOrder, all in that scale's px, the right side flush with the screen's
+ * edge) goes with it into the manifest's "branches", one entry per scale.
+ * Without meta.branch the overlay guesses a perch point on the drawing.
  *
  * "ink" is how far the drawing reaches across the cell in any frame of any
  * row, CSS px from the cell's left (alpha over 8 in the 1x sheet), so the
@@ -44,13 +44,13 @@
  * it is soft, and the larger sheets' measurements disagree in places (81dfb9e:
  * 1.5x idle frame 0 is 43 px wide where 1x and 2x are 24).
  *
- * Layers (meta.layers): the main sheet alone is the perch look. The
- * underband (the white border and outer line below the belly line, drawn
- * under the bird on the ground) and the toerim (a bark-tone rim round the
- * toes, drawn under the bird on the branch) come as sheets of the same
- * layout. Each row of each is written cropped to the rows of pixels it has
- * (most of a cell is empty), with that crop's top and height in the scale's
- * "layers"; a row with nothing in it gets no file. meta.feetBottom (the
+ * Layers: every sheet meta.layers names (parrot-art da9d6b2: the underband,
+ * the white border and outer line below the belly line, drawn under the bird
+ * on the ground; and frontGrip, the branch's front face under each toe, drawn
+ * over the bird on the branch exactly like its cell) has the sheet's layout.
+ * Each row of each is written cropped to the rows of pixels it has (most of a
+ * cell is empty), with that crop's top and height, and the layer's "use" and
+ * "draw", in the scale's "layers"; a row with nothing in it gets no file. meta.feetBottom (the
  * bird's lowest px per row and frame, at that scale) goes into each scale.
  *
  * Perched, the bird faces into the screen, mirrored, and meta.branch is
@@ -116,7 +116,6 @@ let lidColour = null;
 let contact = null;
 const scales = [];
 const sheets = new Map();
-const LAYERS = ["underband", "toerim"];
 for (const { name, maxDpr } of SCALES) {
   const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta;
   const cell = { width: meta.cell.w, height: meta.cell.h };
@@ -205,12 +204,15 @@ for (const { name, maxDpr } of SCALES) {
   if (name === "1x") ink = inkExtent(image, cell, rows);
   const written = writeScale(PUBLIC, scale, rows, current.columns, image.pixels);
   sheets.set(name, { image, meta, cell });
-  // The layers, each row cropped to the pixel rows it has.
-  for (const layer of LAYERS) {
+  // The layers meta.layers names, each row cropped to the pixel rows it has. Any old layer's
+  // folder for this scale goes first, so a layer the art no longer has leaves nothing behind.
+  for (const old of readdirSync(join(PUBLIC, "parrot"))) {
+    if (old.endsWith(`-${name}`) && old !== `parrot-${name}`) rmSync(join(PUBLIC, "parrot", old), { recursive: true, force: true });
+  }
+  const layerNames = Object.keys(meta.layers ?? {}).filter((k) => typeof meta.layers[k] === "object" && meta.layers[k]?.image);
+  for (const layer of layerNames) {
     const out = `parrot/${layer}-${name}`;
-    rmSync(join(PUBLIC, out), { recursive: true, force: true });
-    const spec = meta.layers?.[layer];
-    if (!spec) continue;
+    const spec = meta.layers[layer];
     const img = decodePng(readFileSync(join(dir, spec.image ?? `parrot-${layer}@${name}.png`)));
     if (img.width !== sheet.width || img.height !== sheet.height) throw new Error(`${layer}@${name} is ${img.width}x${img.height}, the sheet is ${sheet.width}x${sheet.height}`);
     mkdirSync(join(PUBLIC, out), { recursive: true });
@@ -235,7 +237,7 @@ for (const { name, maxDpr } of SCALES) {
       layerRows[row.state] = { y: y0, h };
       layerBytes += decodedBytes(w, h);
     });
-    scale.layers = { ...scale.layers, [layer]: { rowFiles: `${out}/{state}.png`, use: spec.use, rows: layerRows } };
+    scale.layers = { ...scale.layers, [layer]: { rowFiles: `${out}/{state}.png`, use: spec.use, draw: spec.draw, rows: layerRows } };
     console.log(`  ${layer} ${name}: ${Object.keys(layerRows).length} rows, ${(layerBytes / 2 ** 20).toFixed(2)} MiB decoded if every row is`);
   }
   const bytes = written.reduce((n, w) => n + w.bytes, 0);
@@ -278,13 +280,21 @@ for (const { name } of SCALES) {
     Object.assign(entry, { perchX: meta.perchX, perchY: meta.perchY });
     if (typeof meta.birdFeetX === "number") entry.feetX = meta.birdFeetX;
     if (typeof meta.sinkPx === "number") entry.sinkPx = meta.sinkPx;
-    if (meta.front) {
-      const frontFile = meta.front.image ?? `branch-front@${name}.png`;
-      const front = decodePng(readFileSync(join(dir, frontFile)));
-      if (front.width !== meta.front.w || front.height !== meta.front.h) throw new Error(`${frontFile} is ${front.width}x${front.height}, meta.branch.front says ${meta.front.w}x${meta.front.h}`);
-      const frontOut = `parrot/props/branch-front-${name}.png`;
-      copyFileSync(join(dir, frontFile), join(PUBLIC, frontOut));
-      entry.front = { file: frontOut, x: meta.front.x, y: meta.front.y, w: meta.front.w, h: meta.front.h };
+    if (typeof meta.outlinePx === "number") entry.outlinePx = meta.outlinePx;
+    if (meta.shadow) {
+      const sh = meta.shadow;
+      const shadow = decodePng(readFileSync(join(dir, sh.image)));
+      if (shadow.width !== sh.w || shadow.height !== sh.h) throw new Error(`${sh.image} is ${shadow.width}x${shadow.height}, meta.branch.shadow says ${sh.w}x${sh.h}`);
+      const shadowOut = `parrot/props/branch-shadow-${name}.png`;
+      copyFileSync(join(dir, sh.image), join(PUBLIC, shadowOut));
+      entry.shadow = { file: shadowOut, x: sh.x, y: sh.y, w: sh.w, h: sh.h };
+    }
+    if (meta.drawOrder) {
+      // The overlay draws branch, shadow, bird, then the grip over it; it can't follow another order.
+      const want = ["branch", "shadow", "bird", "frontGrip"];
+      const got = meta.drawOrder.map((d) => d.split(" ")[0]);
+      if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`meta.branch.drawOrder is ${JSON.stringify(meta.drawOrder)}; the overlay draws ${want.join(", ")}`);
+      entry.drawOrder = meta.drawOrder;
     }
     if (typeof meta.birdFeetX === "number") {
       const baseline = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta.baseline;
@@ -302,7 +312,8 @@ for (const { name } of SCALES) {
   console.log(
     `branch ${name}: ${entry.width}x${entry.height}` +
       (meta ? `, perch at ${entry.perchX},${entry.perchY}, mirrored cell at ${entry.cell ? `${entry.cell.x},${entry.cell.y}` : "?"}, rowDy ${JSON.stringify(entry.rowDy ?? {})}` : ", no meta.branch") +
-      (entry.front ? `, front lip ${entry.front.w}x${entry.front.h} at ${entry.front.x},${entry.front.y}` : ""),
+      (entry.shadow ? `, shadow ${entry.shadow.w}x${entry.shadow.h} at ${entry.shadow.x},${entry.shadow.y}` : "") +
+      (entry.outlinePx ? `, outline ${entry.outlinePx} px` : ""),
   );
 }
 
