@@ -9,11 +9,15 @@
  * sheet sizes, rows, fps and loops come from the JSON; the "from" version
  * marks are kept from the current manifest. A sheet that would decode to more
  * than 16 MiB is written as one strip per row, cropped to its frames, so the
- * overlay decodes only the rows it shows. Any branch@*.png in <dir> is copied
- * as a static prop, listed under "props" in the manifest. meta.branch in the
- * 1x JSON (its size and the perch point, where the bird's feet go, in 1x px,
- * the right side flush with the screen's edge) becomes the manifest's
- * "branch"; without it the overlay guesses a perch point on the prop.
+ * overlay decodes only the rows it shows.
+ *
+ * The branch: branch@<s>x.png for each scale, and branch-front@<s>x.png, the
+ * trunk's front lip drawn over the perched bird's toes, are copied to
+ * parrot/props/. Each scale's meta.branch (size, perch point, where the
+ * bird's feet are in its cell, and the lip's rectangle, all in that scale's
+ * px, the right side flush with the screen's edge) goes with it into the
+ * manifest's "branches", one entry per scale. Without meta.branch the overlay
+ * guesses a perch point on the drawing.
  *
  * "ink" is how far the drawing reaches across the cell in any frame of any
  * row, CSS px from the cell's left (alpha over 8 in the 1x sheet), so the
@@ -139,30 +143,43 @@ if (rows.length !== current.rows.length || rows.some((r, i) => r.state !== curre
 }
 if (rows.some((r) => r.frames > current.columns)) throw new Error(`a row has more than ${current.columns} frames`);
 
-// Static props: anything branch@*.png, copied as-is with its scale in the name.
-const props = [];
-const propScale = (file) => Number(/@([\d.]+)x\.png$/.exec(file)?.[1] ?? 1);
-for (const file of readdirSync(dir).filter((f) => /^branch@.*\.png$/.test(f)).sort((a, b) => propScale(a) - propScale(b))) {
-  const png = readFileSync(join(dir, file));
-  const image = decodePng(png);
-  const out = `parrot/props/${file.replace("@", "-")}`;
-  mkdirSync(join(PUBLIC, "parrot/props"), { recursive: true });
-  copyFileSync(join(dir, file), join(PUBLIC, out));
-  props.push({ name: "branch", scale: propScale(file), file: out, width: image.width, height: image.height });
-  console.log(`prop ${file}: ${image.width}x${image.height} -> ${out}`);
-}
 console.log(`ink: x ${ink.left} to ${ink.right} of the ${scales[0].cell.width} px cell`);
 
-// The perch: 1x px are CSS px.
-const metaBranch = JSON.parse(readFileSync(join(dir, "parrot@1x.json"), "utf8")).meta.branch;
-let branch = null;
-if (metaBranch) {
-  if (metaBranch.edge !== undefined && metaBranch.edge !== "right") throw new Error(`meta.branch.edge is ${metaBranch.edge}; the overlay draws a right-edge branch`);
-  for (const k of ["w", "h", "perchX", "perchY"]) if (typeof metaBranch[k] !== "number") throw new Error(`meta.branch.${k} is missing`);
-  branch = { width: metaBranch.w, height: metaBranch.h, perchX: metaBranch.perchX, perchY: metaBranch.perchY };
-  console.log(`branch: ${branch.width}x${branch.height}, perch at ${branch.perchX},${branch.perchY} (meta.branch)`);
+// The branch, per scale, in that scale's px. The old copies go first, so nothing stale is left.
+rmSync(join(PUBLIC, "parrot/props"), { recursive: true, force: true });
+const branches = [];
+for (const { name } of SCALES) {
+  const file = `branch@${name}.png`;
+  if (!existsSync(join(dir, file))) continue;
+  const scale = Number(name.replace("x", ""));
+  const image = decodePng(readFileSync(join(dir, file)));
+  mkdirSync(join(PUBLIC, "parrot/props"), { recursive: true });
+  const out = `parrot/props/branch-${name}.png`;
+  copyFileSync(join(dir, file), join(PUBLIC, out));
+  const entry = { scale, file: out, width: image.width, height: image.height };
+  const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta.branch;
+  if (meta) {
+    if (meta.edge !== undefined && meta.edge !== "right") throw new Error(`meta.branch.edge is ${meta.edge}; the overlay draws a right-edge branch`);
+    for (const k of ["w", "h", "perchX", "perchY"]) if (typeof meta[k] !== "number") throw new Error(`parrot@${name}.json: meta.branch.${k} is missing`);
+    if (meta.w !== image.width || meta.h !== image.height) throw new Error(`${file} is ${image.width}x${image.height}, meta.branch says ${meta.w}x${meta.h}`);
+    Object.assign(entry, { perchX: meta.perchX, perchY: meta.perchY });
+    if (typeof meta.birdFeetX === "number") entry.feetX = meta.birdFeetX;
+    if (meta.front) {
+      const frontFile = meta.front.image ?? `branch-front@${name}.png`;
+      const front = decodePng(readFileSync(join(dir, frontFile)));
+      if (front.width !== meta.front.w || front.height !== meta.front.h) throw new Error(`${frontFile} is ${front.width}x${front.height}, meta.branch.front says ${meta.front.w}x${meta.front.h}`);
+      const frontOut = `parrot/props/branch-front-${name}.png`;
+      copyFileSync(join(dir, frontFile), join(PUBLIC, frontOut));
+      entry.front = { file: frontOut, x: meta.front.x, y: meta.front.y, w: meta.front.w, h: meta.front.h };
+    }
+  }
+  branches.push(entry);
+  console.log(
+    `branch ${name}: ${entry.width}x${entry.height}` +
+      (meta ? `, perch at ${entry.perchX},${entry.perchY}, feet at ${entry.feetX ?? "the cell's middle"}` : ", no meta.branch") +
+      (entry.front ? `, front lip ${entry.front.w}x${entry.front.h} at ${entry.front.x},${entry.front.y}` : ""),
+  );
 }
-if (props.length === 0 && existsSync(join(PUBLIC, "parrot/props"))) rmSync(join(PUBLIC, "parrot/props"), { recursive: true, force: true });
 
 const manifest = {
   columns: current.columns,
@@ -171,8 +188,7 @@ const manifest = {
   ink,
   scales,
   rows,
-  ...(props.length ? { props } : {}),
-  ...(branch ? { branch } : {}),
+  ...(branches.length ? { branches } : {}),
 };
 const line = (o) => JSON.stringify(o);
 const text = [
@@ -186,9 +202,8 @@ const text = [
   "  ],",
   '  "rows": [',
   ...manifest.rows.map((r, i) => `    ${line(r)}${i < manifest.rows.length - 1 ? "," : ""}`),
-  props.length || branch ? "  ]," : "  ]",
-  ...(props.length ? ['  "props": [', ...props.map((p, i) => `    ${line(p)}${i < props.length - 1 ? "," : ""}`), branch ? "  ]," : "  ]"] : []),
-  ...(branch ? [`  "branch": ${line(branch)}`] : []),
+  branches.length ? "  ]," : "  ]",
+  ...(branches.length ? ['  "branches": [', ...branches.map((b, i) => `    ${line(b)}${i < branches.length - 1 ? "," : ""}`), "  ]"] : []),
   "}",
   "",
 ].join("\n");
