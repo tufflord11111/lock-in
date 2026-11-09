@@ -44,13 +44,30 @@
  * it is soft, and the larger sheets' measurements disagree in places (81dfb9e:
  * 1.5x idle frame 0 is 43 px wide where 1x and 2x are 24).
  *
+ * Layers (meta.layers): the main sheet alone is the perch look. The
+ * underband (the white border and outer line below the belly line, drawn
+ * under the bird on the ground) and the toerim (a bark-tone rim round the
+ * toes, drawn under the bird on the branch) come as sheets of the same
+ * layout. Each row of each is written cropped to the rows of pixels it has
+ * (most of a cell is empty), with that crop's top and height in the scale's
+ * "layers"; a row with nothing in it gets no file. meta.feetBottom (the
+ * bird's lowest px per row and frame, at that scale) goes into each scale.
+ *
+ * Perched, the overlay faces the bird into the screen, mirrored, but
+ * meta.branch's perch point and sinkPx are measured for it facing right. The
+ * mirror puts its raised near foot over a lower stretch of bark, where it
+ * floats. So each branch also gets "dropIn": how far, in that scale's px, to
+ * lower the perched bird so those toes reach the bark (measured by
+ * compositing the mirrored idle and perch frames on the branch), no further
+ * than keeps its lowest toes under the front lip.
+ *
  * The delivered rows must start with the manifest's rows, in order: new rows
  * are added after them, never in between, so a row's place on the sheet keeps
  * its meaning.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { decodePng, decodedBytes, writeScale } from "./parrot-png.mjs";
+import { crop, decodePng, decodedBytes, encodePng, writeScale } from "./parrot-png.mjs";
 
 const WEB = "apps/web";
 const PUBLIC = join(WEB, "public");
@@ -99,6 +116,8 @@ let baseline = null;
 let lidColour = null;
 let contact = null;
 const scales = [];
+const sheets = new Map();
+const LAYERS = ["underband", "toerim"];
 for (const { name, maxDpr } of SCALES) {
   const meta = JSON.parse(readFileSync(join(dir, `parrot@${name}.json`), "utf8")).meta;
   const cell = { width: meta.cell.w, height: meta.cell.h };
@@ -164,6 +183,16 @@ for (const { name, maxDpr } of SCALES) {
   else scale.file = `parrot/parrot-${name}.png`;
   if (eyes) scale.eyes = eyes;
   if (head) scale.head = head;
+  // The lowest px per frame, for checking where the feet land; null where it is in the air.
+  if (meta.feetBottom) {
+    scale.feetBottom = {};
+    for (const row of these) {
+      const list = meta.feetBottom[row.state];
+      if (!list) continue;
+      if (list.length !== row.frames) throw new Error(`parrot@${name}.json: meta.feetBottom.${row.state} has ${list.length} entries for ${row.frames} frames`);
+      scale.feetBottom[row.state] = list;
+    }
+  }
   scales.push(scale);
 
   const png = readFileSync(join(dir, `parrot@${name}.png`));
@@ -176,6 +205,40 @@ for (const { name, maxDpr } of SCALES) {
   rmSync(join(PUBLIC, `parrot/parrot-${name}`), { recursive: true, force: true });
   if (name === "1x") ink = inkExtent(image, cell, rows);
   const written = writeScale(PUBLIC, scale, rows, current.columns, image.pixels);
+  sheets.set(name, { image, meta, cell });
+  // The layers, each row cropped to the pixel rows it has.
+  for (const layer of LAYERS) {
+    const out = `parrot/${layer}-${name}`;
+    rmSync(join(PUBLIC, out), { recursive: true, force: true });
+    const spec = meta.layers?.[layer];
+    if (!spec) continue;
+    const img = decodePng(readFileSync(join(dir, spec.image ?? `parrot-${layer}@${name}.png`)));
+    if (img.width !== sheet.width || img.height !== sheet.height) throw new Error(`${layer}@${name} is ${img.width}x${img.height}, the sheet is ${sheet.width}x${sheet.height}`);
+    mkdirSync(join(PUBLIC, out), { recursive: true });
+    const layerRows = {};
+    let layerBytes = 0;
+    rows.forEach((row, r) => {
+      const w = row.frames * cell.width;
+      let y0 = cell.height;
+      let y1 = -1;
+      for (let y = 0; y < cell.height; y++) {
+        for (let x = 0; x < w; x++) {
+          if (img.pixels[((r * cell.height + y) * img.width + x) * 4 + 3] > 0) {
+            y0 = Math.min(y0, y);
+            y1 = Math.max(y1, y);
+            break;
+          }
+        }
+      }
+      if (y1 < 0) return;
+      const h = y1 - y0 + 1;
+      writeFileSync(join(PUBLIC, out, `${row.state}.png`), encodePng(w, h, crop(img.pixels, img.width, 0, r * cell.height + y0, w, h)));
+      layerRows[row.state] = { y: y0, h };
+      layerBytes += decodedBytes(w, h);
+    });
+    scale.layers = { ...scale.layers, [layer]: { rowFiles: `${out}/{state}.png`, use: spec.use, rows: layerRows } };
+    console.log(`  ${layer} ${name}: ${Object.keys(layerRows).length} rows, ${(layerBytes / 2 ** 20).toFixed(2)} MiB decoded if every row is`);
+  }
   const bytes = written.reduce((n, w) => n + w.bytes, 0);
   const decoded = written.reduce((n, w) => n + decodedBytes(w.width, w.height), 0);
   console.log(
@@ -215,6 +278,7 @@ for (const { name } of SCALES) {
     if (meta.w !== image.width || meta.h !== image.height) throw new Error(`${file} is ${image.width}x${image.height}, meta.branch says ${meta.w}x${meta.h}`);
     Object.assign(entry, { perchX: meta.perchX, perchY: meta.perchY });
     if (typeof meta.birdFeetX === "number") entry.feetX = meta.birdFeetX;
+    if (typeof meta.sinkPx === "number") entry.sinkPx = meta.sinkPx;
     if (meta.front) {
       const frontFile = meta.front.image ?? `branch-front@${name}.png`;
       const front = decodePng(readFileSync(join(dir, frontFile)));
@@ -222,6 +286,11 @@ for (const { name } of SCALES) {
       const frontOut = `parrot/props/branch-front-${name}.png`;
       copyFileSync(join(dir, frontFile), join(PUBLIC, frontOut));
       entry.front = { file: frontOut, x: meta.front.x, y: meta.front.y, w: meta.front.w, h: meta.front.h };
+    }
+    if (meta.front && typeof meta.birdFeetX === "number") {
+      const drop = dropFacingIn(sheets.get(name), image, meta);
+      entry.dropIn = drop.dropIn;
+      console.log(`  perched facing in at ${name}: near toes float up to ${drop.float} px; lowered ${drop.dropIn} px (lip allows ${drop.room})`);
     }
   }
   branches.push(entry);
@@ -262,6 +331,55 @@ const text = [
 ].join("\n");
 writeFileSync(MANIFEST, text);
 console.log(`wrote ${MANIFEST}: display cell ${manifest.displayCell.width}x${manifest.displayCell.height}`);
+
+/**
+ * Composites the perched bird facing into the screen (mirrored, birdFeetX's
+ * mirror on perchX, meta.baseline on perchY) on the branch, over every frame
+ * of the idle and perch rows, and finds how far it must come down so no toe
+ * floats above the bark's top line: the toes are the columns near the feet
+ * whose lowest px is within 10 px (at 1x) of the baseline. Never so far that
+ * the lowest toe goes past the front lip's bottom. Whole px at this scale.
+ */
+function dropFacingIn({ image, meta, cell }, branch, b) {
+  const k = meta.scale;
+  const alpha = (img, x, y) => img.pixels[(y * img.width + x) * 4 + 3];
+  const barkTop = (x) => {
+    for (let y = 0; y < branch.height; y++) if (alpha(branch, x, y) > 127) return y;
+    return null;
+  };
+  const feetIn = cell.width - b.birdFeetX;
+  const left = b.perchX - feetIn;
+  const cellTop = b.perchY - meta.baseline;
+  const lipBottom = b.front.y + b.front.h;
+  let float = 0;
+  let lowest = -Infinity;
+  for (const state of ["idle", "perch"]) {
+    const r = meta.frameTags.findIndex((t) => t.name === state);
+    const frames = meta.frameTags[r].to - meta.frameTags[r].from + 1;
+    for (let f = 0; f < frames; f++) {
+      for (let c = Math.round(feetIn - 30 * k); c <= Math.round(feetIn + 30 * k); c++) {
+        const bx = left + c;
+        if (c < 0 || c >= cell.width || bx < 0 || bx >= branch.width) continue;
+        // Mirrored: column c facing in is column width-1-c of the art.
+        const sx = f * cell.width + (cell.width - 1 - c);
+        let low = -1;
+        for (let y = cell.height - 1; y >= 0; y--) {
+          if (alpha(image, sx, r * cell.height + y) > 127) {
+            low = y;
+            break;
+          }
+        }
+        if (low < 0 || low < meta.baseline - 10 * k) continue;
+        const top = barkTop(bx);
+        if (top === null) continue;
+        float = Math.max(float, top - (cellTop + low));
+        lowest = Math.max(lowest, cellTop + low);
+      }
+    }
+  }
+  const room = Math.max(0, Math.floor(lipBottom - lowest));
+  return { float: Math.round(float * 10) / 10, room, dropIn: Math.min(Math.ceil(float), room) };
+}
 
 /** The leftmost and rightmost opaque columns over every frame of every row: [left, right) in the cell. */
 function inkExtent(image, cell, rowList) {
