@@ -83,13 +83,15 @@ describe("the rows played on the branch", () => {
       for (const d of BRANCH_DRAWINGS) expect(d.rowDy?.[row], `${row}: rowDy at ${d.scale}x`).toBeDefined();
       expect(playsOnBranch(row), row).toBe(true);
     }
-    // Sleep, idle, petting, waking, landing and taking off all do come round.
-    for (const row of ["idle", "sleep", "pet", "wake", "land", "takeoff"]) expect(played, row).toContain(row);
+    // Sleep, idle, petting, waking, landing and taking off all do come round; and with parrot-art 4f2a588,
+    // talking, preening and the happy row after a finished session too.
+    for (const row of ["idle", "sleep", "pet", "wake", "land", "takeoff", "talk", "idle_preen", "happy"]) expect(played, row).toContain(row);
   });
 
-  it("never plays talk, the preen, happy, peck or the mutter there, nor blink as a row: blink stays the lid layer", () => {
-    for (const row of ["talk", "idle_preen", "happy", "peck", "idle_blink", "perch", "walk", "drag", "fly"]) {
-      if (!playsOnBranch(row)) expect(walk.rows.has(row), row).toBe(false);
+  it("never plays a row the art hasn't fitted there (peck, walk, the ground rest), nor blink as a row: blink stays the lid layer", () => {
+    for (const row of ["peck", "idle_blink", "walk", "drag", "fly", "sad", "yawn", "droopy_idle"]) {
+      expect(playsOnBranch(row), row).toBe(false);
+      expect(walk.rows.has(row), row).toBe(false);
     }
   });
 
@@ -98,6 +100,6 @@ describe("the rows played on the branch", () => {
   });
 
   it("allows exactly the rows with grip cells and rowDy in the art as shipped", () => {
-    expect([...BRANCH_ROWS].sort()).toEqual(["idle", "land", "perch", "pet", "sleep", "takeoff", "wake"]);
+    expect([...BRANCH_ROWS].sort()).toEqual(["happy", "idle", "idle_preen", "land", "perch", "pet", "sleep", "takeoff", "talk", "wake"]);
   });
 });

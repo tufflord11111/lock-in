@@ -59,7 +59,7 @@ describe("the bird's look where its feet are", () => {
         }
       }
       for (const row of ["idle", "walk", "perch", "sleep", "takeoff", "land", "pet"]) expect(layerRect(scale, "underband", row, 0), `underband ${row}`).not.toBeNull();
-      expect(Object.keys(scale.layers!.frontGrip.rows).sort()).toEqual(["idle", "land", "perch", "pet", "sleep", "takeoff", "wake"]);
+      expect(Object.keys(scale.layers!.frontGrip.rows).sort()).toEqual(["happy", "idle", "idle_preen", "land", "perch", "pet", "sleep", "takeoff", "talk", "wake"]);
     }
   });
 });

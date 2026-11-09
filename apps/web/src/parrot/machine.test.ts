@@ -177,12 +177,15 @@ describe("sessions", () => {
     expect(tick(s, at + 86_400_000)).toBe(s);
   });
 
-  it("a session that ran to its end wakes it on the perch, and it stays as it is there: the happy row has no grip", () => {
+  it("a session that ran to its end wakes it happy on the perch, then it rests there", () => {
     let { s, at } = asleepOnPerch();
     s = go(s, { type: "stoodDown", finished: true }, at);
     expect(s.mode).toBe("wake");
-    expect(playsOnBranch("happy")).toBe(false);
+    expect(playsOnBranch("happy")).toBe(true);
     s = tick(s, at + 500);
+    expect(s.mode).toBe("happy");
+    expect(s.onBranch).toBe(true);
+    s = tick(s, at + 500 + 800);
     expect(s.mode).toBe("idle");
     expect(s.onBranch).toBe(true);
   });
@@ -205,8 +208,7 @@ describe("sessions", () => {
     s = go(s, { type: "session", active: false }, at);
     s = go(s, { type: "stoodDown", finished: true }, at);
     expect(s.happyAfterWake).toBe(true);
-    // On the perch it settles rather than play a row the art hasn't fitted there.
-    expect(tick(s, at + 500).mode).toBe("idle");
+    expect(tick(s, at + 500).mode).toBe("happy");
   });
 
   it("goes back to sleep if a new session starts while it wakes", () => {
@@ -1032,7 +1034,7 @@ describe("when it flies", () => {
     expect(again.flight).toEqual(flying.flight);
   });
 
-  it("on a visit it stays 2 to 5 minutes, idling (the preen row has no grip, so no preening), then flies down", () => {
+  it("on a visit it stays 2 to 5 minutes, preening only every 8 to 20 s, then flies down", () => {
     expect([BRANCH_STAY_MIN_MS, BRANCH_STAY_MAX_MS]).toEqual([120_000, 300_000]);
     expect([BRANCH_FIDGET_MIN_MS, BRANCH_FIDGET_MAX_MS]).toEqual([8_000, 20_000]);
     for (const rand of [0.01, 0.3, 0.6, 0.99]) {
@@ -1043,10 +1045,31 @@ describe("when it flies", () => {
       const stay = sitting.restUntil - up.flight!.endAt;
       expect(stay).toBeGreaterThanOrEqual(BRANCH_STAY_MIN_MS);
       expect(stay).toBeLessThanOrEqual(BRANCH_STAY_MAX_MS);
-      // Nothing comes due before the stay is over.
-      expect(playsOnBranch("idle_preen")).toBe(false);
-      expect(sitting.nextAt).toBe(sitting.restUntil);
+      expect(playsOnBranch("idle_preen")).toBe(true);
+      const firstPreen = sitting.nextAt - up.flight!.endAt;
+      expect(firstPreen).toBeGreaterThanOrEqual(BRANCH_FIDGET_MIN_MS);
+      expect(firstPreen).toBeLessThanOrEqual(BRANCH_FIDGET_MAX_MS);
+      // And when it comes, it preens there, its feet still on the branch.
+      const preening = tick(sitting, sitting.nextAt);
+      expect(preening.mode).toBe("preen");
+      expect(preening.onBranch).toBe(true);
+      expect(spriteState(preening, sitting.nextAt)).toBe("idle_preen");
     }
+  });
+
+  it("talks on the branch: a bubble there plays the talk row in place, and after it the visit goes on", () => {
+    const sitting = landed(beginFlight(start(), T0, perchFor(start()), true));
+    const at = sitting.enteredAt + 5_000;
+    expect(playsOnBranch("talk")).toBe(true);
+    const talking = go(sitting, { type: "talkStart" }, at);
+    expect(talking.mode).toBe("talk");
+    expect(talking.onBranch).toBe(true);
+    expect(spriteState(talking, at)).toBe("talk");
+    expect(talking).toMatchObject({ x: sitting.x, lift: sitting.lift, facing: sitting.facing });
+    const after = go(talking, { type: "talkEnd" }, at + 3_000);
+    expect(after.mode).toBe("idle");
+    expect(after.onBranch).toBe(true);
+    expect(after.restUntil).toBe(sitting.restUntil);
   });
 
   it("a bubble on the branch doesn't make the visit longer", () => {
@@ -1413,8 +1436,8 @@ describe("the bird grips the branch: branch, shadow, bird, then the front grip (
   it("places every row drawn on the branch with its own rowDy, negative ones too, and other rows at 0", () => {
     for (const d of BRANCH_DRAWINGS) {
       const b = branchOf(d);
-      for (const row of ["idle", "perch", "sleep", "wake", "pet", "land", "takeoff"]) expect(perchDy(b, row), `${d.scale}x ${row}`).toBe((d.rowDy?.[row] ?? 0) / d.scale);
-      expect(perchDy(b, "talk")).toBe(0);
+      for (const row of ["idle", "perch", "sleep", "wake", "pet", "land", "takeoff", "talk", "idle_preen", "happy"]) expect(perchDy(b, row), `${d.scale}x ${row}`).toBe((d.rowDy?.[row] ?? 0) / d.scale);
+      expect(perchDy(b, "walk")).toBe(0);
     }
     expect(BRANCH_DRAWINGS.some((d) => Object.values(d.rowDy ?? {}).some((v) => v < 0))).toBe(true);
   });
@@ -1521,7 +1544,8 @@ describe("on the perch it faces into the screen", () => {
     expect(tick(dropped, T0 + 1000 + rowMs("land")).facing).toBe(into);
   });
 
-  it("never faces the edge on the perch, through hours of rests, fidgets, talk, sessions and blinks", () => {
+  // Four hours in 50 ms steps: about 290,000 reduces, more now the perch has preening and talk.
+  it("never faces the edge on the perch, through hours of rests, fidgets, talk, sessions and blinks", { timeout: 30_000 }, () => {
     let r = 5;
     const rand = () => (r = (r * 16807) % 2147483647) / 2147483647;
     let s = start({ height: 900, branchDueAt: T0 });

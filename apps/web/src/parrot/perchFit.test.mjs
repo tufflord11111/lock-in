@@ -22,6 +22,8 @@ const PERCH_ROWS = ["idle", "perch", "sleep", "pet"];
 const TOE_ZONE = 5;
 const BELLY_REST = 7;
 const BELLY_LEGS = 6;
+/** transitions.py: a resting belly's lowest point beside the feet is at most this far above the toes. */
+const BELLY_BARE = 10;
 
 /** A mask, w by h, true where the image's alpha is over 127. */
 function opaque(img, x0, y0, w, h) {
@@ -104,15 +106,17 @@ function contact(rgba, cw, ch, s) {
   const redNear = morph(red, cw, ch, disc(3 * s), false);
   const toes = bottom.map((bt, x) => bt >= 0 && bt >= low - TOE_ZONE * s && !redNear[bt * cw + x]);
   const k = disc(BELLY_LEGS * s);
-  const body = morph(morph(op.map((v, i) => (v && !red[i] ? 1 : 0)), cw, ch, k, true), cw, ch, k, false);
+  // transitions.py: the body is the opaque less the tail as dilated (red after cv2.dilate), opened.
+  const body = morph(morph(op.map((v, i) => (v && !redNear[i] ? 1 : 0)), cw, ch, k, true), cw, ch, k, false);
   const bb = lowestIn(body);
   const cols = toes.slice();
   const blow = Math.max(...bb);
   if (blow >= 0 && blow >= low - BELLY_REST * s) {
     const tx = toes.flatMap((t, x) => (t ? [x] : []));
     const bare = bb.map((b, x) => b >= 0 && bottom[x] - b <= s && (!tx.length || x < Math.min(...tx) || x > Math.max(...tx)));
-    if (bare.some(Boolean)) {
-      const top = Math.max(...bb.filter((_, x) => bare[x]));
+    const top = bare.some(Boolean) ? Math.max(...bb.filter((_, x) => bare[x])) : -1;
+    // Resting means near the toes (parrot-art 4f2a588's BELLY_BARE): a body this far above them floats free.
+    if (top >= 0 && top >= low - BELLY_BARE * s) {
       bare.forEach((on, x) => {
         if (on && bb[x] >= top - s) cols[x] = true;
       });
@@ -131,8 +135,8 @@ const TOE_MIN_W = 2;
 const TOE_H = [2, 8];
 /** B's rule (meta.branch.note): every toe reaches this far into the bark fill, 1x px. */
 const GRIP_INTO = 2;
-/** transitions.py BRANCH_ROWS: every row drawn on the branch. */
-const BRANCH_ROWS = ["idle", "perch", "sleep", "pet", "wake", "land", "takeoff"];
+/** Every row drawn on the branch: those the art gives front-grip cells (meta.layers.frontGrip), as perch.ts allows. */
+const BRANCH_ROWS = Object.keys(SCALES[0].layers.frontGrip.rows);
 
 /**
  * transitions.py toe_runs: toe columns joined into toes (gaps of at most TOE_GAP), claw specks (narrower than
@@ -229,7 +233,7 @@ describe("the perched bird on the branch, by B's rule (meta.branch), at every sc
       const top = (bird.y + perchDy(b, row) - box.y) * k;
       expect(top, row).toBeCloseTo(Math.round(d.perchY - baseline) + (d.rowDy?.[row] ?? 0), 9);
     }
-    expect(perchDy(b, "talk")).toBe(0);
+    expect(perchDy(b, "walk")).toBe(0);
     expect(sheet.cell.width).toBe(DISPLAY_CELL.width * k);
   });
 
