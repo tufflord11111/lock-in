@@ -270,14 +270,15 @@ describe("the contact shadow", () => {
     expect(land[land.length - 1]!.alpha).toBe(SHADOW_ALPHA_BRANCH);
   });
 
-  it("is drawn after the branch and before the bird, inside the bird's box, so it fades with the perched bird", () => {
+  it("is drawn after the branch and before the bird, inside the bird's box, so it stays with the bird, which never fades", () => {
     const bird = source("./bird.ts");
     // The branch goes before #bird; the shadow is put first inside it, after the canvas, so under the sprite.
     expect(bird.indexOf("el.before(branch)")).toBeGreaterThan(-1);
     expect(bird.indexOf("el.prepend(shadow)")).toBeGreaterThan(bird.indexOf("el.prepend(canvas)"));
     expect(bird.indexOf("el.after(front)")).toBeGreaterThan(-1);
     const css = source("../theme/parrot.css").replace(/\s+/g, " ");
-    expect(css).toMatch(/#bird\.parrot-faded \{ opacity: 0\.2;/);
+    expect(css).not.toMatch(/#bird\.parrot-faded/);
+    expect(css).toMatch(/\.parrot-shown\.parrot-faded \{ opacity: 0\.2;/);
   });
 
   it("costs no redraw while asleep: the bird holds one frame and the shadow element is only touched when it changes", () => {

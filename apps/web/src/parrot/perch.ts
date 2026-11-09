@@ -100,7 +100,7 @@ export const BRANCH: Branch = branchOf(BRANCH_DRAWINGS[0]);
 export const PERCH_HEIGHT = 0.55;
 /** A drop this close to the branch lands on the perch. */
 export const DROP_ON_PERCH_PX = 60;
-/** While perched, a cursor this close to the bird or the branch fades them. */
+/** A cursor this close to the branch fades it and its lip (never the bird). */
 export const FADE_NEAR_PX = 120;
 
 /** The branch's box: flush with the right edge, its perch point PERCH_HEIGHT down. */
@@ -196,16 +196,15 @@ export function frontShown(s: BirdState, now: number): boolean {
 }
 
 /**
- * Where a cursor fades things out of its way: the branch and its lip whenever
- * they are shown, and the bird too while it is perched, 120 px around. `bird`
- * says whether the bird is in it, and so goes click-through when it fades.
+ * Where a cursor fades things out of its way: the branch and its lip (which is
+ * inside the branch's box), 120 px around, whenever they are shown. Never the
+ * bird: perched or not it stays solid, and takes the cursor on its own box at
+ * once, so it can always be grabbed or petted.
  */
-export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number, now: number): { zone: Box; bird: boolean } | null {
+export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number, now: number): Box | null {
   if (!branchShown(s, now)) return null;
-  const branch = branchBox(innerWidth, innerHeight, s.branch);
-  const pad = (b: Box): Box => ({ x: b.x - FADE_NEAR_PX, y: b.y - FADE_NEAR_PX, w: b.w + 2 * FADE_NEAR_PX, h: b.h + 2 * FADE_NEAR_PX });
-  if (!isPerched(s)) return { zone: pad(branch), bird: false };
-  return { zone: unionBox(birdBox(s, innerHeight), branch, FADE_NEAR_PX), bird: true };
+  const b = branchBox(innerWidth, innerHeight, s.branch);
+  return { x: b.x - FADE_NEAR_PX, y: b.y - FADE_NEAR_PX, w: b.w + 2 * FADE_NEAR_PX, h: b.h + 2 * FADE_NEAR_PX };
 }
 
 /** The boxes that take the cursor: the bird's first, except in the air, where it can't be caught. */

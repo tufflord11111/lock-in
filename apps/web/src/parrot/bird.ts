@@ -8,7 +8,7 @@ import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameR
 import { lookFor, wantedFiles } from "./look";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
-import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, isPerched, perchDy, type Branch } from "./perch";
+import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, perchDy, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
 import { PET_IDLE_MS, PET_START_PX, cursorSide, petLean } from "./pet";
 import { SHADOW_BLUR_PX, type Shadow } from "./shadow";
@@ -38,7 +38,7 @@ export type Bird = {
   refreshHitboxes: () => void;
   /** Resolves once the first frame's image is decoded and on the element. */
   ready: () => Promise<void>;
-  /** Rust's word: the cursor is near the branch (and the perched bird), so they fade. */
+  /** Rust's word: the cursor is near the branch, so it and its lip fade (the bird never does). */
   setFaded: (faded: boolean) => void;
   /** Debug builds: a line in the frame check's log. */
   debugNote: (text: string) => void;
@@ -97,19 +97,17 @@ export function createBird(
   if (state.onBranch) state = reduce(state, { type: "resize", width: state.width, height: state.height }, Date.now(), Math.random());
   let faded = false;
   let propsKey = "";
-  /** The branch and the lip shown or not, and faded by a nearby cursor; the bird fades only while perched. */
+  /** The branch and the lip shown or not, and faded by a nearby cursor. The bird never fades. */
   const showProps = (now: number) => {
     const shown = branchShown(state, now);
     const lip = frontShown(state, now);
-    const perched = isPerched(state);
-    const key = `${shown}:${lip}:${perched}:${faded}`;
+    const key = `${shown}:${lip}:${faded}`;
     if (key === propsKey) return;
     propsKey = key;
     branch.classList.toggle("parrot-shown", shown);
     front.classList.toggle("parrot-shown", lip);
     branch.classList.toggle("parrot-faded", faded && shown);
     front.classList.toggle("parrot-faded", faded && lip);
-    el.classList.toggle("parrot-faded", faded && perched);
   };
   let lastPlan: LoopPlan["kind"] = "stop";
   let blink = firstBlink(Date.now(), Math.random());
@@ -210,15 +208,14 @@ export function createBird(
     const dpr = window.devicePixelRatio;
     const extra = options.extraRects().map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height }));
     const boxes = cursorBoxes(state, window.innerHeight, extra).map((b) => physicalBox(b, dpr));
+    // The branch's fade zone: the bird is never in it, and its own box always takes the cursor.
     const zone = fadeZone(state, window.innerWidth, window.innerHeight, now);
-    const fade = zone ? physicalBox(zone.zone, dpr) : null;
-    // Whether the bird is in the fade, and so goes click-through with it: only perched.
-    const fadeBird = zone?.bird ?? false;
-    const key = JSON.stringify([boxes, fade, fadeBird]);
+    const fade = zone ? physicalBox(zone, dpr) : null;
+    const key = JSON.stringify([boxes, fade]);
     if (key === sentBoxes) return;
     sentBoxes = key;
     sentAt = now;
-    invoke("companion_set_hitbox", { boxes, fade, fadeBird }).catch(() => {});
+    invoke("companion_set_hitbox", { boxes, fade }).catch(() => {});
   };
 
   /**

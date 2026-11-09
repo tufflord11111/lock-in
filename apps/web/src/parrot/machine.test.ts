@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { DISPLAY_CELL, frameAt, rowOf } from "./animator";
 import {
   FALL_PX_PER_S,
@@ -1216,20 +1217,32 @@ describe("dragged off the perch and dropped", () => {
 describe("what the overlay tells Rust", () => {
   const perched = () => landed(beginFlight(start(), T0, perchFor(start()), true));
 
-  it("while perched, fades the branch and the bird: both, 120 px around, the bird in it", () => {
+  it("while perched, fades the branch (and its lip) alone, 120 px around: never the bird", () => {
     const s = perched();
     const fade = fadeZone(s, s.width, s.height, T0)!;
     expect(FADE_NEAR_PX).toBe(120);
-    expect(fade.zone).toEqual(unionBox(birdBox(s, s.height), branchBox(s.width, s.height), 120));
-    expect(fade.bird).toBe(true);
+    const b = branchBox(s.width, s.height);
+    expect(fade).toEqual({ x: b.x - 120, y: b.y - 120, w: b.w + 240, h: b.h + 240 });
+    // The lip is inside the branch's box, so it fades with it.
+    const lip = frontBox(s.width, s.height)!;
+    expect(unionBox(fade, lip)).toEqual(fade);
   });
 
-  it("with the branch shown and the bird not on it, fades the branch alone and leaves the bird out", () => {
+  it("the perched bird is grabbable at once: its box goes to Rust first, whatever the fade", () => {
+    const s = perched();
+    expect(cursorBoxes(s, s.height, [])[0]).toEqual(birdBox(s, s.height));
+    const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
+    // The page never marks the bird faded, and sends Rust no word that would make it click-through.
+    expect(bird).not.toMatch(/el\.classList\.toggle\("parrot-faded"/);
+    expect(bird).not.toMatch(/fadeBird/);
+    const css = readFileSync(new URL("../theme/parrot.css", import.meta.url), "utf8");
+    expect(css).not.toMatch(/#bird\.parrot-faded/);
+  });
+
+  it("with the branch shown and the bird not on it, fades the branch alone", () => {
     const up = beginFlight(start(), T0, perchFor(start()), true);
-    const fade = fadeZone(up, up.width, up.height, T0 + 100)!;
     const b = branchBox(up.width, up.height);
-    expect(fade.zone).toEqual({ x: b.x - 120, y: b.y - 120, w: b.w + 240, h: b.h + 240 });
-    expect(fade.bird).toBe(false);
+    expect(fadeZone(up, up.width, up.height, T0 + 100)).toEqual({ x: b.x - 120, y: b.y - 120, w: b.w + 240, h: b.h + 240 });
   });
 
   it("with no branch shown, fades nothing", () => {

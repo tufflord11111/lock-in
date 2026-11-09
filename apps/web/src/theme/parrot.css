@@ -62,9 +62,8 @@ body {
   opacity: 1;
 }
 
-/* A cursor nearby: the branch, the lip and the perched bird step out of the way. */
-.parrot-shown.parrot-faded,
-#bird.parrot-faded {
+/* A cursor nearby: the branch and the lip step out of the way. The bird never fades. */
+.parrot-shown.parrot-faded {
   opacity: 0.2;
   transition: opacity 150ms ease;
 }
@@ -73,8 +72,7 @@ body {
   #bird,
   .parrot-branch,
   .parrot-branch.parrot-shown,
-  .parrot-shown.parrot-faded,
-  #bird.parrot-faded {
+  .parrot-shown.parrot-faded {
     transition: none;
   }
 }
