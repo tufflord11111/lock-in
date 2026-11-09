@@ -66,8 +66,11 @@ async function boot() {
   const pressEnded = () => {
     window.setTimeout(() => void invoke("companion_interaction_ended").catch(() => {}), 0);
   };
+  // Any button's: a right press (petting) is over on right-up just as a left one is on left-up.
   window.addEventListener("pointerup", pressEnded, true);
   window.addEventListener("pointercancel", pressEnded, true);
+  // The right button pets the bird; the overlay never shows a context menu.
+  window.addEventListener("contextmenu", (e) => e.preventDefault(), true);
 
   // Main answers with the settings. Until then the bird stays silent.
   await emitTo("main", "companion:hello");

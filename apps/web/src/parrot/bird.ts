@@ -4,11 +4,13 @@
  * animation loop, the drag and the hitboxes.
  */
 import { invoke } from "@tauri-apps/api/core";
-import { DISPLAY_CELL, LID_COLOUR, createLoop, eyeAt, frameAt, frameRect, rowOf, scaleFiles, scaleFor, type LoopPlan } from "./animator";
+import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameRect, headAt, rowOf, scaleFiles, scaleFor, type LoopPlan } from "./animator";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, isPerched, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
+import { PET_IDLE_MS, PET_START_PX, cursorSide, petLean } from "./pet";
+import { SHADOW_BLUR_PX, shadowFor } from "./shadow";
 import { DEBUG, createFrameLog } from "./frameCheck";
 import {
   frameIndex,
@@ -158,8 +160,15 @@ export function createBird(
   const canvas = document.createElement("canvas");
   canvas.className = "parrot-sprite";
   el.prepend(canvas);
+  // The contact shadow: first in the bird's box, so under the sprite and over the branch.
+  const shadow = document.createElement("div");
+  shadow.className = "parrot-shadow";
+  shadow.style.filter = `blur(${SHADOW_BLUR_PX}px)`;
+  el.prepend(shadow);
+  let shadowShown = "";
   const ctx = canvas.getContext("2d");
   let canvasFor = 0;
+  const baseline = DISPLAY_CELL.baseline ?? DISPLAY_CELL.height;
   const sizeCanvas = () => {
     const dpr = window.devicePixelRatio;
     if (dpr === canvasFor) return;
@@ -167,6 +176,9 @@ export function createBird(
     canvas.width = Math.round(DISPLAY_CELL.width * dpr);
     canvas.height = Math.round(DISPLAY_CELL.height * dpr);
     drawnFrame = "";
+    // A lean pivots on the feet, where the art has them while petted.
+    const feet = contactAt("pet", 0)?.cx ?? DISPLAY_CELL.width / 2;
+    canvas.style.transformOrigin = `${feet}px ${baseline}px`;
   };
   let drawnFrame = "";
   let shownFile = "";
@@ -225,12 +237,16 @@ export function createBird(
     const rect = frameRect(scale, name, frame);
     const shut = canBlink(state, name) ? lidAt(blink, now) : 0;
     const { scaleX, dip } = turnPose(state, now);
-    const key = `${rect.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}`;
+    const onBranch = frontShown(state, now);
+    const lean = leanNow(now, scale, frame, scaleX);
+    const key = `${rect.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}:${onBranch}:${lean}`;
     showProps(now);
     if (key === drawn) return;
     drawn = key;
     place(now);
     sizeCanvas();
+    // On the screen it leans toward the cursor; inside the mirrored box that is the other way when facing in.
+    canvas.style.transform = lean === 0 ? "" : `rotate(${lean * Math.sign(scaleX)}deg)`;
     // This row, and the rows it may need next, decoded and held.
     sprites.want(nextRows(state, now).map((row) => frameRect(scale, row, 0).file));
     const bitmap = sprites.get(rect.file);
@@ -244,6 +260,7 @@ export function createBird(
     }
     // Only over the row on the canvas: while a new row decodes, the old frame stays up.
     showLid(shownFile === rect.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
+    if (shownFile === rect.file) showShadow(shadowFor(name, frame, onBranch));
     frameLog?.frame(
       {
         row: name,
@@ -261,6 +278,35 @@ export function createBird(
       state.x,
       state.lift,
     );
+  };
+
+  /** The shadow element set to this ellipse; touched only when it changes, so a held frame costs nothing. */
+  const showShadow = (s: ReturnType<typeof shadowFor>) => {
+    const r = (v: number) => Math.round(v * 10) / 10;
+    const key = s ? `${r(s.x)}:${r(s.y)}:${r(s.w)}:${r(s.h)}:${s.alpha}` : "";
+    if (key === shadowShown) return;
+    shadowShown = key;
+    if (!s) {
+      shadow.style.display = "none";
+      return;
+    }
+    shadow.style.display = "block";
+    shadow.style.left = `${r(s.x)}px`;
+    shadow.style.top = `${r(s.y)}px`;
+    shadow.style.width = `${r(s.w)}px`;
+    shadow.style.height = `${r(s.h)}px`;
+    shadow.style.opacity = `${s.alpha}`;
+  };
+
+  /** The lean now, degrees on the screen, rounded so a still hand doesn't redraw: toward the cursor from the head. */
+  const leanNow = (now: number, scale: ReturnType<typeof scaleFor>, frame: number, scaleX: number): number => {
+    if (state.mode !== "pet" || !state.pet || !rub) return 0;
+    const head = headAt(scale, "pet", frame);
+    if (head) {
+      const headX = scaleX >= 0 ? state.x + head.x : state.x + state.cell.width - head.x;
+      rub.side = cursorSide(rub.x, headX, rub.side);
+    }
+    return Math.round(petLean(state.pet, now, state.reducedMotion, rub.side) * 10) / 10;
   };
 
   const loop = createLoop(
@@ -295,8 +341,49 @@ export function createBird(
   // ── Press, click and drag ──────────────────────────────────────────────
   let press: { at: number; x: number; y: number; grabX: number; grabY: number; dragging: boolean } | null = null;
 
+  // ── Petting: the right button ──────────────────────────────────────────
+  // Pressed on the bird and moved PET_START_PX, it is a rub; a right click alone does
+  // nothing (and the overlay never shows a context menu). Pinned clickable like a drag.
+  let rub: { x: number; y: number; side: -1 | 0 | 1; rubbing: boolean } | null = null;
+  let fluffTimer = 0;
+  const fluff = (on: boolean) => {
+    window.clearTimeout(fluffTimer);
+    canvas.classList.toggle("parrot-fluff", on);
+    // A still hand: the feathers settle again.
+    if (on) fluffTimer = window.setTimeout(() => canvas.classList.remove("parrot-fluff"), PET_IDLE_MS);
+  };
+  const endRub = () => {
+    if (!rub) return;
+    const { rubbing } = rub;
+    rub = null;
+    fluff(false);
+    invoke("companion_set_dragging", { dragging: false }).catch(() => {});
+    if (rubbing) dispatch({ type: "petEnd" });
+  };
   el.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 2 || press || rub) return;
+    el.setPointerCapture(e.pointerId);
+    rub = { x: e.clientX, y: e.clientY, side: 0, rubbing: false };
+    invoke("companion_set_dragging", { dragging: true }).catch(() => {});
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!rub) return;
+    if (!rub.rubbing && Math.hypot(e.clientX - rub.x, e.clientY - rub.y) < PET_START_PX) return;
+    rub.rubbing = true;
+    rub.x = e.clientX;
+    rub.y = e.clientY;
+    // Asleep it isn't woken: it only fluffs a little while the hand moves.
+    if (state.mode === "sleep") fluff(!state.reducedMotion);
+    dispatch({ type: "petRub" });
+  });
+  el.addEventListener("pointerup", (e) => {
+    if (e.button === 2) endRub();
+  });
+  el.addEventListener("pointercancel", endRub);
+  el.addEventListener("lostpointercapture", endRub);
+
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || rub) return;
     el.setPointerCapture(e.pointerId);
     const grab = grabOffset({ x: e.clientX, y: e.clientY }, birdBox(state, window.innerHeight));
     press = { at: Date.now(), x: e.clientX, y: e.clientY, grabX: grab.x, grabY: grab.y, dragging: false };

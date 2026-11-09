@@ -88,6 +88,36 @@ body {
   pointer-events: none;
 }
 
+/*
+ * The contact shadow under the footprint, in the art's ink. Its box, darkness
+ * and blur come from bird.ts (shadow.ts); it sits first in #bird, so under the
+ * sprite and over the branch, and fades with the bird.
+ */
+.parrot-shadow {
+  display: none;
+  position: absolute;
+  border-radius: 50%;
+  background: var(--parrot-ink);
+  pointer-events: none;
+}
+
+/* Petted asleep: it isn't woken, its feathers only fluff out 2% and back while the hand moves. */
+.parrot-sprite.parrot-fluff {
+  animation: parrot-fluff 900ms ease-in-out infinite;
+}
+
+@keyframes parrot-fluff {
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .parrot-sprite.parrot-fluff {
+    animation: none;
+  }
+}
+
 /* The blink's lid, over the art's eye. Its fill colour comes from the manifest. */
 .parrot-lid {
   display: none;

@@ -308,6 +308,8 @@ struct Shared {
     fade_zone: Option<Hitbox>,
     /// Whether the bird is in the fade (perched), and so goes click-through when it fades.
     fade_bird: bool,
+    /// A press on the bird is under way, with either button: a left drag or a right rub
+    /// (petting). The page says so; the same pin either way.
     dragging: bool,
     world: World,
 }
@@ -426,7 +428,7 @@ unsafe extern "system" fn never_activate(
             return LRESULT(0);
         }
         WM_TIMER if wparam.0 == GIVE_BACK_TIMER => {
-            // A long drag outlasts the fallback. The page's own word, not the mouse's state.
+            // A long drag or rub outlasts the fallback. The page's own word, not the mouse's state.
             if DRAGGING.load(Ordering::Relaxed) {
                 let _ = SetTimer(Some(window), GIVE_BACK_TIMER, GIVE_BACK_FALLBACK_MS, None);
             } else {
@@ -787,7 +789,9 @@ pub fn companion_set_hitbox(
     Ok(())
 }
 
-/// Pins the overlay clickable, or a fast drag outruns the 10 Hz hit-test.
+/// Pins the overlay clickable while a press on the bird lasts, or a fast hand outruns the
+/// 10 Hz hit-test, and holds off the fade and the focus give-back's fallback. A right press
+/// (petting) is pinned exactly as a left one (a drag): the page sends this for both.
 #[tauri::command]
 pub fn companion_set_dragging(dragging: bool, state: State<'_, CompanionState>) -> Result<(), String> {
     DRAGGING.store(dragging, Ordering::Relaxed);
@@ -960,6 +964,21 @@ mod tests {
             g = step_fade(g, t, AT_BIRD, Some(ZONE), None, false);
         }
         assert!(g.faded && !g.held);
+    }
+
+    #[test]
+    fn a_right_press_petting_the_perched_bird_is_pinned_like_a_drag() {
+        // Rested on the faded bird, it came back solid, and the right button went down on it.
+        let mut f = poll(Fade::default(), 0, AT_BIRD);
+        for t in (100..=700).step_by(100) {
+            f = step_fade(f, t, AT_BIRD, Some(ZONE), Some(BIRD_BOX), false);
+        }
+        assert!(f.held);
+        // While the rub lasts: no fade, and the bird takes the cursor wherever the hand goes.
+        let pressing = true;
+        let f = step_fade(f, 800, AT_NEAR, Some(ZONE), Some(BIRD_BOX), pressing);
+        assert!(!f.faded);
+        assert!(takes_cursor(AT_FAR, &[BIRD_BOX], fades_bird(f.faded, true), pressing));
     }
 
     #[test]

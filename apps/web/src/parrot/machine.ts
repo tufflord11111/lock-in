@@ -7,6 +7,7 @@
 import { DISPLAY_CELL, playedOnce, rowOf, type DisplayCell, type LoopPlan } from "./animator";
 import { birdBox } from "./layout";
 import { BRANCH, DROP_ON_PERCH_PX, INTO_SCREEN, boxGap, branchBox, perchSpot, type Branch } from "./perch";
+import { PET_IDLE_MS, petEndAt, petFrame, petTimes, stoppedAt, type Pet } from "./pet";
 
 type Cell = DisplayCell;
 
@@ -23,7 +24,8 @@ export type Mode =
   | "talk"
   | "drag"
   | "fall"
-  | "flight";
+  | "flight"
+  | "pet";
 
 /** A place the bird can be: x is the cell's left edge, lift the feet's height above the bottom edge. */
 export type Spot = { x: number; lift: number };
@@ -92,6 +94,10 @@ export type BirdState = {
   sessionActive: boolean;
   /** After wake: a finished session gets the happy row. */
   happyAfterWake: boolean;
+  /** pet: the petting under way. Only meaningful while the mode is pet. */
+  pet: Pet | null;
+  /** A walk is stopping on its next contact frame to be petted, the right button still down. */
+  petAfterWalk: boolean;
 };
 
 export type BirdEvent =
@@ -105,7 +111,11 @@ export type BirdEvent =
   | { type: "talkEnd" }
   | { type: "dragStart" }
   | { type: "dragMove"; x: number; lift: number; maxLift: number }
-  | { type: "dragEnd" };
+  | { type: "dragEnd" }
+  /** The right button is down on the bird and the hand moved: a rub. The first starts the petting. */
+  | { type: "petRub" }
+  /** The right button came up. */
+  | { type: "petEnd" };
 
 /** The art's stride: how far the sprite moves per walk frame, CSS px. */
 export function walkStride(row = rowOf("walk")): number {
@@ -440,6 +450,8 @@ export function initialState(
     reducedMotion,
     sessionActive,
     happyAfterWake: false,
+    pet: null,
+    petAfterWalk: false,
   };
 }
 
@@ -484,8 +496,9 @@ function backToRest(s: BirdState, now: number, rand: number): BirdState {
   return { ...s, mode: "idle", enteredAt: now, nextAt: Math.min(s.restUntil, now + nextFidget(s, mix(rand, 5))) };
 }
 
-/** After a walk: up to the branch if a visit is due and it may fly, else a rest on the ground. */
+/** After a walk: petted if it stopped for that, up to the branch if a visit is due and it may fly, else a rest on the ground. */
 function restAfterWalk(s: BirdState, now: number, rand: number): BirdState {
+  if (s.petAfterWalk) return startPet({ ...s, petAfterWalk: false }, now, "rest");
   if (!s.sessionActive && canFly(s) && now >= s.branchDueAt) return beginFlight(s, now, perchFor(s), true);
   return enterRest(s, now, rand);
 }
@@ -527,9 +540,68 @@ function startWalk(s: BirdState, now: number, rand: number): BirdState {
   return beginWalk(s, now, ahead, duration) ?? beginWalk(s, now, ahead === 1 ? -1 : 1, duration) ?? enterRest(s, now, rand);
 }
 
+/*
+ * Petting (pet.ts has the timing). Awake and resting, fidgeting or talking it
+ * is petted where it is, on the ground or on the branch, and goes back to
+ * what it was doing. Walking, it first stops on its next contact frame.
+ * Asleep it isn't woken: the overlay only fluffs it a little. In the air,
+ * picked up, falling or waking it takes no notice. No bubbles come of it.
+ */
+const PETTABLE: readonly Mode[] = ["idle", "perch", "peck", "preen", "mutter", "happy", "talk"];
+/** Where a petting goes back to: a rest it was in, a talk still open, or (after a walk) a new rest. */
+type PetBack = "idle" | "perch" | "talk" | "rest";
+
+function startPet(s: BirdState, now: number, back: PetBack): BirdState {
+  return { ...s, mode: "pet", enteredAt: now, pet: { startAt: now, lastRubAt: now, stopAt: null, back } };
+}
+
+/** A walk being petted stops on the next contact frame from where it is (it may be this one), then is petted. */
+function stopWalkForPet(s: BirdState, now: number): BirdState {
+  const row = rowOf("walk");
+  const walked = now - s.stepAt;
+  const n = walked < 0 ? 0 : Math.floor((walked * row.fps) / 1000);
+  const contact = contactFrames(row);
+  let k = n;
+  while (k < s.walkSteps && !contact.includes(k % row.frames)) k++;
+  const steps = Math.min(k, s.walkSteps);
+  return { ...s, walkSteps: steps, targetX: s.fromX + s.facing * steps * walkStride(row), petAfterWalk: true };
+}
+
+function rub(s: BirdState, now: number): BirdState {
+  if (s.hidden) return s;
+  if (s.mode === "pet" && s.pet) {
+    const p = s.pet;
+    if (stoppedAt(p, now) === null) return { ...s, pet: { ...p, lastRubAt: now } };
+    // Rubbed again after it stopped: back to the held loop, from its start if the opening is over.
+    const { openMs } = petTimes();
+    const startAt = now < p.startAt + openMs ? p.startAt : now - openMs;
+    return { ...s, pet: { ...p, startAt, lastRubAt: now, stopAt: null } };
+  }
+  if (s.mode === "walk") return s.petAfterWalk ? s : stopWalkForPet(s, now);
+  if (!PETTABLE.includes(s.mode)) return s;
+  const back: PetBack = s.mode === "perch" ? "perch" : s.mode === "talk" ? "talk" : "idle";
+  return startPet(s, now, back);
+}
+
+/** The petting is over: back to what it was. */
+function afterPet(s: BirdState, now: number, rand: number): BirdState {
+  const back = (s.pet?.back ?? "idle") as PetBack;
+  const done = { ...s, pet: null };
+  if (done.sessionActive) return settle(done, now, rand);
+  if (back === "talk" && done.talking) return { ...done, mode: "talk", enteredAt: now };
+  if (back === "perch") return { ...done, mode: "perch", enteredAt: now };
+  if (back === "idle") return backToRest(done, now, rand);
+  return enterRest(done, now, rand);
+}
+
 function tick(s: BirdState, now: number, rand: number): BirdState {
   const elapsed = now - s.enteredAt;
   switch (s.mode) {
+    case "pet": {
+      if (!s.pet) return afterPet(s, now, rand);
+      const end = petEndAt(s.pet, now, s.reducedMotion);
+      return end !== null && now >= end ? afterPet(s, now, rand) : s;
+    }
     case "idle":
       if (s.onBranch) {
         if (now < s.nextAt) return s;
@@ -675,6 +747,13 @@ function step(s: BirdState, event: BirdEvent, now: number, rand: number): BirdSt
         x: Math.min(Math.max(0, event.x), Math.max(maxX(s.width, s.cell), s.fromX)),
         lift: Math.min(Math.max(0, event.lift), Math.max(0, event.maxLift)),
       };
+    case "petRub":
+      return rub(s, now);
+    case "petEnd": {
+      if (s.petAfterWalk) return { ...s, petAfterWalk: false };
+      if (s.mode !== "pet" || !s.pet || s.pet.stopAt !== null) return s;
+      return { ...s, pet: { ...s.pet, stopAt: stoppedAt(s.pet, now) ?? now } };
+    }
     case "dragEnd": {
       if (s.mode !== "drag") return s;
       if (nearBranch(s)) return dropOntoPerch(s, now, rand);
@@ -717,23 +796,24 @@ export function spriteState(s: BirdState, now: number): string {
  * are decoded ahead, so a change of row never waits for a decode.
  */
 const NEXT_ROWS: Record<Mode, readonly string[]> = {
-  idle: ["walk", "peck", "idle_preen", "talk", "takeoff", "drag"],
+  idle: ["walk", "peck", "idle_preen", "talk", "takeoff", "drag", "pet"],
   // A walk or a flight that starts with a turn shows the row it came from until it has turned.
-  walk: ["walk", "idle", "takeoff", "perch", "talk", "drag"],
-  peck: ["idle", "walk", "talk", "takeoff", "drag"],
-  preen: ["idle", "walk", "talk", "takeoff", "drag"],
-  mutter: ["idle", "walk", "takeoff", "drag"],
-  perch: ["walk", "talk", "takeoff", "drag"],
+  walk: ["walk", "idle", "takeoff", "perch", "talk", "drag", "pet"],
+  peck: ["idle", "walk", "talk", "takeoff", "drag", "pet"],
+  preen: ["idle", "walk", "talk", "takeoff", "drag", "pet"],
+  mutter: ["idle", "walk", "takeoff", "drag", "pet"],
+  perch: ["walk", "talk", "takeoff", "drag", "pet"],
   sleep: ["wake", "drag"],
   wake: ["happy", "idle", "idle_preen", "takeoff"],
-  happy: ["idle", "idle_preen", "takeoff", "walk"],
-  talk: ["idle", "perch", "sleep", "walk", "takeoff", "drag"],
+  happy: ["idle", "idle_preen", "takeoff", "walk", "pet"],
+  talk: ["idle", "perch", "sleep", "walk", "takeoff", "drag", "pet"],
   drag: ["land", "idle", "sleep", "perch", "walk"],
   fall: ["idle", "sleep", "perch", "walk"],
   flight: ["takeoff", "fly", "land", "idle", "walk", "sleep"],
+  pet: ["idle", "perch", "talk", "walk", "drag", "takeoff"],
 };
-/** On the branch a rest preens, talks, sleeps or flies down. */
-const NEXT_ON_BRANCH: readonly string[] = ["idle_preen", "takeoff", "fly", "talk", "sleep", "drag"];
+/** On the branch a rest preens, talks, sleeps, is petted or flies down. */
+const NEXT_ON_BRANCH: readonly string[] = ["idle_preen", "takeoff", "fly", "talk", "sleep", "drag", "pet"];
 
 /** The row it is drawing, then the rows it may draw next. */
 export function nextRows(s: BirdState, now: number): string[] {
@@ -762,6 +842,12 @@ export const WALK_STEP_MS = 1000 / WALK_TICK_FPS;
 /** What the animation loop does next. */
 export function loopPlan(s: BirdState, now: number): LoopPlan {
   if (s.hidden) return { kind: "stop" };
+  // Petted: every frame for the lean, or under reduced motion (one frame, no lean) a wait for the rub to stop.
+  if (s.mode === "pet" && s.pet) {
+    if (!s.reducedMotion) return { kind: "frames" };
+    const end = petEndAt(s.pet, now, true);
+    return { kind: "wait", ms: Math.max(0, (end ?? s.pet.lastRubAt + PET_IDLE_MS) - now) };
+  }
   // Still under reduced motion, but a rest on the branch ends with a jump down.
   if (s.reducedMotion && s.onBranch && s.mode === "idle" && !s.sessionActive) return { kind: "wait", ms: Math.max(0, s.restUntil - now) };
   if (holdsOneFrame(s)) return { kind: "stop" };
@@ -775,6 +861,7 @@ export function loopPlan(s: BirdState, now: number): LoopPlan {
 
 /** The frame to show. Still modes step slowly from the clock; reduced motion holds frame 0. */
 export function frameIndex(s: BirdState, now: number, frameAt: (state: string, elapsedMs: number) => number): number {
+  if (s.mode === "pet" && s.pet) return petFrame(s.pet, now, s.reducedMotion);
   if (s.mode === "flight" && s.flight) {
     const f = s.flight;
     if (now < f.takeoffAt) return s.holdFrame;

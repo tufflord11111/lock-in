@@ -14,6 +14,8 @@ export type SpriteRow = {
   stride?: number;
   /** walk only: the frames with both feet down, where a walk may stop. Default: 0 and half way. */
   contact?: number[];
+  /** The frames it loops on while held (pet: 2 to 3 while it is rubbed), from meta.loops. */
+  loopFrames?: { from: number; to: number };
 };
 
 /** One frame's box on a sheet, in that sheet's px. Width and height are independent. */
@@ -24,6 +26,12 @@ export type DisplayCell = Cell & { baseline?: number };
 
 /** Where the art's eye is in one frame: centre and radius in the cell, and whether the art draws it open. */
 export type Eye = { x: number; y: number; r: number; open: boolean };
+
+/** The head in one frame: centre and radius in the cell. */
+export type Head = { x: number; y: number; r: number };
+
+/** The footprint in one frame: the toes' and belly bottom's centre and width on the feet line. */
+export type Contact = { cx: number; w: number };
 
 /**
  * One sheet per display scale. Either one PNG of the whole sheet (`file`), or
@@ -39,6 +47,8 @@ export type SheetScale = {
   file?: string;
   rowFiles?: string;
   eyes?: Record<string, (Eye | null)[]>;
+  /** The pet row's head, per frame, in this sheet's px. */
+  head?: Record<string, (Head | null)[]>;
 };
 
 /** A whole sheet that would decode to more than this must ship as row files. */
@@ -59,6 +69,22 @@ export function eyeAt(scale: SheetScale, state: string, frame: number): Eye | nu
   if (!eye) return null;
   const k = scale.cell.width / DISPLAY_CELL.width;
   return { x: eye.x / k, y: eye.y / k, r: eye.r / k, open: eye.open };
+}
+
+/** The head in this frame of this row, in display-cell CSS px (facing right). */
+export function headAt(scale: SheetScale, state: string, frame: number): Head | null {
+  const head = scale.head?.[state]?.[frame];
+  if (!head) return null;
+  const k = scale.cell.width / DISPLAY_CELL.width;
+  return { x: head.x / k, y: head.y / k, r: head.r / k };
+}
+
+/** Every row's footprint per frame, CSS px, from the 1x sheet's meta.contact; null where the bird is in the air. */
+export const CONTACT: Record<string, (Contact | null)[]> = (manifest as { contact?: Record<string, (Contact | null)[]> }).contact ?? {};
+
+/** The footprint in this frame of this row, in display-cell CSS px (facing right). Null in the air. */
+export function contactAt(state: string, frame: number, contact = CONTACT): Contact | null {
+  return contact[state]?.[frame] ?? null;
 }
 export const SHEET_ROWS = ROWS.length;
 
