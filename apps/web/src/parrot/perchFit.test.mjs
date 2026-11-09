@@ -100,7 +100,7 @@ function contact(rgba, cw, ch, s) {
   });
   const bottom = lowestIn(op);
   const low = Math.max(...bottom);
-  if (low < 0) return { bottom, cols: [] };
+  if (low < 0) return { bottom, op, cw, cols: [], toes: [], belly: [] };
   const redNear = morph(red, cw, ch, disc(3 * s), false);
   const toes = bottom.map((bt, x) => bt >= 0 && bt >= low - TOE_ZONE * s && !redNear[bt * cw + x]);
   const k = disc(BELLY_LEGS * s);
@@ -118,10 +118,65 @@ function contact(rgba, cw, ch, s) {
       });
     }
   }
-  return { bottom, cols: cols.flatMap((c, x) => (c ? [x] : [])) };
+  const list = (m) => m.flatMap((c, x) => (c ? [x] : []));
+  // transitions.py toe_runs: a toe-zone column where the body itself is the bottom is not a toe.
+  const toeCols = toes.map((t, x) => t && (bb[x] < 0 || bottom[x] - bb[x] > 1.5 * s));
+  return { bottom, op, cw, cols: list(cols), toes: list(toeCols), belly: list(cols.map((c, x) => c && !toes[x])) };
 }
 
-/** Each scale: its drawing, sheet, the bark mask (branch with the front lip), and the app's placement, device px. */
+/** transitions.py: toe columns this close join one toe; narrower runs are claw specks. 1x px. */
+const TOE_GAP = 2;
+const TOE_MIN_W = 2;
+/** transitions.py TOE_H: a toe's thickness is clipped to this, 1x px. */
+const TOE_H = [2, 8];
+/** B's rule (meta.branch.note): every toe reaches this far into the bark fill, 1x px. */
+const GRIP_INTO = 2;
+/** transitions.py BRANCH_ROWS: every row drawn on the branch. */
+const BRANCH_ROWS = ["idle", "perch", "sleep", "pet", "wake", "land", "takeoff"];
+
+/**
+ * transitions.py toe_runs: toe columns joined into toes (gaps of at most TOE_GAP), claw specks (narrower than
+ * TOE_MIN_W) going with the nearest toe but never setting its depth; each toe's lowest row, the columns at it
+ * (lowCols), and its underside (cols: bottom within the digit's thickness of the lowest row).
+ */
+function toeRuns({ bottom, op, cw, toes }, k) {
+  const runs = [];
+  for (const x of toes) {
+    const last = runs[runs.length - 1];
+    if (last && x - last[last.length - 1] <= TOE_GAP * k + 1) last.push(x);
+    else runs.push([x]);
+  }
+  const width = (r) => r[r.length - 1] - r[0] + 1;
+  const wide = runs.filter((r) => width(r) >= TOE_MIN_W * k);
+  const specks = new Set();
+  for (const r of runs) {
+    if (!wide.length || width(r) >= TOE_MIN_W * k) continue;
+    const gap = (w) => Math.min(Math.abs(w[0] - r[r.length - 1]), Math.abs(r[0] - w[w.length - 1]));
+    const near = wide.reduce((a, w) => (gap(w) < gap(a) ? w : a));
+    if (gap(near) <= 3 * TOE_GAP * k + 1) {
+      near.push(...r);
+      near.sort((p, q) => p - q);
+      r.forEach((x) => specks.add(x));
+    }
+  }
+  return wide.map((r) => {
+    const own = r.filter((x) => !specks.has(x));
+    const low = Math.max(...own.map((x) => bottom[x]));
+    const thick = r.map((x) => {
+      let n = 0;
+      while (bottom[x] - n >= 0 && op[(bottom[x] - n) * cw + x]) n++;
+      return n;
+    }).sort((p, q) => p - q);
+    // numpy's 25th percentile, linear between ranks.
+    const at = 0.25 * (thick.length - 1);
+    const p25 = thick[Math.floor(at)] + (thick[Math.ceil(at)] - thick[Math.floor(at)]) * (at - Math.floor(at));
+    const h = Math.min(Math.max(p25, TOE_H[0] * k), TOE_H[1] * k);
+    const cols = r.filter((x) => bottom[x] >= low - h);
+    return { low, cols, lowCols: cols.filter((x) => bottom[x] === low && !specks.has(x)), h };
+  });
+}
+
+/** Each scale: its drawing, sheet, the branch, its top line per column, and the app's placement, device px. */
 function setup(d) {
   const k = d.scale;
   const sheet = SCALES.find((s) => s.cell.width === DISPLAY_CELL.width * k);
@@ -130,67 +185,93 @@ function setup(d) {
   const bird = birdBox({ ...perchSpot(WIDTH, HEIGHT, DISPLAY_CELL, b), cell: DISPLAY_CELL }, HEIGHT);
   const branch = png(d.file);
   const bark = opaque(branch, 0, 0, branch.width, branch.height);
-  const lip = png(d.front.file);
-  for (let y = 0; y < lip.height; y++) for (let x = 0; x < lip.width; x++) if (lip.pixels[(y * lip.width + x) * 4 + 3] > 127) bark[(d.front.y + y) * branch.width + d.front.x + x] = 1;
+  // The top of the trunk's dark outline in a column (its first opaque row); the fill starts outlinePx below it.
   const barkTop = (x) => {
     for (let y = 0; y < branch.height; y++) if (bark[y * branch.width + x]) return y;
     return null;
   };
-  return { k, sheet, b, box, bird, branch, barkTop };
+  const ox = Math.round((bird.x - box.x) * k);
+  const oyOf = (row) => Math.round((bird.y + perchDy(b, row) - box.y) * k);
+  return { k, sheet, b, box, bird, branch, barkTop, ox, oyOf };
+}
+
+/** Every grounded frame of every row drawn on the branch, with its toes, belly and grip, placed by the rule. */
+function* branchFrames(d) {
+  const { k, sheet, branch, barkTop, ox, oyOf } = setup(d);
+  const cw = sheet.cell.width;
+  const ch = sheet.cell.height;
+  const grip = sheet.layers.frontGrip;
+  for (const row of BRANCH_ROWS) {
+    const strip = png(sheet.rowFiles.replace("{state}", row));
+    const gripStrip = grip.rows[row] ? png(grip.rowFiles.replace("{state}", row)) : null;
+    const gy = grip.rows[row]?.y ?? 0;
+    for (let f = 0; f < rowOf(row).frames; f++) {
+      if (sheet.feetBottom[row][f] === null) continue;
+      const frameContact = contact(mirroredFrame(strip, f, cw, ch), cw, ch, k);
+      // The grip's alpha at (x, y) of the drawn cell: the same frame, mirrored just as the bird is.
+      const gripAt = (x, y) => {
+        if (!gripStrip || y < gy || y >= gy + gripStrip.height) return 0;
+        return gripStrip.pixels[((y - gy) * gripStrip.width + f * cw + (cw - 1 - x)) * 4 + 3];
+      };
+      yield { row, f, k, contact: frameContact, bottom: frameContact.bottom, belly: frameContact.belly, gripAt, oy: oyOf(row), ox, barkTop, branch, outline: d.outlinePx };
+    }
+  }
 }
 
 describe("the perched bird on the branch, by B's rule (meta.branch), at every scale", () => {
-  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: the mirrored cell is placed exactly where the rule says, on whole device px", (_, d) => {
+  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: the mirrored cell is placed exactly where the rule says, rowDy and all, on whole device px", (_, d) => {
     const { k, sheet, b, box, bird } = setup(d);
     const baseline = (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height) * k;
     expect(d.cell).toEqual({ x: d.perchX - d.feetX, y: Math.round(d.perchY - baseline) });
-    // The branch on a whole device px; the cell's top-left from it, device px, as the rule has it.
     expect(Number.isInteger(box.y * k)).toBe(true);
     expect((bird.x - box.x) * k).toBeCloseTo(d.perchX - d.feetX, 9);
-    for (const row of PERCH_ROWS) {
+    for (const row of BRANCH_ROWS) {
       const top = (bird.y + perchDy(b, row) - box.y) * k;
       expect(top, row).toBeCloseTo(Math.round(d.perchY - baseline) + (d.rowDy?.[row] ?? 0), 9);
     }
-    // A row the rule doesn't list sits 0 lower.
     expect(perchDy(b, "talk")).toBe(0);
     expect(sheet.cell.width).toBe(DISPLAY_CELL.width * k);
   });
 
-  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: no toe or resting belly floats over the bark in any idle, perch, sleep or pet frame (0 device px)", { timeout: 60_000 }, (_, d) => {
-    const { k, sheet, b, box, bird, branch, barkTop } = setup(d);
-    const cw = sheet.cell.width;
-    const ch = sheet.cell.height;
-    const ox = Math.round((bird.x - box.x) * k);
-    const bad = [];
-    for (const row of PERCH_ROWS) {
-      const strip = png(sheet.rowFiles.replace("{state}", row));
-      const oy = Math.round((bird.y + perchDy(b, row) - box.y) * k);
-      for (let f = 0; f < rowOf(row).frames; f++) {
-        const { bottom, cols } = contact(mirroredFrame(strip, f, cw, ch), cw, ch, k);
-        expect(cols.length, `${row} ${f} rests on something`).toBeGreaterThan(0);
-        let worst = 0;
-        for (const x of cols) {
-          const bx = x + ox;
-          const top = bx >= 0 && bx < branch.width ? barkTop(bx) : null;
-          if (top === null) {
-            worst = Infinity;
-            break;
+  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))(
+    "%s: in every grounded frame of every row drawn on the branch, each toe reaches 2 px (1x) into the bark fill, and a resting belly onto it",
+    { timeout: 60_000 },
+    (_, d) => {
+      expect(d.outlinePx, "meta.branch.outlinePx").toBeGreaterThan(0);
+      const bad = [];
+      let frames = 0;
+      for (const fr of branchFrames(d)) {
+        frames++;
+        const runs = toeRuns(fr.contact, fr.k);
+        if (!runs.length && !fr.belly.length) bad.push(`${fr.row} ${fr.f}: nothing rests on the branch`);
+        for (const r of runs) {
+          // The fill starts outlinePx below the trunk's top line; the toe's lowest row is GRIP_INTO px into it.
+          for (const x of r.lowCols) {
+            const into = r.low + fr.oy - (fr.barkTop(x + fr.ox) + fr.outline) + 1;
+            if (into < GRIP_INTO * fr.k) bad.push(`${fr.row} ${fr.f}: a toe ${into} px into the fill at x ${x}`);
           }
-          worst = Math.max(worst, top - (bottom[x] + oy) - 1);
+          // Every column of the toe ends inside the branch.
+          for (const x of r.cols) if (fr.bottom[x] + fr.oy < fr.barkTop(x + fr.ox) - 1) bad.push(`${fr.row} ${fr.f}: toe column ${x} over the bark`);
         }
-        if (worst > 0) bad.push(`${row} ${f}: ${worst} px`);
+        for (const x of fr.belly) if (fr.bottom[x] + fr.oy < fr.barkTop(x + fr.ox) + fr.outline - 1) bad.push(`${fr.row} ${fr.f}: belly column ${x} short of the fill`);
       }
-    }
-    expect(bad).toEqual([]);
-  });
+      expect(bad).toEqual([]);
+      expect(frames).toBeGreaterThan(20);
+    },
+  );
 
-  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))("%s: meta.feetBottom lands sinkPx below the trunk's top line under the feet, and under the lip", (_, d) => {
-    const { k, sheet, b, box, bird, barkTop } = setup(d);
-    const oy = Math.round((bird.y + perchDy(b, "perch") - box.y) * k);
-    const feet = (bird.x - box.x) * k + d.feetX;
-    const sink = oy + sheet.feetBottom.perch[0] - barkTop(Math.round(feet));
-    // perchY is sinkPx below the trunk's top line; rowDy may take the feet lower, never higher.
-    expect(sink).toBeGreaterThanOrEqual(d.sinkPx + (d.rowDy?.perch ?? 0) - 1);
-    expect(oy + sheet.feetBottom.perch[0]).toBeLessThanOrEqual(d.front.y + d.front.h);
-  });
+  it.each(BRANCH_DRAWINGS.map((d) => [`${d.scale}x`, d]))(
+    "%s: the grip cell, mirrored and placed just as the bird's, lies over the lowest pixels of every toe in every grounded frame",
+    { timeout: 60_000 },
+    (_, d) => {
+      const bad = [];
+      for (const fr of branchFrames(d)) {
+        for (const r of toeRuns(fr.contact, fr.k)) {
+          const missed = r.lowCols.filter((x) => fr.gripAt(x, r.low) <= 127);
+          if (missed.length) bad.push(`${fr.row} ${fr.f}: grip misses toe columns ${missed.join(",")} at row ${r.low}`);
+        }
+      }
+      expect(bad).toEqual([]);
+    },
+  );
 });

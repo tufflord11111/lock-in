@@ -34,14 +34,14 @@ body {
 }
 
 /*
- * The branch at the right edge, and its front lip over the perched bird's toes.
+ * The branch at the right edge, and its contact shadow under the perched bird.
  * Neither takes the cursor: Rust doesn't hit-test them either. Both are there
  * only when needed: the branch fades in over 300 ms as the bird sets off for
- * it and out over 500 ms once it has left; the lip goes on and off with the
+ * it and out over 500 ms once it has left; the shadow goes on and off with the
  * bird's feet on the branch.
  */
 .parrot-branch,
-.parrot-branch-front {
+.parrot-branch-shadow {
   display: none;
   position: fixed;
   background-repeat: no-repeat;
@@ -58,12 +58,13 @@ body {
   transition: opacity 300ms ease;
 }
 
-.parrot-branch-front.parrot-shown {
+.parrot-branch-shadow.parrot-shown {
   opacity: 1;
 }
 
-/* A cursor nearby: the branch and the lip step out of the way. The bird never fades. */
-.parrot-shown.parrot-faded {
+/* A cursor nearby: the branch, its shadow and the front grip step out of the way. The bird never fades. */
+.parrot-shown.parrot-faded,
+.parrot-grip.parrot-faded {
   opacity: 0.2;
   transition: opacity 150ms ease;
 }
@@ -72,7 +73,8 @@ body {
   #bird,
   .parrot-branch,
   .parrot-branch.parrot-shown,
-  .parrot-shown.parrot-faded {
+  .parrot-shown.parrot-faded,
+  .parrot-grip.parrot-faded {
     transition: none;
   }
 }
@@ -86,17 +88,9 @@ body {
   pointer-events: none;
 }
 
-/*
- * The contact shadow under the footprint, in the art's ink. Its box, darkness
- * and blur come from bird.ts (shadow.ts); it sits first in #bird, so under the
- * sprite and over the branch, and fades with the bird.
- */
-.parrot-shadow {
-  display: none;
-  position: absolute;
-  border-radius: 50%;
-  background: var(--parrot-ink);
-  pointer-events: none;
+/* The front grip: over the bird's toes on the branch, it fades back as it went (the bird never fades). */
+.parrot-grip {
+  transition: opacity 150ms ease;
 }
 
 /* Petted asleep: it isn't woken, its feathers only fluff out 2% and back while the hand moves. */

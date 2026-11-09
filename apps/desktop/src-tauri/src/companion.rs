@@ -200,8 +200,9 @@ fn cursor_hits(cursor: (f64, f64), boxes: &[Hitbox]) -> bool {
     })
 }
 
-/// While the branch is shown: a cursor in the fade zone (the branch and its lip, grown by
-/// 120 CSS px, sent by the page) fades them, and they are never hit-tested, so whatever is
+/// While the branch is shown: a cursor in the fade zone (the branch, grown by 120 CSS px, sent
+/// by the page) fades it, its shadow and the front grip; the branch and the shadow are never
+/// hit-tested and the grip takes no pointer of its own, so whatever is
 /// under them at the screen's edge can be used. Back after the cursor has been out of the
 /// zone FADE_AWAY_MS. The bird never fades and is never click-through on its own box,
 /// perched or not: it can always be grabbed or petted at once. Never during a press.
@@ -277,7 +278,7 @@ struct Shared {
     page_ready: bool,
     created_at: Option<Instant>,
     hitboxes: Vec<Hitbox>,
-    /// The page's fade zone while the branch is shown: the branch and its lip only.
+    /// The page's fade zone while the branch is shown: round the branch only, never the bird.
     fade_zone: Option<Hitbox>,
     /// A press on the bird is under way, with either button: a left drag or a right rub
     /// (petting). The page says so; the same pin either way.

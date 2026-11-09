@@ -8,10 +8,9 @@ import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameR
 import { lookFor, wantedFiles } from "./look";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
-import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, frontBox, frontShown, perchDy, type Branch } from "./perch";
+import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, feetOnBranch, perchDy, shadowBox, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
 import { PET_IDLE_MS, PET_START_PX, cursorSide, petLean } from "./pet";
-import { SHADOW_BLUR_PX, type Shadow } from "./shadow";
 import { DEBUG, createFrameLog } from "./frameCheck";
 import {
   frameIndex,
@@ -38,7 +37,7 @@ export type Bird = {
   refreshHitboxes: () => void;
   /** Resolves once the first frame's image is decoded and on the element. */
   ready: () => Promise<void>;
-  /** Rust's word: the cursor is near the branch, so it and its lip fade (the bird never does). */
+  /** Rust's word: the cursor is near the branch, so it, its shadow and the front grip fade (the bird never does). */
   setFaded: (faded: boolean) => void;
   /** Debug builds: a line in the frame check's log. */
   debugNote: (text: string) => void;
@@ -63,17 +62,18 @@ export function createBird(
   el.style.width = `${DISPLAY_CELL.width}px`;
   el.style.height = `${DISPLAY_CELL.height}px`;
 
-  // The branch, behind the bird, and its front lip, over the bird's toes: drawn
-  // branch, bird, lip. Neither is ever hit-tested (neither is in the boxes Rust
-  // gets). Both are there only when needed; branchShown and frontShown say when.
+  // meta.branch.drawOrder: the branch, its shadow, the bird, then the front grip
+  // (a canvas inside the bird's box, below). The branch and the shadow are never
+  // hit-tested (neither is in the boxes Rust gets), and are there only when
+  // needed: branchShown and feetOnBranch say when.
   const branch = document.createElement("div");
   branch.className = "parrot-branch";
   branch.setAttribute("aria-hidden", "true");
   el.before(branch);
-  const front = document.createElement("div");
-  front.className = "parrot-branch-front";
-  front.setAttribute("aria-hidden", "true");
-  el.after(front);
+  const shadow = document.createElement("div");
+  shadow.className = "parrot-branch-shadow";
+  shadow.setAttribute("aria-hidden", "true");
+  el.before(shadow);
   const url = (file: string) => `url("${import.meta.env.BASE_URL}${file}")`;
   const setBox = (node: HTMLElement, box: { x: number; y: number; w: number; h: number } | null, file?: string) => {
     node.style.display = box && file ? "block" : "none";
@@ -90,24 +90,28 @@ export function createBird(
     const drawing = branchDrawingFor(window.devicePixelRatio);
     const b = branchOf(drawing);
     setBox(branch, drawing ? branchBox(window.innerWidth, window.innerHeight, b) : null, drawing?.file);
-    setBox(front, drawing?.front ? frontBox(window.innerWidth, window.innerHeight, b) : null, drawing?.front?.file);
+    setBox(shadow, drawing?.shadow ? shadowBox(window.innerWidth, window.innerHeight, b) : null, drawing?.shadow?.file);
     return b;
   };
   state = { ...state, branch: placeBranch() };
   if (state.onBranch) state = reduce(state, { type: "resize", width: state.width, height: state.height }, Date.now(), Math.random());
   let faded = false;
   let propsKey = "";
-  /** The branch and the lip shown or not, and faded by a nearby cursor. The bird never fades. */
+  /**
+   * The branch, its shadow and the grip shown or not, and faded together by a
+   * nearby cursor. The bird never fades.
+   */
   const showProps = (now: number) => {
     const shown = branchShown(state, now);
-    const lip = frontShown(state, now);
-    const key = `${shown}:${lip}:${faded}`;
+    const feet = feetOnBranch(state, now);
+    const key = `${shown}:${feet}:${faded}`;
     if (key === propsKey) return;
     propsKey = key;
     branch.classList.toggle("parrot-shown", shown);
-    front.classList.toggle("parrot-shown", lip);
+    shadow.classList.toggle("parrot-shown", feet);
     branch.classList.toggle("parrot-faded", faded && shown);
-    front.classList.toggle("parrot-faded", faded && lip);
+    shadow.classList.toggle("parrot-faded", faded && feet);
+    grip.classList.toggle("parrot-faded", faded && feet);
   };
   let lastPlan: LoopPlan["kind"] = "stop";
   let blink = firstBlink(Date.now(), Math.random());
@@ -159,25 +163,30 @@ export function createBird(
   const canvas = document.createElement("canvas");
   canvas.className = "parrot-sprite";
   el.prepend(canvas);
-  // The contact shadow: first in the bird's box, so under the sprite and over the branch.
-  const shadow = document.createElement("div");
-  shadow.className = "parrot-shadow";
-  shadow.style.filter = `blur(${SHADOW_BLUR_PX}px)`;
-  el.prepend(shadow);
-  let shadowShown = "";
+  // The front grip (meta.layers.frontGrip): its own canvas right over the bird's, in the
+  // bird's box, so it is placed, mirrored and lowered by rowDy exactly as the bird cell is,
+  // but fades with the branch while the bird doesn't. It takes no pointer: a grab goes
+  // through it to the bird.
+  const grip = document.createElement("canvas");
+  grip.className = "parrot-sprite parrot-grip";
+  grip.setAttribute("aria-hidden", "true");
+  canvas.after(grip);
   const ctx = canvas.getContext("2d");
+  const gripCtx = grip.getContext("2d");
   let canvasFor = 0;
   const baseline = DISPLAY_CELL.baseline ?? DISPLAY_CELL.height;
   const sizeCanvas = () => {
     const dpr = window.devicePixelRatio;
     if (dpr === canvasFor) return;
     canvasFor = dpr;
-    canvas.width = Math.round(DISPLAY_CELL.width * dpr);
-    canvas.height = Math.round(DISPLAY_CELL.height * dpr);
+    for (const c of [canvas, grip]) {
+      c.width = Math.round(DISPLAY_CELL.width * dpr);
+      c.height = Math.round(DISPLAY_CELL.height * dpr);
+    }
     drawnFrame = "";
-    // A lean pivots on the feet, where the art has them while petted.
+    // A lean pivots on the feet, where the art has them while petted; the grip leans with the bird.
     const feet = contactAt("pet", 0)?.cx ?? DISPLAY_CELL.width / 2;
-    canvas.style.transformOrigin = `${feet}px ${baseline}px`;
+    canvas.style.transformOrigin = grip.style.transformOrigin = `${feet}px ${baseline}px`;
   };
   let drawnFrame = "";
   let shownFile = "";
@@ -227,8 +236,8 @@ export function createBird(
     const { scaleX, dip } = turnPose(state, now);
     el.style.transform = `translate3d(${state.x}px, ${dip - state.lift + rowDy(now)}px, 0) scaleX(${scaleX})`;
   };
-  /** B's rule: with its feet on the branch, each row sits rowDy lower (sleep rests its belly on the bark). */
-  const rowDy = (now: number) => (frontShown(state, now) ? perchDy(state.branch, spriteState(state, now)) : 0);
+  /** B's rule: with its feet on the branch, each row sits rowDy lower (it may be negative); bird and grip alike. */
+  const rowDy = (now: number) => (feetOnBranch(state, now) ? perchDy(state.branch, spriteState(state, now)) : 0);
 
   const draw = (now: number) => {
     const name = spriteState(state, now);
@@ -237,7 +246,7 @@ export function createBird(
     const rect = frameRect(scale, name, frame);
     const shut = canBlink(state, name) ? lidAt(blink, now) : 0;
     const { scaleX, dip } = turnPose(state, now);
-    const onBranch = frontShown(state, now);
+    const onBranch = feetOnBranch(state, now);
     const lean = leanNow(now, scale, frame, scaleX);
     const key = `${rect.file}:${frame}:${state.x}:${state.lift}:${scaleX}:${dip}:${shut}:${onBranch}:${lean}:${rowDy(now)}`;
     showProps(now);
@@ -246,31 +255,33 @@ export function createBird(
     place(now);
     sizeCanvas();
     // On the screen it leans toward the cursor; inside the mirrored box that is the other way when facing in.
-    canvas.style.transform = lean === 0 ? "" : `rotate(${lean * Math.sign(scaleX)}deg)`;
+    canvas.style.transform = grip.style.transform = lean === 0 ? "" : `rotate(${lean * Math.sign(scaleX)}deg)`;
     // This row, and the rows it may need next, with their layers, decoded and held.
     sprites.want(wantedFiles(state, now, scale));
-    // The look for where its feet are: the underband on the ground; the toerim, with the shadow, on the branch.
+    // The look for where its feet are: the underband under it on the ground; the front grip over it on the branch.
     const look = lookFor(name, frame, onBranch);
-    const layer = look.layer ? layerRect(scale, look.layer, name, frame) : null;
+    const under = look.under ? layerRect(scale, look.under, name, frame) : null;
+    const over = look.over ? layerRect(scale, look.over, name, frame) : null;
     const bitmap = sprites.get(rect.file);
-    const layerBitmap = layer ? sprites.get(layer.file) : undefined;
-    const frameKey = `${rect.file}:${rect.sx}:${rect.sy}:${canvas.width}:${layer ? `${layer.file}:${layer.sx}` : ""}`;
-    // The layer and the bird go up together, on the same frame, or the last frame stays.
-    if (bitmap && (!layer || layerBitmap) && ctx && frameKey !== drawnFrame) {
+    const underBitmap = under ? sprites.get(under.file) : undefined;
+    const overBitmap = over ? sprites.get(over.file) : undefined;
+    const strip = (r: typeof under) => (r ? `${r.file}:${r.sx}` : "");
+    const frameKey = `${rect.file}:${rect.sx}:${rect.sy}:${canvas.width}:${strip(under)}:${strip(over)}`;
+    // The layers and the bird go up together, on the same frame, or the last frame stays.
+    if (bitmap && (!under || underBitmap) && (!over || overBitmap) && ctx && gripCtx && frameKey !== drawnFrame) {
+      const k = canvas.height / scale.cell.height;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (layer && layerBitmap) {
-        const k = canvas.height / scale.cell.height;
-        ctx.drawImage(layerBitmap, layer.sx, layer.sy, layer.sw, layer.sh, 0, layer.dy * k, canvas.width, layer.sh * k);
-      }
+      if (under && underBitmap) ctx.drawImage(underBitmap, under.sx, under.sy, under.sw, under.sh, 0, under.dy * k, canvas.width, under.sh * k);
       ctx.drawImage(bitmap, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
+      // The grip: the same frame's cell, drawn just as the bird's is, over it.
+      gripCtx.clearRect(0, 0, grip.width, grip.height);
+      if (over && overBitmap) gripCtx.drawImage(overBitmap, over.sx, over.sy, over.sw, over.sh, 0, over.dy * k, grip.width, over.sh * k);
       drawnFrame = frameKey;
       if (shownFile === "") resolveReady();
       shownFile = rect.file;
     }
     // Only over the row on the canvas: while a new row decodes, the old frame stays up.
     showLid(shownFile === rect.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
-    // The shadow changes with the canvas, never ahead of it.
-    if (drawnFrame === frameKey) showShadow(look.shadow);
     frameLog?.frame(
       {
         row: name,
@@ -288,24 +299,6 @@ export function createBird(
       state.x,
       state.lift,
     );
-  };
-
-  /** The shadow element set to this ellipse; touched only when it changes, so a held frame costs nothing. */
-  const showShadow = (s: Shadow | null) => {
-    const r = (v: number) => Math.round(v * 10) / 10;
-    const key = s ? `${r(s.x)}:${r(s.y)}:${r(s.w)}:${r(s.h)}:${s.alpha}` : "";
-    if (key === shadowShown) return;
-    shadowShown = key;
-    if (!s) {
-      shadow.style.display = "none";
-      return;
-    }
-    shadow.style.display = "block";
-    shadow.style.left = `${r(s.x)}px`;
-    shadow.style.top = `${r(s.y)}px`;
-    shadow.style.width = `${r(s.w)}px`;
-    shadow.style.height = `${r(s.h)}px`;
-    shadow.style.opacity = `${s.alpha}`;
   };
 
   /** The lean now, degrees on the screen, rounded so a still hand doesn't redraw: toward the cursor from the head. */
@@ -359,8 +352,9 @@ export function createBird(
   const fluff = (on: boolean) => {
     window.clearTimeout(fluffTimer);
     canvas.classList.toggle("parrot-fluff", on);
+    grip.classList.toggle("parrot-fluff", on);
     // A still hand: the feathers settle again.
-    if (on) fluffTimer = window.setTimeout(() => canvas.classList.remove("parrot-fluff"), PET_IDLE_MS);
+    if (on) fluffTimer = window.setTimeout(() => fluff(false), PET_IDLE_MS);
   };
   const endRub = () => {
     if (!rub) return;

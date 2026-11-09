@@ -15,8 +15,7 @@ import {
   type BirdState,
 } from "./machine";
 import { PET_IDLE_MS, PET_LEAN_DEG, PET_START_PX, cursorSide, heldFrames, petLean, petTimes } from "./pet";
-import { SHADOW_ALPHA_BRANCH, SHADOW_BLUR_PX, SHADOW_HEIGHT, SHADOW_WIDTH, shadowFor } from "./shadow";
-import { frontShown } from "./perch";
+import { feetOnBranch } from "./perch";
 
 const WIDTH = 1000;
 const T0 = 1_000_000;
@@ -112,13 +111,13 @@ describe("petting with the right button", () => {
     expect([2, 3]).toContain(frame(s, T0 + 1_100));
   });
 
-  it("perched on the branch, it is petted there and goes back to its stay, facing in, the lip over its toes", () => {
+  it("perched on the branch, it is petted there and goes back to its stay, facing in, the grip over its toes", () => {
     const up = landed(beginFlight(start(), T0, perchFor(start()), true));
     expect(up.onBranch).toBe(true);
     const at = up.enteredAt + 1_000;
     let s = go(up, { type: "petRub" }, at);
     expect(s.mode).toBe("pet");
-    expect(frontShown(s, at)).toBe(true);
+    expect(feetOnBranch(s, at)).toBe(true);
     s = go(s, { type: "petEnd" }, at + 500);
     const back = tick(s, at + 500 + closeMs);
     expect(back).toMatchObject({ mode: "idle", onBranch: true, x: up.x, lift: up.lift, facing: up.facing, restUntil: up.restUntil });
@@ -232,63 +231,5 @@ describe("petting with the right button", () => {
     // Pinned clickable for the rub, as for a drag.
     const bird = source("./bird.ts");
     expect(bird).toMatch(/e\.button !== 2[\s\S]{0,200}companion_set_dragging", \{ dragging: true \}/);
-  });
-});
-
-describe("the contact shadow", () => {
-  it("is a soft ellipse from meta.contact: 1.1 times the footprint wide, 18% of it tall, 3 px of blur, on the feet line", () => {
-    expect([SHADOW_WIDTH, SHADOW_HEIGHT, SHADOW_BLUR_PX]).toEqual([1.1, 0.18, 3]);
-    const c = contactAt("perch", 0)!;
-    expect(c.w).toBeGreaterThan(10);
-    const s = shadowFor("perch", 0, true)!;
-    expect(s.w).toBeCloseTo(c.w * 1.1);
-    expect(s.h).toBeCloseTo(c.w * 0.18);
-    expect(s.x + s.w / 2).toBeCloseTo(c.cx);
-    expect(s.y + s.h / 2).toBeCloseTo(121.6);
-    // One footprint per frame of every row, the 1x sheet's, in CSS px at every scale.
-    for (const row of ROWS) expect(CONTACT[row.state], row.state).toHaveLength(row.frames);
-  });
-
-  it("is 0.35 on the branch, and not there at all on the ground (the underband stands it there)", () => {
-    expect(SHADOW_ALPHA_BRANCH).toBe(0.35);
-    expect(shadowFor("perch", 0, true)!.alpha).toBe(0.35);
-    for (const row of ROWS) for (let f = 0; f < row.frames; f++) expect(shadowFor(row.state, f, false)).toBeNull();
-  });
-
-  it("has none in the air, and shrinks and fades through the takeoff and back through the landing", () => {
-    for (let f = 0; f < rowOf("fly").frames; f++) expect(shadowFor("fly", f, false)).toBeNull();
-    for (let f = 0; f < rowOf("drag").frames; f++) expect(shadowFor("drag", f, false)).toBeNull();
-    const takeoff = Array.from({ length: rowOf("takeoff").frames }, (_, f) => shadowFor("takeoff", f, true));
-    expect(takeoff[takeoff.length - 1]).toBeNull();
-    const shown = takeoff.filter((s) => s !== null);
-    for (let i = 1; i < shown.length; i++) {
-      expect(shown[i]!.w).toBeLessThan(shown[i - 1]!.w);
-      expect(shown[i]!.alpha).toBeLessThan(shown[i - 1]!.alpha);
-    }
-    const land = Array.from({ length: rowOf("land").frames }, (_, f) => shadowFor("land", f, true));
-    expect(land[0]).toBeNull();
-    expect(land[land.length - 1]!.alpha).toBe(SHADOW_ALPHA_BRANCH);
-  });
-
-  it("is drawn after the branch and before the bird, inside the bird's box, so it stays with the bird, which never fades", () => {
-    const bird = source("./bird.ts");
-    // The branch goes before #bird; the shadow is put first inside it, after the canvas, so under the sprite.
-    expect(bird.indexOf("el.before(branch)")).toBeGreaterThan(-1);
-    expect(bird.indexOf("el.prepend(shadow)")).toBeGreaterThan(bird.indexOf("el.prepend(canvas)"));
-    expect(bird.indexOf("el.after(front)")).toBeGreaterThan(-1);
-    const css = source("../theme/parrot.css").replace(/\s+/g, " ");
-    expect(css).not.toMatch(/#bird\.parrot-faded/);
-    expect(css).toMatch(/\.parrot-shown\.parrot-faded \{ opacity: 0\.2;/);
-  });
-
-  it("costs no redraw while asleep: the bird holds one frame and the shadow element is only touched when it changes", () => {
-    const flying = go(start(), { type: "session", active: true });
-    const asleep = landed(flying);
-    const at = flying.flight!.endAt;
-    expect(loopPlan(asleep, at).kind).toBe("stop");
-    expect(frame(asleep, at)).toBe(0);
-    expect(frame(asleep, at + 3_600_000)).toBe(0);
-    expect(shadowFor("sleep", 0, true)).not.toBeNull();
-    expect(source("./bird.ts")).toMatch(/if \(key === shadowShown\) return;/);
   });
 });

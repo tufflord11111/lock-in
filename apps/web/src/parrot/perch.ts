@@ -13,9 +13,10 @@ export type Rect = { x: number; y: number; w: number; h: number };
 
 /**
  * The branch in CSS px, from its top-left: its size, the perch point (where
- * the bird's feet go), where the feet are in the bird's cell as it is drawn perched, mirrored
- * (feetX; the cell's middle if the art doesn't say), and the trunk's front lip,
- * drawn over the perched bird's toes so they curl round the bark.
+ * the bird's feet go), where the feet are in the bird's cell as it is drawn
+ * perched, mirrored (feetX; the cell's middle if the art doesn't say), and the
+ * contact shadow's place on it (meta.branch.shadow). The front grip that
+ * wraps the bark round the toes is a layer of the bird's sheet, not of this.
  */
 export type Branch = {
   width: number;
@@ -23,7 +24,10 @@ export type Branch = {
   perchX: number;
   perchY: number;
   feetX?: number;
-  front?: Rect;
+  /** The contact shadow on the bark, drawn after the branch and before the bird. */
+  shadow?: Rect;
+  /** The trunk's dark top outline's thickness, meta.branch.outlinePx. */
+  outlinePx?: number;
   sinkPx?: number;
   /** The drawing's scale: its px per CSS px. Positions on it are kept on whole device px. */
   scale?: number;
@@ -42,7 +46,12 @@ export type BranchDrawing = {
   perchX?: number;
   perchY?: number;
   feetX?: number;
-  front?: Rect & { file: string };
+  /** meta.branch.shadow: its image, and where it goes on the branch. */
+  shadow?: Rect & { file: string };
+  /** meta.branch.outlinePx: how thick the trunk's top outline is. */
+  outlinePx?: number;
+  /** meta.branch.drawOrder, as the art gives it: branch, shadow, bird, frontGrip. */
+  drawOrder?: string[];
   /** How far below the trunk's top line, under both feet, the feet sink (meta.branch.sinkPx). */
   sinkPx?: number;
   /** The mirrored cell's top-left from the branch's, this drawing's px: perchX - birdFeetX, round(perchY - baseline). */
@@ -80,7 +89,8 @@ export function branchOf(d: BranchDrawing | undefined): Branch {
     perchX: d.perchX !== undefined ? d.perchX / k : Math.round(width * 0.45),
     perchY: d.perchY !== undefined ? d.perchY / k : Math.round(height * 0.55),
     ...(d.feetX !== undefined ? { feetX: d.feetX / k } : {}),
-    ...(d.front ? { front: { x: d.front.x / k, y: d.front.y / k, w: d.front.w / k, h: d.front.h / k } } : {}),
+    ...(d.shadow ? { shadow: { x: d.shadow.x / k, y: d.shadow.y / k, w: d.shadow.w / k, h: d.shadow.h / k } } : {}),
+    ...(d.outlinePx !== undefined ? { outlinePx: d.outlinePx / k } : {}),
     ...(d.sinkPx !== undefined ? { sinkPx: d.sinkPx / k } : {}),
     scale: k,
     ...(d.cell ? { cell: { x: d.cell.x / k, y: d.cell.y / k } } : {}),
@@ -100,7 +110,7 @@ export const BRANCH: Branch = branchOf(BRANCH_DRAWINGS[0]);
 export const PERCH_HEIGHT = 0.55;
 /** A drop this close to the branch lands on the perch. */
 export const DROP_ON_PERCH_PX = 60;
-/** A cursor this close to the branch fades it and its lip (never the bird). */
+/** A cursor this close to the branch fades it, its shadow and the front grip (never the bird). */
 export const FADE_NEAR_PX = 120;
 
 /** The branch's box: flush with the right edge, its perch point PERCH_HEIGHT down. */
@@ -160,11 +170,11 @@ export function unionBox(a: Box, b: Box, pad = 0): Box {
   return { x, y, w: Math.max(a.x + a.w, b.x + b.w) + pad - x, h: Math.max(a.y + a.h, b.y + b.h) + pad - y };
 }
 
-/** The front lip's box on the screen, if the branch has one. */
-export function frontBox(width: number, height: number, b: Branch = BRANCH): Box | null {
-  if (!b.front) return null;
+/** The branch shadow's box on the screen, if the branch has one. */
+export function shadowBox(width: number, height: number, b: Branch = BRANCH): Box | null {
+  if (!b.shadow) return null;
   const box = branchBox(width, height, b);
-  return { x: box.x + b.front.x, y: box.y + b.front.y, w: b.front.w, h: b.front.h };
+  return { x: box.x + b.shadow.x, y: box.y + b.shadow.y, w: b.shadow.w, h: b.shadow.h };
 }
 
 /** Perched: on the branch and not picked up or flying. */
@@ -184,11 +194,11 @@ export function branchShown(s: BirdState, now: number): boolean {
 }
 
 /**
- * The front lip goes over the bird's toes whenever its feet are on the
- * branch: perched, asleep there, landing (the land row), taking off (the
- * takeoff row). Not in the air.
+ * Whether its feet are on the branch: perched, asleep there, landing (the land
+ * row), taking off (the takeoff row). Not in the air. Then the branch shadow
+ * is under it and the front grip over its toes, and B's rowDy places each row.
  */
-export function frontShown(s: BirdState, now: number): boolean {
+export function feetOnBranch(s: BirdState, now: number): boolean {
   if (s.onBranch && s.mode !== "drag") return true;
   const f = s.flight;
   if (s.mode !== "flight" || !f) return false;
@@ -196,10 +206,10 @@ export function frontShown(s: BirdState, now: number): boolean {
 }
 
 /**
- * Where a cursor fades things out of its way: the branch and its lip (which is
- * inside the branch's box), 120 px around, whenever they are shown. Never the
- * bird: perched or not it stays solid, and takes the cursor on its own box at
- * once, so it can always be grabbed or petted.
+ * Where a cursor fades things out of its way: 120 px round the branch, whenever
+ * it is shown. The branch, its shadow (inside its box) and the front grip fade
+ * together. Never the bird: perched or not it stays solid, and takes the cursor
+ * on its own box at once, so it can always be grabbed or petted.
  */
 export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number, now: number): Box | null {
   if (!branchShown(s, now)) return null;
@@ -207,7 +217,11 @@ export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number, 
   return { x: b.x - FADE_NEAR_PX, y: b.y - FADE_NEAR_PX, w: b.w + 2 * FADE_NEAR_PX, h: b.h + 2 * FADE_NEAR_PX };
 }
 
-/** The boxes that take the cursor: the bird's first, except in the air, where it can't be caught. */
+/**
+ * The boxes that take the cursor: the bird's first, except in the air, where it
+ * can't be caught. Never the branch or its shadow; the front grip lies inside
+ * the bird's box and takes nothing of its own, so a grab goes through it.
+ */
 export function cursorBoxes(s: BirdState, innerHeight: number, extra: Box[]): Box[] {
   return s.mode === "flight" ? extra : [birdBox(s, innerHeight), ...extra];
 }

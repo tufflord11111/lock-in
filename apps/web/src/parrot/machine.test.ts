@@ -82,8 +82,9 @@ import {
   branchDrawingFor,
   branchOf,
   branchShown,
-  frontBox,
-  frontShown,
+  feetOnBranch,
+  perchDy,
+  shadowBox,
   cursorBoxes,
   fadeZone,
   perchSpot,
@@ -1217,15 +1218,15 @@ describe("dragged off the perch and dropped", () => {
 describe("what the overlay tells Rust", () => {
   const perched = () => landed(beginFlight(start(), T0, perchFor(start()), true));
 
-  it("while perched, fades the branch (and its lip) alone, 120 px around: never the bird", () => {
+  it("while perched, fades the branch (with its shadow and the grip) alone, 120 px around: never the bird", () => {
     const s = perched();
     const fade = fadeZone(s, s.width, s.height, T0)!;
     expect(FADE_NEAR_PX).toBe(120);
     const b = branchBox(s.width, s.height);
     expect(fade).toEqual({ x: b.x - 120, y: b.y - 120, w: b.w + 240, h: b.h + 240 });
-    // The lip is inside the branch's box, so it fades with it.
-    const lip = frontBox(s.width, s.height)!;
-    expect(unionBox(fade, lip)).toEqual(fade);
+    // The shadow is inside the branch's box, so it is in the zone too.
+    const shadow = shadowBox(s.width, s.height, s.branch)!;
+    expect(unionBox(fade, shadow)).toEqual(fade);
   });
 
   it("the perched bird is grabbable at once: its box goes to Rust first, whatever the fade", () => {
@@ -1251,13 +1252,13 @@ describe("what the overlay tells Rust", () => {
     expect(fadeZone(down, down.width, down.height, down.flight!.flyAt + 1)).toBeNull();
   });
 
-  it("never offers the branch or its lip to the cursor, and the bird only when it isn't in the air", () => {
+  it("never offers the branch or its shadow to the cursor, and the bird only when it isn't in the air", () => {
     const s = perched();
     const card = { x: 1, y: 2, w: 3, h: 4 };
     expect(cursorBoxes(s, s.height, [card])).toEqual([birdBox(s, s.height), card]);
     expect(cursorBoxes(beginFlight(s, T0, { x: 100, lift: 0 }, false), s.height, [card])).toEqual([card]);
     expect(cursorBoxes(s, s.height, [])).not.toContainEqual(branchBox(s.width, s.height));
-    expect(cursorBoxes(s, s.height, [])).not.toContainEqual(frontBox(s.width, s.height));
+    expect(cursorBoxes(s, s.height, [])).not.toContainEqual(shadowBox(s.width, s.height, s.branch));
   });
 
   it("draws the branch from the drawing that matches the display", () => {
@@ -1277,7 +1278,7 @@ describe("the branch is only there when it is needed", () => {
 
   it("not there while the bird is on the ground", () => {
     expect(branchShown(start(), T0)).toBe(false);
-    expect(frontShown(start(), T0)).toBe(false);
+    expect(feetOnBranch(start(), T0)).toBe(false);
   });
 
   it("there from the moment the bird sets off for it, on a visit or at a session's start", () => {
@@ -1316,7 +1317,7 @@ describe("the branch is only there when it is needed", () => {
     d = go(d, { type: "dragMove", x: b.x - 20 - DISPLAY_CELL.width, lift: d.height - b.y - DISPLAY_CELL.height, maxLift: 800 });
     const dropped = go(d, { type: "dragEnd" }, T0 + 1000);
     expect(branchShown(dropped, T0 + 1001)).toBe(true);
-    expect(frontShown(dropped, T0 + 1001)).toBe(true);
+    expect(feetOnBranch(dropped, T0 + 1001)).toBe(true);
   });
 
   it("fades in over 300 ms and out over 500 ms, at once under reduced motion", async () => {
@@ -1328,40 +1329,59 @@ describe("the branch is only there when it is needed", () => {
   });
 });
 
-describe("the bird grips the branch: branch, bird, then the front lip", () => {
+describe("the bird grips the branch: branch, shadow, bird, then the front grip (meta.branch.drawOrder)", () => {
   const perched = () => landed(beginFlight(start(), T0, perchFor(start()), true));
 
-  it("puts the lip over the toes whenever the feet are on the branch: perched, landing, asleep, taking off", () => {
-    expect(frontShown(perched(), T0)).toBe(true);
+  it("has its feet on the branch, with the shadow under and the grip over, perched, landing, asleep, taking off", () => {
+    expect(feetOnBranch(perched(), T0)).toBe(true);
     const { s: asleep, at } = asleepOnPerch();
-    expect(frontShown(asleep, at)).toBe(true);
+    expect(feetOnBranch(asleep, at)).toBe(true);
     const up = beginFlight(start(), T0, perchFor(start()), true);
     const f = up.flight!;
-    // In the air, and turning in the air at the perch: no lip.
-    expect(frontShown(up, f.flyAt + 10)).toBe(false);
-    expect(frontShown(up, f.landRowAt - 1)).toBe(false);
-    // The land row on the perch: the lip.
-    expect(frontShown(up, f.landRowAt)).toBe(true);
+    // In the air, and turning in the air at the perch: not on it.
+    expect(feetOnBranch(up, f.flyAt + 10)).toBe(false);
+    expect(feetOnBranch(up, f.landRowAt - 1)).toBe(false);
+    // The land row on the perch: on it.
+    expect(feetOnBranch(up, f.landRowAt)).toBe(true);
     const down = beginFlight(perched(), T0, { x: 100, lift: 0 }, false);
-    expect(frontShown(down, down.flight!.takeoffAt)).toBe(true);
-    expect(frontShown(down, down.flight!.flyAt)).toBe(false);
+    expect(feetOnBranch(down, down.flight!.takeoffAt)).toBe(true);
+    expect(feetOnBranch(down, down.flight!.flyAt)).toBe(false);
   });
 
-  it("draws the lip after the bird, at meta.branch.front", async () => {
-    const { readFileSync } = await import("node:fs");
+  it("draws in meta.branch.drawOrder: the branch, its shadow at meta.branch.shadow, the bird, then the grip", () => {
     const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
-    expect(bird).toMatch(/el\.before\(branch\)/);
-    expect(bird).toMatch(/el\.after\(front\)/);
     for (const d of BRANCH_DRAWINGS) {
+      expect(d.drawOrder?.map((x) => x.split(" ")[0]), `${d.scale}x`).toEqual(["branch", "shadow", "bird", "frontGrip"]);
       const b = branchOf(d);
-      expect(d.front, `${d.scale}x has a front lip`).toBeTruthy();
-      const lip = frontBox(1440, 900, b)!;
       const box = branchBox(1440, 900, b);
-      expect(lip).toEqual({ x: box.x + d.front!.x / d.scale, y: box.y + d.front!.y / d.scale, w: d.front!.w / d.scale, h: d.front!.h / d.scale });
+      expect(shadowBox(1440, 900, b)).toEqual({ x: box.x + d.shadow!.x / d.scale, y: box.y + d.shadow!.y / d.scale, w: d.shadow!.w / d.scale, h: d.shadow!.h / d.scale });
     }
+    // The branch then the shadow go before the bird's box; the grip's canvas goes right after the bird's, inside it.
+    expect(bird.indexOf("el.before(branch)")).toBeGreaterThan(-1);
+    expect(bird.indexOf("el.before(shadow)")).toBeGreaterThan(bird.indexOf("el.before(branch)"));
+    expect(bird).toMatch(/canvas\.after\(grip\)/);
+    // Drawn on the same frame as the bird, from the same frame's cell, scaled and placed the same way.
+    expect(bird).toMatch(/gripCtx\.drawImage\(overBitmap, over\.sx, over\.sy, over\.sw, over\.sh, 0, over\.dy \* k, grip\.width, over\.sh \* k\)/);
+    // The grip leans and fluffs with the bird.
+    expect(bird).toMatch(/canvas\.style\.transform = grip\.style\.transform =/);
+    expect(bird).toMatch(/grip\.classList\.toggle\("parrot-fluff", on\)/);
   });
 
-  it("stands the bird's feet (birdFeetX, mirrored as it faces in) on each drawing's perch point", () => {
+  it("fades the branch, its shadow and the grip together; the bird never; the grip and shadow take no pointer", () => {
+    const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
+    expect(bird).toMatch(/branch\.classList\.toggle\("parrot-faded", faded && shown\)/);
+    expect(bird).toMatch(/shadow\.classList\.toggle\("parrot-faded", faded && feet\)/);
+    expect(bird).toMatch(/grip\.classList\.toggle\("parrot-faded", faded && feet\)/);
+    expect(bird).not.toMatch(/el\.classList\.toggle\("parrot-faded"/);
+    const css = readFileSync(new URL("../theme/parrot.css", import.meta.url), "utf8").replace(/\s+/g, " ");
+    expect(css).toMatch(/\.parrot-shown\.parrot-faded, \.parrot-grip\.parrot-faded \{ opacity: 0\.2;/);
+    // The grip is a sprite canvas (no pointer events); the shadow is a branch prop (none either).
+    expect(css).toMatch(/\.parrot-sprite \{[^}]*pointer-events: none;/);
+    expect(css).toMatch(/\.parrot-branch, \.parrot-branch-shadow \{[^}]*pointer-events: none;/);
+    expect(bird).toMatch(/grip\.className = "parrot-sprite parrot-grip"/);
+  });
+
+  it("stands the bird's feet (birdFeetX, in the mirrored cell) on each drawing's perch point", () => {
     for (const d of BRANCH_DRAWINGS) {
       const b = branchOf(d);
       const spot = perchSpot(1440, 900, DISPLAY_CELL, b);
@@ -1372,13 +1392,16 @@ describe("the bird grips the branch: branch, bird, then the front lip", () => {
       // The baseline on perchY, to B's rounding: within half a px of the drawing's scale.
       const feetY = birdBox({ ...spot, cell: DISPLAY_CELL }, 900).y + (DISPLAY_CELL.baseline ?? DISPLAY_CELL.height);
       expect(Math.abs(feetY - (box.y + b.perchY))).toBeLessThanOrEqual(0.5 / d.scale + 1e-9);
-      // The toes sit under the lip.
-      const lip = frontBox(1440, 900, b)!;
-      expect(feet).toBeGreaterThanOrEqual(lip.x);
-      expect(feet).toBeLessThanOrEqual(lip.x + lip.w);
-      expect(feetY).toBeGreaterThanOrEqual(lip.y);
-      expect(feetY).toBeLessThanOrEqual(lip.y + lip.h + 1);
     }
+  });
+
+  it("places every row drawn on the branch with its own rowDy, negative ones too, and other rows at 0", () => {
+    for (const d of BRANCH_DRAWINGS) {
+      const b = branchOf(d);
+      for (const row of ["idle", "perch", "sleep", "wake", "pet", "land", "takeoff"]) expect(perchDy(b, row), `${d.scale}x ${row}`).toBe((d.rowDy?.[row] ?? 0) / d.scale);
+      expect(perchDy(b, "talk")).toBe(0);
+    }
+    expect(BRANCH_DRAWINGS.some((d) => Object.values(d.rowDy ?? {}).some((v) => v < 0))).toBe(true);
   });
 
   it("the machine perches the bird on the drawing the overlay shows", () => {
