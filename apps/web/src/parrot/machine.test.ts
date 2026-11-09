@@ -1367,14 +1367,15 @@ describe("the bird grips the branch: branch, shadow, bird, then the front grip (
     expect(bird).toMatch(/grip\.classList\.toggle\("parrot-fluff", on\)/);
   });
 
-  it("fades the branch, its shadow and the grip together; the bird never; the grip and shadow take no pointer", () => {
+  it("fades the branch and its shadow to 20% and the grip out, together; the bird never; the grip and shadow take no pointer", () => {
     const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
     expect(bird).toMatch(/branch\.classList\.toggle\("parrot-faded", faded && shown\)/);
     expect(bird).toMatch(/shadow\.classList\.toggle\("parrot-faded", faded && feet\)/);
     expect(bird).toMatch(/grip\.classList\.toggle\("parrot-faded", faded && feet\)/);
     expect(bird).not.toMatch(/el\.classList\.toggle\("parrot-faded"/);
     const css = readFileSync(new URL("../theme/parrot.css", import.meta.url), "utf8").replace(/\s+/g, " ");
-    expect(css).toMatch(/\.parrot-shown\.parrot-faded, \.parrot-grip\.parrot-faded \{ opacity: 0\.2;/);
+    expect(css).toMatch(/\.parrot-shown\.parrot-faded \{ opacity: 0\.2;/);
+    expect(css).toMatch(/\.parrot-grip\.parrot-faded \{ opacity: 0;/);
     // The grip is a sprite canvas (no pointer events); the shadow is a branch prop (none either).
     expect(css).toMatch(/\.parrot-sprite \{[^}]*pointer-events: none;/);
     expect(css).toMatch(/\.parrot-branch, \.parrot-branch-shadow \{[^}]*pointer-events: none;/);

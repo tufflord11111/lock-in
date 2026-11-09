@@ -63,9 +63,17 @@ body {
 }
 
 /* A cursor nearby: the branch, its shadow and the front grip step out of the way. The bird never fades. */
-.parrot-shown.parrot-faded,
-.parrot-grip.parrot-faded {
+.parrot-shown.parrot-faded {
   opacity: 0.2;
+  transition: opacity 150ms ease;
+}
+
+/*
+ * The grip lies over the branch: at 20% over the branch at 20% it showed as a
+ * lighter patch under the feet. Faded, it goes altogether, on the same timing.
+ */
+.parrot-grip.parrot-faded {
+  opacity: 0;
   transition: opacity 150ms ease;
 }
 
