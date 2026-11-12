@@ -609,6 +609,10 @@ fn deliver_warning(app: &tauri::AppHandle, title: &str, message: String) {
     }
 }
 
+/// Said once in a session that would close browsers when the heartbeat port
+/// couldn't open, so none can prove it runs Web Guard.
+const APPS_ONLY_NOTICE: &str = "Lock-In can't check your browsers, so this session falls back to blocking apps only: it won't close any browser. Web Guard still blocks sites where it's installed. Restart Lock-In to check browsers again.";
+
 /// What the 10-second warning says. A browser that can run Web Guard is told how
 /// to stay open next time, with the Store link (the toast can't hold a button).
 fn lockdown_warning(browser: &str, lost_web_guard: bool) -> String {
@@ -634,13 +638,16 @@ fn lockdown_runner(
     let mut sys = System::new();
     let mut tracker = lockdown::Tracker::default();
     let mut session_key = None;
+    let mut told_apps_only = None;
+    let started = std::time::Instant::now();
     loop {
         thread::sleep(std::time::Duration::from_secs(1));
-        let (active, in_lockdown, blocks_sites, end, uid) = match profile.lock() {
+        let (active, in_lockdown, apps_only, blocks_sites, end, uid) = match profile.lock() {
             Ok(p) => (
                 p.focus_active && (p.browser_lockdown || p.session_blocks_sites),
                 // A session that blocks sites closes browsers without Web Guard, however it started.
                 lockdown::lockdown_applies(p.browser_lockdown, p.session_blocks_sites, listening),
+                lockdown::falls_back_to_apps_only(p.browser_lockdown, p.session_blocks_sites, listening),
                 p.session_blocks_sites,
                 p.session_end_time,
                 p.session_uid.clone(),
@@ -653,6 +660,13 @@ fn lockdown_runner(
         }
         if !active {
             continue;
+        }
+        // Once per session, and not before the window has had a moment to load
+        // (a session restored at launch would otherwise emit to no one).
+        if apps_only && told_apps_only != end && started.elapsed() >= std::time::Duration::from_secs(5) {
+            told_apps_only = end;
+            log_ui_event(&app, "lockdown-apps-only");
+            deliver_warning(&app, "Lock-In isn't closing browsers", APPS_ONLY_NOTICE.to_string());
         }
         let running = running_browsers(&mut sys);
         let ids: Vec<&'static str> = running.keys().copied().collect();

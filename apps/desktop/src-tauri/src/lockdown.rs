@@ -68,14 +68,21 @@ pub fn closable(with_windows: &[&'static str], is_fresh: &dyn Fn(&str) -> bool) 
 }
 
 /**
- * Whether this session closes browsers without a live Web Guard: always when it
- * blocks sites (1.3.0), as long as heartbeats can arrive, and whenever the operator
- * chose lockdown. With the heartbeat port shut no browser can prove itself, so
- * closing every one, Web Guard or not, would be wrong: then only the operator's
- * explicit choice turns it on, as before.
+ * Whether this session closes browsers without a live Web Guard: when it blocks
+ * sites (1.3.0) or the operator chose lockdown, as long as heartbeats can arrive.
+ * With the heartbeat port shut no browser can prove itself, so closing any would
+ * close Web Guard browsers too. In 1.3.0 every site-blocking start passes
+ * "chosen", so an exception for it would close them all after a restart that
+ * couldn't open the port: the session falls back to apps-only instead, and
+ * `falls_back_to_apps_only` says when to tell the operator.
  */
 pub fn lockdown_applies(chosen: bool, blocks_sites: bool, listening: bool) -> bool {
-    chosen || (blocks_sites && listening)
+    listening && (chosen || blocks_sites)
+}
+
+/// A session that would close browsers, but can't because no beat can arrive.
+pub fn falls_back_to_apps_only(chosen: bool, blocks_sites: bool, listening: bool) -> bool {
+    !listening && (chosen || blocks_sites)
 }
 
 pub struct Tick<'a> {
@@ -244,9 +251,19 @@ mod tests {
         assert!(lockdown_applies(false, true, true), "1.3.0: blocking sites is enough");
         assert!(lockdown_applies(true, true, true));
         assert!(lockdown_applies(true, false, true));
-        assert!(lockdown_applies(true, true, false), "an explicit choice still counts");
-        assert!(!lockdown_applies(false, true, false), "no port: it would close Web Guard browsers too");
+        assert!(!lockdown_applies(true, true, false), "no port: it would close Web Guard browsers too");
+        assert!(!lockdown_applies(true, false, false));
+        assert!(!lockdown_applies(false, true, false));
         assert!(!lockdown_applies(false, false, true), "an apps-only session leaves browsers alone");
+    }
+
+    #[test]
+    fn without_the_port_a_session_that_would_lock_down_says_it_falls_back() {
+        // (chosen, blocks sites, heartbeat port open)
+        assert!(falls_back_to_apps_only(true, true, false), "a 1.3.0 start restored after a restart");
+        assert!(falls_back_to_apps_only(false, true, false));
+        assert!(!falls_back_to_apps_only(true, true, true), "listening: it locks down, nothing to say");
+        assert!(!falls_back_to_apps_only(false, false, false), "apps-only by choice: nothing to say");
     }
 
     #[test]
