@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { normalizeSite } from "./siteInput";
 import { Sticker } from "../theme/stickers";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Trash2, ShieldAlert, AlertTriangle, Lock, Clock, User, Search, MousePointer2, FolderOpen, RefreshCcw, X, Power } from "lucide-react";
@@ -280,6 +281,24 @@ export function BlockRegistry({
 
   // Web Blocker helpers
   const visibleDefaultDomains = DEFAULT_WEB_BLOCKS.filter(d => !removedDefaults.includes(d));
+  const shownSite = (key: string, value: unknown) => (typeof value === 'string' ? value : key.replace(/_/g, '.'));
+  // Every site in the list below, once each: what the count says.
+  const listedSites = [
+    ...new Set([
+      ...visibleDefaultDomains,
+      ...Object.entries(customWebBlocks).map(([k, v]) => shownSite(k, v)),
+      ...Object.entries(permanentWebBlocks).map(([k, v]) => shownSite(k, v)),
+    ]),
+  ];
+  const siteCheck = normalizeSite(newWebDomain);
+  const siteTaken = siteCheck.ok && listedSites.includes(siteCheck.domain);
+  const sitePreview = !newWebDomain.trim()
+    ? null
+    : siteCheck.ok
+      ? siteTaken
+        ? { bad: true, text: t("blocks.site.already", { domain: siteCheck.domain }) }
+        : { bad: false, text: t("blocks.site.willBlock", { domain: siteCheck.domain }) }
+      : { bad: true, text: siteCheck.reason === "app" ? t("blocks.site.app") : t("blocks.site.bad") };
 
   // Every Block Registry write goes through guardWrite: fire-and-forget so no
   // button can hang offline, and a refusal is a toast instead of an uncaught
@@ -302,12 +321,11 @@ export function BlockRegistry({
   };
 
   const addWebBlockManual = () => {
-    const raw = newWebDomain.trim()
-      .replace(/^https?:\/\//i, '')
-      .replace(/^www\./i, '')
-      .replace(/\/.*$/, '');
-    if (!raw || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(raw)) return;
-    const domain = raw.toLowerCase();
+    // "youtube", "https://www.YouTube.com/watch?v=x" … all become youtube.com (siteInput.ts).
+    const checked = normalizeSite(newWebDomain);
+    if (!checked.ok) return;
+    const domain = checked.domain;
+    if (listedSites.includes(domain)) return;
     const safeKey = domain.replace(/\./g, '_');
     setNewWebDomain('');
     guardWrite(
@@ -631,7 +649,7 @@ export function BlockRegistry({
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[9px] font-black label-sm text-ink-2/50">{t("blocks.sites")}</span>
-              <span className="text-[8px] font-black bg-ink-2 text-surface-inverse px-1.5 py-0.5 rounded-full">{visibleDefaultDomains.length + Object.keys(customWebBlocks).length}</span>
+              <span className="text-[8px] font-black bg-ink-2 text-surface-inverse px-1.5 py-0.5 rounded-full" title={`${listedSites.length} sites in the list below`}>{listedSites.length}</span>
             </div>
             <div style={{ maxHeight: '200px', overflowY: 'auto' }} className="flex flex-col gap-1">
               <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/30 mb-1">{t("blocks.default")}</p>
@@ -649,9 +667,10 @@ export function BlockRegistry({
                   {Object.entries(customWebBlocks).map(([key, value]) => {
                     const displayDomain = typeof value === 'string' ? value : key.replace(/_/g, '.');
                     return (
-                      <div key={key} className="flex items-center justify-between px-3 py-1.5 bg-surface border border-ink-2/10 rounded-md gap-2">
+                      <div key={key} className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-surface border border-ink-2/10 rounded-md gap-x-2 gap-y-1">
                         <span className="text-[10px] font-mono text-ink-2/70 flex-1 truncate">{displayDomain}</span>
-                        <button onClick={() => makeWebPermanent(displayDomain)} className="text-[7px] font-black label-action-plain px-1.5 py-0.5 border border-ink-2/30 rounded text-ink-2/50 hover:bg-ink-2 hover:text-surface-inverse transition-colors">{t("blocks.perm")}</button>
+                        <span title={t("blocks.scope.siteSessionTip") ?? ""} aria-label={`${t("blocks.scope.session")}. ${t("blocks.scope.siteSessionTip") ?? ""}`} className="text-[7px] font-black label-plain px-1.5 py-0.5 border border-ink-2 text-ink-2 rounded whitespace-nowrap cursor-help">{t("blocks.scope.session")}</span>
+                        <button onClick={() => makeWebPermanent(displayDomain)} title={t("blocks.scope.toAlwaysTip") ?? ""} className="text-[7px] font-black label-action-plain px-1.5 py-0.5 border border-ink-2/30 rounded text-ink-2/50 hover:bg-ink-2 hover:text-surface-inverse transition-colors whitespace-nowrap">{t("blocks.scope.toAlways")}</button>
                         <button onClick={() => removeCustomBlock(displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-action-sm transition-colors">✕</button>
                       </div>
                     );
@@ -659,10 +678,10 @@ export function BlockRegistry({
                   {Object.entries(permanentWebBlocks).map(([key, value]) => {
                     const displayDomain = typeof value === 'string' ? value : key.replace(/_/g, '.');
                     return (
-                      <div key={key} className="flex items-center justify-between px-3 py-1.5 bg-highlight-2/10 border border-highlight-2 rounded-md gap-2">
+                      <div key={key} className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-highlight-2/10 border border-highlight-2 rounded-md gap-x-2 gap-y-1">
                         <span className="text-[10px] font-mono text-ink-2 flex-1 truncate">{displayDomain}</span>
-                        <span className="text-[7px] font-black label-plain px-1.5 py-0.5 bg-highlight-2 text-ink-2 border border-ink-2 rounded">24/7</span>
-                        <button onClick={() => makeWebSession(displayDomain)} className="text-[8px] font-black text-ink-2/40 hover:text-ink-2 label-action-sm transition-colors">{t("blocks.session")}</button>
+                        <span title={t("blocks.scope.siteAlwaysTip") ?? ""} aria-label={`${t("blocks.scope.always")}. ${t("blocks.scope.siteAlwaysTip") ?? ""}`} className="text-[7px] font-black label-plain px-1.5 py-0.5 bg-highlight-2 text-ink-2 border border-ink-2 rounded whitespace-nowrap cursor-help">{t("blocks.scope.always")}</span>
+                        <button onClick={() => makeWebSession(displayDomain)} title={t("blocks.scope.toSessionTip") ?? ""} className="text-[7px] font-black label-action-plain px-1.5 py-0.5 border border-ink-2/30 rounded text-ink-2/50 hover:bg-ink-2 hover:text-surface-inverse transition-colors whitespace-nowrap">{t("blocks.scope.toSession")}</button>
                         <button onClick={() => removePermanentWeb(key, displayDomain)} className="text-[8px] font-black text-danger-soft hover:text-danger-deep label-action-sm transition-colors">✕</button>
                       </div>
                     );
@@ -673,9 +692,13 @@ export function BlockRegistry({
           </div>
 
           {/* C: MANUAL ADD */}
-          <div className="flex gap-2 pt-3 border-t border-ink-2/10">
-            <input type="text" value={newWebDomain} onChange={(e) => setNewWebDomain(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addWebBlockManual()} placeholder={t("blocks.sitePlaceholder") ?? ""} className="flex-1 bg-surface border border-ink-2/30 rounded-lg px-3 py-2 text-[10px] font-mono text-ink-2 placeholder:text-ink-2/30 outline-none focus:border-ink-2 transition-colors" />
-            <button onClick={addWebBlockManual} className="bg-ink-2 text-surface-inverse px-4 py-2 rounded-lg text-[9px] font-black label-action-sm hover:bg-ink transition-colors">{t("blocks.addSite")}</button>
+          <div className="flex flex-col gap-1.5 pt-3 border-t border-ink-2/10">
+            <div className="flex gap-2">
+              <input type="text" aria-describedby="site-preview site-help" value={newWebDomain} onChange={(e) => setNewWebDomain(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addWebBlockManual()} placeholder={t("blocks.sitePlaceholder") ?? ""} className="flex-1 bg-surface border border-ink-2/30 rounded-lg px-3 py-2 text-[10px] font-mono text-ink-2 placeholder:text-ink-2/30 outline-none focus:border-ink-2 transition-colors" />
+              <button onClick={addWebBlockManual} disabled={!siteCheck.ok || siteTaken} className="bg-ink-2 text-surface-inverse px-4 py-2 rounded-lg text-[9px] font-black label-action-sm hover:bg-ink transition-colors disabled:opacity-40">{t("blocks.addSite")}</button>
+            </div>
+            <p id="site-preview" role="status" className={`text-[10px] font-bold min-h-[14px] ${sitePreview?.bad ? 'text-danger-deep' : 'text-ink-2'}`}>{sitePreview?.text ?? ""}</p>
+            <p id="site-help" className="text-[9px] font-bold text-ink-2/60 leading-snug">{t("blocks.scope.siteHelp")}</p>
           </div>
         </section>
       </div>
@@ -750,6 +773,8 @@ export function BlockRegistry({
             </button>
           </div>
 
+          <p className="-mt-5 mb-6 text-[10px] font-bold text-ink/60 leading-snug">{t("blocks.scope.appHelp")}</p>
+
           <button
             onClick={handleOpenScanner}
             className="mb-8 w-full bg-ground border-1 border-ink border-dashed p-4 rounded-xl flex items-center justify-center gap-4 text-ink/40 hover:text-ink hover:border-solid hover:bg-surface transition-all group"
@@ -778,8 +803,8 @@ export function BlockRegistry({
                 >
                   <span className="font-bold text-sm truncate pr-2 text-ink/80 tracking-tight italic flex-1">{exe}</span>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[7px] font-black label-plain px-2 py-0.5 border-1 border-ink rounded text-ink">{t("blocks.session")}</span>
-                    <button onClick={() => makeExePermanent(exe)} className="text-[7px] font-black label-action-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-highlight-2 hover:text-ink transition-colors">{t("blocks.perm")}</button>
+                    <span title={t("blocks.scope.appSessionTip") ?? ""} aria-label={`${t("blocks.scope.session")}. ${t("blocks.scope.appSessionTip") ?? ""}`} className="text-[7px] font-black label-plain px-1.5 py-0.5 border-1 border-ink text-ink rounded whitespace-nowrap cursor-help">{t("blocks.scope.session")}</span>
+                    <button onClick={() => makeExePermanent(exe)} title={t("blocks.scope.toAlwaysTip") ?? ""} className="text-[7px] font-black label-action-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-highlight-2 hover:text-ink transition-colors whitespace-nowrap">{t("blocks.scope.toAlways")}</button>
                     <button onClick={() => removeBlock(exe)} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
                       <Trash2 size={14} />
                     </button>
@@ -794,8 +819,8 @@ export function BlockRegistry({
                 >
                   <span className="font-bold text-sm truncate pr-2 text-ink tracking-tight italic flex-1">{exe}</span>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => makeExeSession(exe)} className="text-[7px] font-black label-action-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-ink transition-colors">{t("blocks.session")}</button>
-                    <span className="text-[7px] font-black label-plain px-2 py-0.5 bg-highlight-2 border-1 border-ink rounded text-ink">24/7</span>
+                    <span title={t("blocks.scope.appAlwaysTip") ?? ""} aria-label={`${t("blocks.scope.always")}. ${t("blocks.scope.appAlwaysTip") ?? ""}`} className="text-[7px] font-black label-plain px-1.5 py-0.5 bg-highlight-2 border-1 border-ink text-ink rounded whitespace-nowrap cursor-help">{t("blocks.scope.always")}</span>
+                    <button onClick={() => makeExeSession(exe)} title={t("blocks.scope.toSessionTip") ?? ""} className="text-[7px] font-black label-action-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-ink transition-colors whitespace-nowrap">{t("blocks.scope.toSession")}</button>
                     <button onClick={() => removePermanentExe(exe)} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
                       <Trash2 size={14} />
                     </button>

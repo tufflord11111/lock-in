@@ -158,6 +158,25 @@ const operator = {
   // ── Appearance ─────────────────────────────────────────────────────────
   "theme.title": "Theme",
   "theme.sub": "Changes the look and the wording. Blocking works the same in every theme.",
+  // When a site or an app is blocked. Plain words, the same in every theme and in both lists.
+  "blocks.scope.session": "During focus sessions",
+  "blocks.scope.always": "Always (even without a session)",
+  "blocks.scope.toAlways": "Block always",
+  "blocks.scope.toSession": "Only during sessions",
+  "blocks.scope.siteHelp":
+    "During focus sessions: blocked only while a session is running. Always: blocked even without a session, in browsers where Web Guard is on.",
+  "blocks.scope.appHelp":
+    "During focus sessions: closed only while a session is running. Always: closed whenever Lock-In is running, even without a session.",
+  "blocks.scope.siteSessionTip": "Blocked only while a focus session is running.",
+  "blocks.scope.siteAlwaysTip": "Blocked all the time, even without a session, in browsers where Web Guard is on.",
+  "blocks.scope.appSessionTip": "Closed only while a focus session is running.",
+  "blocks.scope.appAlwaysTip": "Closed whenever Lock-In is running, even without a session.",
+  "blocks.scope.toAlwaysTip": "Block it all the time, not only during focus sessions.",
+  "blocks.scope.toSessionTip": "Block it only during focus sessions.",
+  "blocks.site.willBlock": "Will block {domain}",
+  "blocks.site.already": "{domain} is already blocked.",
+  "blocks.site.app": "That looks like an app. Add it under Blocked apps instead.",
+  "blocks.site.bad": "That doesn't look like a website. Try something like youtube.com.",
 } as const;
 
 export type CopyKey = keyof typeof operator | keyof typeof SAFETY;
