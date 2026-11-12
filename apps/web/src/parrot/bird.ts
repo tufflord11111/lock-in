@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameRect, headAt, layerRect, rowOf, scaleFiles, scaleFor, type LoopPlan } from "./animator";
 import { lookFor, wantedFiles } from "./look";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
-import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
+import { alphaBounds, birdBox, dragPosition, grabOffset, inkBox, physicalBox, type Box } from "./layout";
 import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, feetOnBranch, perchDy, shadowBox, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
 import { PET_IDLE_MS, PET_START_PX, cursorSide, leanFor } from "./pet";
@@ -212,11 +212,25 @@ export function createBird(
   // Debug builds: the decoded sprite memory, twice a minute.
   if (frameLog) window.setInterval(() => frameLog.note(`memory sprites ${(sprites.bytes() / 2 ** 20).toFixed(1)} MiB in ${sprites.files().length} files`), 30_000);
 
+  // The drawn frame's opaque box, CSS px in the cell, measured once per frame drawn.
+  const inks = new Map<string, Box | null>();
+  let ink: Box | null = null;
+  const measureInk = (frameKey: string) => {
+    if (!inks.has(frameKey) && ctx) {
+      const found = alphaBounds(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+      const k = canvas.width / DISPLAY_CELL.width;
+      inks.set(frameKey, found && { x: found.x / k, y: found.y / k, w: found.w / k, h: found.h / k });
+    }
+    ink = inks.get(frameKey) ?? null;
+  };
+
   const sendHitboxes = (now: number, force: boolean) => {
     if (!force && now - sentAt < HITBOX_EVERY_MS) return;
     const dpr = window.devicePixelRatio;
     const extra = options.extraRects().map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height }));
-    const boxes = cursorBoxes(state, window.innerHeight, extra).map((b) => physicalBox(b, dpr));
+    // Only the bird's drawn pixels take the cursor, not its whole, mostly empty, cell.
+    const drawn = ink && inkBox(state, window.innerHeight, ink, turnPose(state, now).scaleX, rowDy(now));
+    const boxes = cursorBoxes(state, window.innerHeight, extra, drawn).map((b) => physicalBox(b, dpr));
     // The branch's fade zone: the bird is never in it, and its own box always takes the cursor.
     const zone = fadeZone(state, window.innerWidth, window.innerHeight, now);
     const fade = zone ? physicalBox(zone, dpr) : null;
@@ -278,6 +292,7 @@ export function createBird(
       gripCtx.clearRect(0, 0, grip.width, grip.height);
       if (over && overBitmap) gripCtx.drawImage(overBitmap, over.sx, over.sy, over.sw, over.sh, 0, over.dy * k, grip.width, over.sh * k);
       drawnFrame = frameKey;
+      measureInk(frameKey);
       if (shownFile === "") resolveReady();
       shownFile = rect.file;
     }
@@ -353,6 +368,7 @@ export function createBird(
   let fluffTimer = 0;
   const fluff = (on: boolean) => {
     window.clearTimeout(fluffTimer);
+    // The bird's feathers only: the grip is the bark, which doesn't fluff.
     canvas.classList.toggle("parrot-fluff", on);
     // A still hand: the feathers settle again.
     if (on) fluffTimer = window.setTimeout(() => fluff(false), PET_IDLE_MS);

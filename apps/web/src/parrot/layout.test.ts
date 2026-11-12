@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { birdBox, cardAnchor, dragPosition, grabOffset, physicalBox } from "./layout";
 import { initialState, reduce } from "./machine";
 
@@ -91,5 +92,58 @@ describe("the grab point stays under the cursor, at every display scale", () => 
       expect(box.x + box.w).toBeLessThanOrEqual(PHYS_W + 1);
       expect(box.y).toBe(0);
     });
+  });
+});
+
+describe("what takes the cursor: the bird's drawn pixels, not its cell", () => {
+  it("finds the opaque box of a frame, and nothing in an empty one", async () => {
+    const { alphaBounds } = await import("./layout");
+    const w = 10;
+    const h = 8;
+    const px = new Uint8ClampedArray(w * h * 4);
+    const set = (x: number, y: number, a: number) => (px[(y * w + x) * 4 + 3] = a);
+    expect(alphaBounds(px, w, h)).toBeNull();
+    set(3, 2, 255);
+    set(6, 5, 200);
+    set(9, 7, 10); // too faint to see: not part of the bird
+    expect(alphaBounds(px, w, h)).toEqual({ x: 3, y: 2, w: 4, h: 4 });
+  });
+
+  it("places it like the cell, flipped facing in, lowered by rowDy, and both ways mid-turn", async () => {
+    const { inkBox } = await import("./layout");
+    const s = { x: 1000, lift: 300, cell: { width: 168, height: 152 } };
+    const ink = { x: 40, y: 20, w: 90, h: 110 };
+    // Facing right: straight across.
+    expect(inkBox(s, 900, ink, 1)).toEqual({ x: 1040, y: 900 - 152 - 300 + 20, w: 90, h: 110 });
+    // Facing in (mirrored): from the cell's other side.
+    expect(inkBox(s, 900, ink, -1)).toEqual({ x: 1000 + 168 - 40 - 90, y: 468, w: 90, h: 110 });
+    // On the branch, lowered by rowDy.
+    expect(inkBox(s, 900, ink, -1, 4).y).toBe(472);
+    // Mid-turn: wide enough for either way.
+    expect(inkBox(s, 900, ink, 0.4)).toEqual({ x: 1038, y: 468, w: 92, h: 110 });
+  });
+
+  it("leaves the empty part of the cell to the window under it (the v22 hover flicker)", async () => {
+    const { inkBox } = await import("./layout");
+    const { cursorBoxes } = await import("./perch");
+    const { initialState } = await import("./machine");
+    const s = { ...initialState(1_000_000, 1440, false, false, 0), x: 1258, lift: 300, facing: -1 as const };
+    const ink = { x: 7, y: 30, w: 90, h: 100 };
+    const drawn = inkBox(s, 900, ink, -1);
+    const [hit] = cursorBoxes(s, 900, [], drawn);
+    expect(hit).toEqual(drawn);
+    // A point in the cell's left part, where v22 took the cursor off the dashboard's row, isn't the bird's any more.
+    const rowEnd = { x: s.x + 5, y: drawn.y + 50 };
+    const cell = birdBox(s, 900);
+    expect(rowEnd.x >= cell.x && rowEnd.x <= cell.x + cell.w).toBe(true);
+    expect(rowEnd.x >= hit.x && rowEnd.x <= hit.x + hit.w).toBe(false);
+    // Without a measured frame yet, it falls back to the whole cell.
+    expect(cursorBoxes(s, 900, [])[0]).toEqual(cell);
+  });
+
+  it("the overlay sends the drawn box, measured once per frame drawn", () => {
+    const src = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
+    expect(src).toMatch(/cursorBoxes\(state, window\.innerHeight, extra, drawn\)/);
+    expect(src).toMatch(/drawnFrame = frameKey;\s*measureInk\(frameKey\);/);
   });
 });

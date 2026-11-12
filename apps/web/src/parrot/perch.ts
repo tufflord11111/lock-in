@@ -241,6 +241,7 @@ export function fadeZone(s: BirdState, innerWidth: number, innerHeight: number, 
  * can't be caught. Never the branch or its shadow; the front grip lies inside
  * the bird's box and takes nothing of its own, so a grab goes through it.
  */
-export function cursorBoxes(s: BirdState, innerHeight: number, extra: Box[]): Box[] {
-  return s.mode === "flight" ? extra : [birdBox(s, innerHeight), ...extra];
+export function cursorBoxes(s: BirdState, innerHeight: number, extra: Box[], drawn?: Box | null): Box[] {
+  // `drawn`: the bird's visible pixels (layout.ts inkBox), when the overlay knows them; else the cell.
+  return s.mode === "flight" ? extra : [drawn ?? birdBox(s, innerHeight), ...extra];
 }
