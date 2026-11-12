@@ -788,6 +788,11 @@ struct QuitRefusedPayload {
     reason: String,
 }
 
+/// The tray's Quit rule: never while a session runs.
+fn quit_allowed(armed: bool) -> bool {
+    !armed
+}
+
 /// The tray's Quit. Refused while armed; Task Manager still ends the app, as
 /// the site FAQ says, but the tray won't be the way out of a session.
 fn tray_quit(app: &tauri::AppHandle) {
@@ -797,7 +802,7 @@ fn tray_quit(app: &tauri::AppHandle) {
         .lock()
         .map(|p| p.armed())
         .unwrap_or(false);
-    if armed {
+    if !quit_allowed(armed) {
         println!("[Tray] Quit refused — a session is running");
         log_ui_event(app, "quit-refused");
         show_main_window(app);
@@ -2236,7 +2241,10 @@ pub fn run() {
                     println!("[Tray] window closed — hidden, still running");
                 }
             }
-            // The parrot's window would otherwise keep the process alive, invisible.
+            // 1.2.10 exits when its one window closes, which only happens when the close above
+            // wasn't prevented: no session, and "keep running" off. The parrot's window would
+            // otherwise keep the process alive there, invisible, so the same close exits here.
+            // During a session main is only ever hidden, never destroyed, so this never fires then.
             if matches!(event, tauri::WindowEvent::Destroyed) && window.label() == "main" {
                 window.app_handle().exit(0);
             }
@@ -2536,7 +2544,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2919,6 +2927,69 @@ mod tests {
         assert!(close_hides(true, true));
         assert!(close_hides(false, true));
         assert!(!close_hides(false, false));
+    }
+
+    /// A profile as the app has it: the defaults, with or without a session running.
+    fn profile(session: bool) -> LockProfile {
+        let mut p: LockProfile = serde_json::from_str("{}").unwrap();
+        p.focus_active = session;
+        p
+    }
+
+    #[test]
+    fn x_with_no_session_hides_to_the_tray() {
+        // The defaults: "keep running" is on, so the X (and Alt+F4, and the taskbar's Close,
+        // which all arrive as the same CloseRequested) hides the window and the app runs on.
+        let p = profile(false);
+        assert!(!p.armed());
+        assert!(close_hides(p.armed(), p.close_to_tray));
+    }
+
+    #[test]
+    fn x_during_a_session_hides_to_the_tray_whatever_the_setting() {
+        for keep_running in [true, false] {
+            let mut p = profile(true);
+            p.close_to_tray = keep_running;
+            assert!(p.armed());
+            assert!(close_hides(p.armed(), p.close_to_tray), "keep running {keep_running}");
+        }
+    }
+
+    #[test]
+    fn x_with_no_session_and_keep_running_off_closes_as_in_1_2_10() {
+        // The one close that isn't prevented, as in 1.2.10: the user turned "keep running" off.
+        let mut p = profile(false);
+        p.close_to_tray = false;
+        assert!(!close_hides(p.armed(), p.close_to_tray));
+    }
+
+    #[test]
+    fn tray_quit_is_refused_during_a_session_and_allowed_otherwise() {
+        assert!(!quit_allowed(profile(true).armed()));
+        assert!(quit_allowed(profile(false).armed()));
+    }
+
+    #[test]
+    fn the_only_ways_out_are_tray_quit_and_a_close_that_was_not_prevented() {
+        let src = include_str!("lib.rs");
+        let body = &src[..src.find("#[cfg(test)]").unwrap()];
+        // Exactly two exits in the app: the tray's Quit, behind quit_allowed, and main being destroyed.
+        assert_eq!(body.matches(".exit(0)").count(), 2);
+        let quit = &body[body.find("fn tray_quit").unwrap()..];
+        let quit = &quit[..quit.find("\n}\n").unwrap()];
+        assert!(quit.find("if !quit_allowed(armed)").unwrap() < quit.find("app.exit(0)").unwrap());
+        // The close handler prevents the close whenever it hides, so main is never destroyed then;
+        // only main's destruction exits, and it hides only the window that was closed, so the
+        // parrot's window stays on screen.
+        let handler = &body[body.find(".on_window_event(").unwrap()..];
+        let handler = &handler[..handler.find(".invoke_handler(").unwrap()];
+        assert!(handler.contains("if hide {\n                    api.prevent_close();\n                    let _ = window.hide();"));
+        assert!(handler.contains("matches!(event, tauri::WindowEvent::Destroyed) && window.label() == \"main\""));
+        // Nothing else in the Rust ends the app or destroys main: companion.rs destroys only its own window.
+        let companion = include_str!("companion.rs");
+        assert!(!companion.contains(".exit("));
+        assert_eq!(companion.matches(".destroy()").count(), 1);
+        assert!(companion.contains("const LABEL: &str = \"parrot\";"));
     }
 
     #[test]
