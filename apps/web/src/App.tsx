@@ -534,7 +534,10 @@ function AppInner() {
         const webGuardQuiet = reachable && extensionQuietNow();
         const canLockDown = status?.listening === true;
         const closable = canLockDown ? status.closable : [];
-        if (webGuardQuiet || closable.length > 0) {
+        // A session that blocks sites always closes browsers without Web Guard (1.3.0).
+        // Ask first when that will close something now, when Web Guard is quiet, or when
+        // the browser check can't run at all (then the session can only block apps).
+        if (!canLockDown || webGuardQuiet || closable.length > 0) {
           setPendingStart({
             minutes,
             label,
@@ -545,8 +548,10 @@ function AppInner() {
           });
           return;
         }
+        startSession(minutes, label, { lockdown: true, blocksSites: true });
+        return;
       }
-      startSession(minutes, label, { blocksSites });
+      startSession(minutes, label, { blocksSites: false });
     },
     [reachable, sessionSites, extensionQuietNow, startSession, user?.uid]
   );
@@ -876,10 +881,6 @@ function AppInner() {
           incognitoGaps={pendingStart.incognitoGaps}
           onStartLockdown={() => {
             startSession(pendingStart.minutes, pendingStart.label, { lockdown: true, blocksSites: true });
-            setPendingStart(null);
-          }}
-          onStartAnyway={() => {
-            startSession(pendingStart.minutes, pendingStart.label, { blocksSites: true });
             setPendingStart(null);
           }}
           onStartAppsOnly={() => {

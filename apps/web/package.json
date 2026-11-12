@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run src/parrot"
+    "test": "vitest run src"
   },
   "dependencies": {
     "@lock-in/firebase": "workspace:*",

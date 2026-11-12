@@ -616,6 +616,7 @@ fn lockdown_runner(
     profile: Arc<Mutex<LockProfile>>,
     beats: Arc<heartbeat::BeatStore>,
     online: Arc<AtomicBool>,
+    listening: bool,
 ) {
     let mut sys = System::new();
     let mut tracker = lockdown::Tracker::default();
@@ -625,7 +626,8 @@ fn lockdown_runner(
         let (active, in_lockdown, blocks_sites, end, uid) = match profile.lock() {
             Ok(p) => (
                 p.focus_active && (p.browser_lockdown || p.session_blocks_sites),
-                p.browser_lockdown,
+                // A session that blocks sites closes browsers without Web Guard, however it started.
+                lockdown::lockdown_applies(p.browser_lockdown, p.session_blocks_sites, listening),
                 p.session_blocks_sites,
                 p.session_end_time,
                 p.session_uid.clone(),
@@ -2303,7 +2305,7 @@ pub fn run() {
 
             let lockdown_app = handle.clone();
             let lockdown_profile = Arc::clone(&profile_for_setup);
-            thread::spawn(move || lockdown_runner(lockdown_app, lockdown_profile, beats, online));
+            thread::spawn(move || lockdown_runner(lockdown_app, lockdown_profile, beats, online, heartbeat_listening));
 
             // ── Tray ───────────────────────────────────────────────────────
             // Driven from Rust only, so no capability is needed for it.

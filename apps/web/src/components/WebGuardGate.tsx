@@ -7,13 +7,12 @@ type Props = {
   webGuardQuiet: boolean;
   /** Browsers lockdown would close right now, by name. */
   closable: string[];
-  /** False if the heartbeat port couldn't open: lockdown would close everything. */
+  /** False if the heartbeat port couldn't open: lockdown would close everything, so only apps can be blocked. */
   canLockDown: boolean;
   /** Browsers that keep running with Web Guard, but not in Incognito. */
   incognitoGaps: string[];
   onStartLockdown: () => void;
   onStartAppsOnly: () => void;
-  onStartAnyway: () => void;
   onClose: () => void;
 };
 
@@ -26,9 +25,11 @@ const primary = "w-full bg-ink text-surface-inverse py-3 rounded-lg font-black t
 const secondary = "w-full bg-surface border-1 border-ink text-ink py-3 rounded-lg font-black text-[10px] label-action-sm";
 
 /**
- * Shown when a session that blocks websites is started and something can't be
- * blocked: Web Guard is quiet, or another known browser is open. It says what the
- * session can't do and lets the operator choose.
+ * Shown when a session that blocks websites is started and it will close a
+ * browser now, Web Guard is quiet, or the browser check can't run. A session that
+ * blocks sites always closes browsers without Web Guard (1.3.0): there is no
+ * "leave them open". The choices are to start with that, install Web Guard, or
+ * block apps only.
  */
 export function WebGuardGate({
   storeUrl,
@@ -38,7 +39,6 @@ export function WebGuardGate({
   incognitoGaps,
   onStartLockdown,
   onStartAppsOnly,
-  onStartAnyway,
   onClose,
 }: Props) {
   const install = () => {
@@ -59,12 +59,14 @@ export function WebGuardGate({
         className="relative w-full max-w-md bg-surface border-1 border-ink rounded-2xl p-6 shadow-[shadow:var(--shadow-2)]"
       >
         <h2 id="web-guard-gate-title" className="text-lg font-black text-ink mb-2">
-          {webGuardQuiet ? "Web Guard isn't answering" : "Other browsers are open"}
+          {!canLockDown ? "Lock-In can't check your browsers" : webGuardQuiet ? "Web Guard isn't answering" : "Other browsers are open"}
         </h2>
         <p className="text-sm font-bold text-ink/70 mb-3">
-          {webGuardQuiet
-            ? "This session blocks websites, and Web Guard is what blocks them. Without it, Lock-In can still close your blocked apps, but it can't block sites."
-            : `This session blocks websites, but Lock-In can't block them in ${list(closable)}.`}
+          {!canLockDown
+            ? "Its browser check couldn't start, so this session can't block websites. It can still close your blocked apps."
+            : webGuardQuiet
+              ? "This session blocks websites, and Web Guard is what blocks them. Without it, Lock-In closes your browsers during the session."
+              : `This session blocks websites, but Lock-In can't block them in ${list(closable)}.`}
         </p>
         {canLockDown && (
           <p className="text-xs font-bold text-ink/70 mb-3">
@@ -84,20 +86,14 @@ export function WebGuardGate({
               Start and close other browsers
             </button>
           )}
-          {webGuardQuiet ? (
-            <>
-              <button onClick={install} className={canLockDown ? secondary : primary}>
-                Install Web Guard
-              </button>
-              <button onClick={onStartAppsOnly} className={secondary}>
-                Start apps-only
-              </button>
-            </>
-          ) : (
-            <button onClick={onStartAnyway} className={secondary}>
-              Start and leave them open
+          {webGuardQuiet && canLockDown && (
+            <button onClick={install} className={secondary}>
+              Install Web Guard
             </button>
           )}
+          <button onClick={onStartAppsOnly} className={canLockDown ? secondary : primary}>
+            Start apps-only
+          </button>
           <button onClick={onClose} className="w-full py-2 text-[10px] font-bold text-ink/60 underline">
             Not now
           </button>

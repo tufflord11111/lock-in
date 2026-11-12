@@ -67,6 +67,17 @@ pub fn closable(with_windows: &[&'static str], is_fresh: &dyn Fn(&str) -> bool) 
         .collect()
 }
 
+/**
+ * Whether this session closes browsers without a live Web Guard: always when it
+ * blocks sites (1.3.0), as long as heartbeats can arrive, and whenever the operator
+ * chose lockdown. With the heartbeat port shut no browser can prove itself, so
+ * closing every one, Web Guard or not, would be wrong: then only the operator's
+ * explicit choice turns it on, as before.
+ */
+pub fn lockdown_applies(chosen: bool, blocks_sites: bool, listening: bool) -> bool {
+    chosen || (blocks_sites && listening)
+}
+
 pub struct Tick<'a> {
     pub now: u64,
     /// The operator chose to close browsers without a heartbeat.
@@ -225,6 +236,66 @@ mod tests {
 
     fn no_beats(_: &str) -> Option<u64> {
         None
+    }
+
+    #[test]
+    fn a_session_that_blocks_sites_locks_down_unless_no_beat_can_arrive() {
+        // (chosen, blocks sites, heartbeat port open) -> locks down
+        assert!(lockdown_applies(false, true, true), "1.3.0: blocking sites is enough");
+        assert!(lockdown_applies(true, true, true));
+        assert!(lockdown_applies(true, false, true));
+        assert!(lockdown_applies(true, true, false), "an explicit choice still counts");
+        assert!(!lockdown_applies(false, true, false), "no port: it would close Web Guard browsers too");
+        assert!(!lockdown_applies(false, false, true), "an apps-only session leaves browsers alone");
+    }
+
+    #[test]
+    fn edge_and_opera_gx_opened_mid_session_are_warned_and_closed() {
+        // v22: a session that blocks sites, nothing chosen at the start, and Edge and
+        // Opera GX opened after it began, with no Web Guard beat.
+        let mut t = Tracker::default();
+        let mut got = Vec::new();
+        for now in (0..=20_000u64).step_by(1_000) {
+            let running: &[&'static str] = if now >= 3_000 { &["edge", "opera_gx"] } else { &[] };
+            let tick = Tick {
+                now,
+                lockdown: lockdown_applies(false, true, true),
+                blocks_sites: true,
+                online: true,
+                running,
+                last_beat: &no_beats,
+                incognito_off: &|_| false,
+                fresh_ms: 60_000,
+            };
+            got.extend(t.tick(&tick).into_iter().map(|a| (now, a)));
+        }
+        for browser in ["edge", "opera_gx"] {
+            let warned = got.iter().find(|(_, a)| *a == Action::Warn { browser, lost_web_guard: false }).map(|(at, _)| *at);
+            let forced = got.iter().find(|(_, a)| *a == Action::ForceClose { browser }).map(|(at, _)| *at);
+            let (warned, forced) = (warned.expect(browser), forced.expect(browser));
+            assert!(warned >= 3_000 && forced > warned && forced - warned <= WARN_MS + FORCE_AFTER_MS, "{browser}: {warned} -> {forced}");
+        }
+    }
+
+    #[test]
+    fn under_1_2_10s_rule_those_browsers_were_left_open() {
+        // The old rule: not chosen at the start means only a browser that lost Web Guard acts.
+        let mut t = Tracker::default();
+        let mut got = Vec::new();
+        for now in (0..=20_000u64).step_by(1_000) {
+            let tick = Tick {
+                now,
+                lockdown: false,
+                blocks_sites: true,
+                online: true,
+                running: &["edge", "opera_gx"],
+                last_beat: &no_beats,
+                incognito_off: &|_| false,
+                fresh_ms: 60_000,
+            };
+            got.extend(t.tick(&tick));
+        }
+        assert!(got.is_empty(), "{got:?}");
     }
 
     #[test]
