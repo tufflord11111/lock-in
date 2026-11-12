@@ -233,3 +233,59 @@ describe("petting with the right button", () => {
     expect(bird).toMatch(/e\.button !== 2[\s\S]{0,200}companion_set_dragging", \{ dragging: true \}/);
   });
 });
+
+describe("petting on the branch: the feet are gripping", () => {
+  const { openMs } = petTimes();
+
+  it("has no lean on the branch, through the whole petting; on the ground it still leans", async () => {
+    const { leanFor, petLean } = await import("./pet");
+    const { beginFlight: fly, perchFor: perch } = await import("./machine");
+    const ground = start();
+    const perched = (() => {
+      const up = fly(ground, T0, perch(ground), true);
+      return tick(up, up.flight!.endAt);
+    })();
+    expect(perched.onBranch).toBe(true);
+    const at = perched.enteredAt + 1_000;
+    let s = go(perched, { type: "petRub" }, at);
+    s = rubbing(s, at, at + 1_500);
+    expect(s.mode).toBe("pet");
+    expect(feetOnBranch(s, at + 1_000)).toBe(true);
+    for (let t = at; t < at + 3_000; t += 25) {
+      for (const side of [-1, 1] as const) expect(leanFor(s.pet!, t, false, side, feetOnBranch(s, t))).toBe(0);
+    }
+    // On the ground the same petting leans toward the cursor.
+    const onGround = rubbing(go(start(), { type: "petRub" }), T0, T0 + 1_500);
+    expect(feetOnBranch(onGround, T0 + openMs + 400)).toBe(false);
+    expect(Math.abs(leanFor(onGround.pet!, T0 + openMs + 400, false, 1, false))).toBeGreaterThan(0);
+    expect(leanFor(onGround.pet!, T0 + openMs + 400, false, 1, false)).toBe(petLean(onGround.pet!, T0 + openMs + 400, false, 1));
+  });
+
+  it("the overlay asks for the lean with the feet's place, so the branch gets none", () => {
+    expect(source("./bird.ts")).toMatch(/leanFor\(state\.pet, now, state\.reducedMotion, rub\.side, feetOnBranch\(state, now\)\)/);
+  });
+});
+
+describe("the front grip never leans, scales or fluffs", () => {
+  it("bird.ts never transforms the grip, and only the bird's canvas fluffs", () => {
+    const bird = source("./bird.ts");
+    expect(bird).not.toMatch(/grip\.style\.(transform|transformOrigin|scale|rotate|translate)\b/);
+    expect(bird).not.toMatch(/grip\.classList\.(toggle|add)\("parrot-fluff"/);
+    expect(bird).toMatch(/canvas\.classList\.toggle\("parrot-fluff", on\)/);
+  });
+
+  it("no CSS rule that can apply to the grip, faded or not, sets a transform", () => {
+    const css = source("../theme/parrot.css").replace(/\/\*[\s\S]*?\*\//g, "");
+    // The classes the grip can ever have.
+    const gripClasses = new Set(["parrot-sprite", "parrot-grip", "parrot-faded"]);
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const body = m[2];
+      if (!/\b(transform|scale|rotate|translate)\s*:/.test(body)) continue;
+      for (const selector of m[1].split(",").map((x) => x.trim())) {
+        const parts = selector.match(/[#.][\w-]+/g) ?? [];
+        const couldBeGrip = parts.length > 0 && parts.join("") === selector && parts.every((p) => p[0] === "." && gripClasses.has(p.slice(1)));
+        expect(couldBeGrip, `${selector} sets a transform`).toBe(false);
+      }
+    }
+  });
+});

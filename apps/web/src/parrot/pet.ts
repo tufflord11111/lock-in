@@ -90,6 +90,15 @@ export function petLean(p: Pet, now: number, reduced: boolean, side: -1 | 0 | 1,
   return side * PET_LEAN_DEG * Math.min(into, out);
 }
 
+/**
+ * The lean to draw: none with the feet on the branch, where the front grip holds
+ * the toes to the bark and a tilted bird would come away from it; otherwise
+ * petLean. The grip itself never leans.
+ */
+export function leanFor(p: Pet, now: number, reduced: boolean, side: -1 | 0 | 1, onBranch: boolean, row: SpriteRow = rowOf("pet")): number {
+  return onBranch ? 0 : petLean(p, now, reduced, side, row);
+}
+
 /** Which side of the head the cursor is, with a few px of dead band so it doesn't flicker over the middle. */
 export function cursorSide(cursorX: number, headX: number, previous: -1 | 0 | 1): -1 | 0 | 1 {
   if (cursorX > headX + 2) return 1;

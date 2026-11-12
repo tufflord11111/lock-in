@@ -10,7 +10,7 @@ import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, 
 import { birdBox, dragPosition, grabOffset, physicalBox } from "./layout";
 import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, feetOnBranch, perchDy, shadowBox, type Branch } from "./perch";
 import { createSpriteCache } from "./spriteCache";
-import { PET_IDLE_MS, PET_START_PX, cursorSide, petLean } from "./pet";
+import { PET_IDLE_MS, PET_START_PX, cursorSide, leanFor } from "./pet";
 import { DEBUG, createFrameLog } from "./frameCheck";
 import {
   frameIndex,
@@ -186,7 +186,7 @@ export function createBird(
     drawnFrame = "";
     // A lean pivots on the feet, where the art has them while petted; the grip leans with the bird.
     const feet = contactAt("pet", 0)?.cx ?? DISPLAY_CELL.width / 2;
-    canvas.style.transformOrigin = grip.style.transformOrigin = `${feet}px ${baseline}px`;
+    canvas.style.transformOrigin = `${feet}px ${baseline}px`;
   };
   let drawnFrame = "";
   let shownFile = "";
@@ -255,7 +255,8 @@ export function createBird(
     place(now);
     sizeCanvas();
     // On the screen it leans toward the cursor; inside the mirrored box that is the other way when facing in.
-    canvas.style.transform = grip.style.transform = lean === 0 ? "" : `rotate(${lean * Math.sign(scaleX)}deg)`;
+    // The bird leans; the grip never does. It takes only the box's place, mirroring and rowDy.
+    canvas.style.transform = lean === 0 ? "" : `rotate(${lean * Math.sign(scaleX)}deg)`;
     // This row, and the rows it may need next, with their layers, decoded and held.
     sprites.want(wantedFiles(state, now, scale));
     // The look for where its feet are: the underband under it on the ground; the front grip over it on the branch.
@@ -309,7 +310,8 @@ export function createBird(
       const headX = scaleX >= 0 ? state.x + head.x : state.x + state.cell.width - head.x;
       rub.side = cursorSide(rub.x, headX, rub.side);
     }
-    return Math.round(petLean(state.pet, now, state.reducedMotion, rub.side) * 10) / 10;
+    // On the branch the feet are gripping: no lean there.
+    return Math.round(leanFor(state.pet, now, state.reducedMotion, rub.side, feetOnBranch(state, now)) * 10) / 10;
   };
 
   const loop = createLoop(
@@ -352,7 +354,6 @@ export function createBird(
   const fluff = (on: boolean) => {
     window.clearTimeout(fluffTimer);
     canvas.classList.toggle("parrot-fluff", on);
-    grip.classList.toggle("parrot-fluff", on);
     // A still hand: the feathers settle again.
     if (on) fluffTimer = window.setTimeout(() => fluff(false), PET_IDLE_MS);
   };
