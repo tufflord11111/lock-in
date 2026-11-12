@@ -737,7 +737,7 @@ export function BlockRegistry({
 
              <button
                onClick={handleBrowse}
-               className="bg-surface text-ink border-1 border-ink px-6 py-3 rounded-lg font-black text-[9px] label-action-sm flex items-center gap-3 hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-[2px] active:shadow-none transition-all shadow-[shadow:var(--shadow-1)]"
+               className="hover-lift bg-surface text-ink border-1 border-ink px-6 py-3 rounded-lg font-black text-[9px] label-action-sm flex items-center gap-3 hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-[2px] active:shadow-none transition-all shadow-[shadow:var(--shadow-1)]"
              >
                <FolderOpen size={14} />
                Browse Files
@@ -755,7 +755,7 @@ export function BlockRegistry({
             <button
               onClick={handleAdd}
               disabled={!newExe.trim() || isSyncing}
-              className="bg-ink text-surface-inverse border-1 border-ink px-8 rounded-lg font-black transition-all hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-[2px] active:shadow-none disabled:opacity-50 flex items-center justify-center shadow-[shadow:var(--shadow-1)] min-w-[140px]"
+              className="hover-lift bg-ink text-surface-inverse border-1 border-ink px-8 rounded-lg font-black transition-all hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-[2px] active:shadow-none disabled:opacity-50 flex items-center justify-center shadow-[shadow:var(--shadow-1)] min-w-[140px]"
             >
               {isSyncing ? (
                 <span className="text-[10px] tracking-widest flex items-center gap-2">
@@ -799,7 +799,7 @@ export function BlockRegistry({
                 <motion.div
                   layout
                   key={exe}
-                  className="group flex items-center justify-between bg-surface border-1 border-ink p-4 rounded-xl hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] transition-all shadow-[shadow:var(--shadow-1)]"
+                  className="hover-lift group flex items-center justify-between bg-surface border-1 border-ink p-4 rounded-xl hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] transition-all shadow-[shadow:var(--shadow-1)]"
                 >
                   <span className="font-bold text-sm truncate pr-2 text-ink/80 tracking-tight italic flex-1">{exe}</span>
                   <div className="flex items-center gap-2 shrink-0">
@@ -1017,7 +1017,7 @@ export function BlockRegistry({
                         setIsScannerOpen(false);
                         await requestAddBlock(app);
                       }}
-                      className="w-full text-left bg-surface border-1 border-ink p-4 flex items-center justify-between group hover:bg-highlight transition-all hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-0 active:shadow-none"
+                      className="hover-lift w-full text-left bg-surface border-1 border-ink p-4 flex items-center justify-between group hover:bg-highlight transition-all hover:-translate-y-1 hover:shadow-[shadow:var(--shadow-2)] active:translate-y-0 active:shadow-none"
                     >
                       <span className="font-bold text-sm text-ink">{app}</span>
                       <Plus size={16} className="opacity-0 group-hover:opacity-100 transition-opacity" />
