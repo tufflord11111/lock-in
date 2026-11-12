@@ -7,6 +7,8 @@ type Props = {
   webGuardQuiet: boolean;
   /** Browsers lockdown would close right now, by name. */
   closable: string[];
+  /** The closable browsers that can run Web Guard (Chrome, Edge, Brave): installing it keeps them open. */
+  installable?: { id: string; name: string }[];
   /** False if the heartbeat port couldn't open: lockdown would close everything, so only apps can be blocked. */
   canLockDown: boolean;
   /** Browsers that keep running with Web Guard, but not in Incognito. */
@@ -35,17 +37,20 @@ export function WebGuardGate({
   storeUrl,
   webGuardQuiet,
   closable,
+  installable = [],
   canLockDown,
   incognitoGaps,
   onStartLockdown,
   onStartAppsOnly,
   onClose,
 }: Props) {
-  const install = () => {
-    invoke("open_web_guard_store")
+  // Web Guard installs into whichever browser opens the Store page, so open it in
+  // the one being installed for. No id means Chrome.
+  const install = (browser?: { id: string; name: string }) => {
+    invoke("open_web_guard_store", { browser: browser?.id ?? null })
       .then(onClose)
       .catch((err) =>
-        reportWriteFailure(`Couldn't open Chrome. Install Web Guard from ${storeUrl}`, err)
+        reportWriteFailure(`Couldn't open ${browser?.name ?? "Chrome"}. Install Web Guard from ${storeUrl}`, err)
       );
   };
 
@@ -75,6 +80,25 @@ export function WebGuardGate({
             reopened. Unsaved typing in them is lost.
           </p>
         )}
+        {canLockDown && installable.length > 0 && (
+          <div className="mb-3 rounded-lg border-1 border-ink/30 p-3">
+            <p className="text-xs font-bold text-ink mb-2">
+              Install Web Guard in this browser to keep using it during sessions.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {installable.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => install(b)}
+                  className="bg-surface border-1 border-ink text-ink px-3 py-2 rounded-lg font-black text-[10px] label-action-sm"
+                >
+                  Install in {b.name}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] font-bold text-ink/60 break-all select-text">{storeUrl}</p>
+          </div>
+        )}
         {incognitoGaps.length > 0 && (
           <p className="text-xs font-bold text-ink/70 mb-3">
             Incognito windows in {list(incognitoGaps)} aren't blocked unless you allow Web Guard there.
@@ -86,8 +110,8 @@ export function WebGuardGate({
               Start and close other browsers
             </button>
           )}
-          {webGuardQuiet && canLockDown && (
-            <button onClick={install} className={secondary}>
+          {webGuardQuiet && canLockDown && installable.length === 0 && (
+            <button onClick={() => install()} className={secondary}>
               Install Web Guard
             </button>
           )}

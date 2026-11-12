@@ -53,6 +53,14 @@ pub const KNOWN: &[Browser] = &[
     Browser { id: "ie", name: "Internet Explorer" },
 ];
 
+/// Browsers that install Web Guard from the Chrome Web Store and beat as
+/// themselves, so a live Web Guard keeps them open during a session. Firefox
+/// can't: its extensions aren't from the Chrome Web Store, and the heartbeat
+/// only takes chrome-extension:// origins.
+pub fn takes_web_guard(id: &str) -> bool {
+    matches!(id, "chrome" | "edge" | "brave")
+}
+
 pub fn name_of(id: &str) -> &'static str {
     KNOWN.iter().find(|b| b.id == id).map_or("this browser", |b| b.name)
 }

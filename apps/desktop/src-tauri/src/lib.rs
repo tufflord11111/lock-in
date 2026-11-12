@@ -609,6 +609,19 @@ fn deliver_warning(app: &tauri::AppHandle, title: &str, message: String) {
     }
 }
 
+/// What the 10-second warning says. A browser that can run Web Guard is told how
+/// to stay open next time, with the Store link (the toast can't hold a button).
+fn lockdown_warning(browser: &str, lost_web_guard: bool) -> String {
+    let name = browsers::name_of(browser);
+    if lost_web_guard {
+        format!("Web Guard stopped answering in {name}. Closing it in 10 seconds, and it stays closed until the session ends. Save anything you've typed.")
+    } else if browsers::takes_web_guard(browser) {
+        format!("Closing {name} in 10 seconds. Save anything you've typed. Install Web Guard in this browser to keep using it during sessions: {WEB_GUARD_STORE_URL}")
+    } else {
+        format!("Closing {name} in 10 seconds. Save anything you've typed. Lock-In can't block sites in it during this session.")
+    }
+}
+
 /// Run lockdown for as long as the app runs. Only looks at processes during a
 /// session that uses it, so the rest of the time this is one lock a second.
 fn lockdown_runner(
@@ -665,14 +678,8 @@ fn lockdown_runner(
                         pids.iter().any(|p| open.contains(p))
                     }) => {}
                 lockdown::Action::Warn { browser, lost_web_guard } => {
-                    let name = browsers::name_of(browser);
-                    let message = if lost_web_guard {
-                        format!("Web Guard stopped answering in {name}. Closing it in 10 seconds, and it stays closed until the session ends. Save anything you've typed.")
-                    } else {
-                        format!("Closing {name} in 10 seconds. Save anything you've typed. Lock-In can't block sites in it during this session.")
-                    };
                     log_ui_event(&app, "lockdown-warned");
-                    deliver_warning(&app, "Lock-In is closing a browser", message);
+                    deliver_warning(&app, "Lock-In is closing a browser", lockdown_warning(browser, lost_web_guard));
                 }
                 lockdown::Action::IncognitoGap { browser } => {
                     let name = browsers::name_of(browser);
@@ -1816,7 +1823,15 @@ struct LockdownStatus {
     /// close every browser, including ones with a working Web Guard.
     listening: bool,
     closable: Vec<String>,
+    /// The closable browsers that Web Guard would keep open, by id and name.
+    installable: Vec<BrowserRef>,
     incognito_gaps: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct BrowserRef {
+    id: String,
+    name: String,
 }
 
 fn pids_with_windows() -> HashSet<u32> {
@@ -1858,11 +1873,14 @@ async fn lockdown_status(uid: Option<String>, app_state: State<'_, AppState>) ->
         let now = now_millis();
         let uid = uid.as_deref();
         let is_fresh = |b: &str| beats.is_fresh(b, uid, now);
+        let closable = lockdown::closable(&open, &is_fresh);
         LockdownStatus {
             listening,
-            closable: lockdown::closable(&open, &is_fresh)
-                .into_iter()
-                .map(|id| browsers::name_of(id).to_string())
+            closable: closable.iter().map(|id| browsers::name_of(id).to_string()).collect(),
+            installable: closable
+                .iter()
+                .filter(|id| browsers::takes_web_guard(id))
+                .map(|id| BrowserRef { id: id.to_string(), name: browsers::name_of(id).to_string() })
                 .collect(),
             incognito_gaps: open
                 .iter()
@@ -2014,9 +2032,14 @@ fn shell_execute_succeeded(code: isize) -> bool {
     code > 32
 }
 
-/// Where Chrome installs, machine-wide then per-user, in the order to try.
-fn chrome_candidates(program_files: &[Option<PathBuf>], local_app_data: Option<PathBuf>) -> Vec<PathBuf> {
-    let tail = ["Google", "Chrome", "Application", "chrome.exe"];
+/// Where a browser that takes Web Guard installs, machine-wide then per-user, in
+/// the order to try. Anything but Edge or Brave means Chrome.
+fn store_browser_candidates(browser: &str, program_files: &[Option<PathBuf>], local_app_data: Option<PathBuf>) -> Vec<PathBuf> {
+    let tail: &[&str] = match browser {
+        "edge" => &["Microsoft", "Edge", "Application", "msedge.exe"],
+        "brave" => &["BraveSoftware", "Brave-Browser", "Application", "brave.exe"],
+        _ => &["Google", "Chrome", "Application", "chrome.exe"],
+    };
     program_files
         .iter()
         .flatten()
@@ -2025,24 +2048,26 @@ fn chrome_candidates(program_files: &[Option<PathBuf>], local_app_data: Option<P
         .collect()
 }
 
-/// Open the extension's store page in Chrome, where Web Guard goes, not whatever
-/// the default browser is. With no Chrome here, the default browser is the only
-/// way left to reach the page. The URL is fixed here, so this can't be used to
-/// open anything else.
+/// Open the extension's store page in the browser it's for (Chrome, Edge or
+/// Brave; Chrome when none is named), since Web Guard installs into the browser
+/// that opens the page, not whatever the default browser is. With that browser
+/// not found, the default browser is the only way left to reach the page. The
+/// URL is fixed here, so this can't be used to open anything else.
 #[tauri::command]
-fn open_web_guard_store() -> Result<(), String> {
-    let candidates = chrome_candidates(
+fn open_web_guard_store(browser: Option<String>) -> Result<(), String> {
+    let candidates = store_browser_candidates(
+        browser.as_deref().unwrap_or("chrome"),
         &[std::env::var_os("ProgramFiles").map(PathBuf::from), std::env::var_os("ProgramFiles(x86)").map(PathBuf::from)],
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
     );
-    if let Some(chrome) = candidates.iter().find(|p| p.is_file()) {
-        return std::process::Command::new(chrome)
+    if let Some(exe) = candidates.iter().find(|p| p.is_file()) {
+        return std::process::Command::new(exe)
             .arg(WEB_GUARD_STORE_URL)
             .spawn()
             .map(|_| ())
             .map_err(|e| e.to_string());
     }
-    println!("[WebGuard] no chrome.exe found — opening the store page in the default browser");
+    println!("[WebGuard] {:?} not found — opening the store page in the default browser", browser);
     use windows::core::{w, HSTRING, PCWSTR};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -2581,7 +2606,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, store_browser_candidates, lockdown_warning, WEB_GUARD_STORE_URL, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2828,7 +2853,8 @@ mod tests {
 
     #[test]
     fn chrome_is_looked_for_machine_wide_then_per_user() {
-        let got = chrome_candidates(
+        let got = store_browser_candidates(
+            "chrome",
             &[Some("C:\\PF".into()), None],
             Some("C:\\Local".into()),
         );
@@ -2839,6 +2865,32 @@ mod tests {
                 std::path::PathBuf::from("C:\\Local\\Google\\Chrome\\Application\\chrome.exe"),
             ]
         );
+    }
+
+    #[test]
+    fn the_store_opens_in_the_browser_web_guard_is_for() {
+        let pf = [Some("C:\\PF86".into())];
+        let edge = store_browser_candidates("edge", &pf, None);
+        assert_eq!(edge, vec![std::path::PathBuf::from("C:\\PF86\\Microsoft\\Edge\\Application\\msedge.exe")]);
+        let brave = store_browser_candidates("brave", &pf, Some("C:\\Local".into()));
+        assert_eq!(brave[1], std::path::PathBuf::from("C:\\Local\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"));
+        // Anything else is Chrome: the page only installs into those three.
+        assert!(store_browser_candidates("opera", &pf, None)[0].ends_with("chrome.exe"));
+    }
+
+    #[test]
+    fn the_warning_says_how_to_keep_a_web_guard_browser_open() {
+        for id in ["chrome", "edge", "brave"] {
+            let m = lockdown_warning(id, false);
+            assert!(m.contains("Install Web Guard in this browser to keep using it during sessions"), "{m}");
+            assert!(m.contains(WEB_GUARD_STORE_URL), "{m}");
+        }
+        for id in ["opera_gx", "firefox", "vivaldi"] {
+            let m = lockdown_warning(id, false);
+            assert!(!m.contains("Install Web Guard"), "{m}");
+            assert!(m.contains("can't block sites in it"), "{m}");
+        }
+        assert!(lockdown_warning("edge", true).starts_with("Web Guard stopped answering in Edge"));
     }
 
     #[test]

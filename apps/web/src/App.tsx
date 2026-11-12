@@ -520,6 +520,7 @@ function AppInner() {
     label: string;
     webGuardQuiet: boolean;
     closable: string[];
+    installable: { id: string; name: string }[];
     canLockDown: boolean;
     incognitoGaps: string[];
   } | null>(null);
@@ -527,7 +528,12 @@ function AppInner() {
     async (minutes: number, label: string) => {
       const blocksSites = sessionSites.length > 0;
       if (blocksSites) {
-        const status = await invoke<{ listening: boolean; closable: string[]; incognito_gaps: string[] }>(
+        const status = await invoke<{
+          listening: boolean;
+          closable: string[];
+          installable?: { id: string; name: string }[];
+          incognito_gaps: string[];
+        }>(
           "lockdown_status",
           { uid: user?.uid ?? null }
         ).catch(() => null);
@@ -543,6 +549,7 @@ function AppInner() {
             label,
             webGuardQuiet,
             closable,
+            installable: canLockDown ? status.installable ?? [] : [],
             canLockDown,
             incognitoGaps: status?.incognito_gaps ?? [],
           });
@@ -877,6 +884,7 @@ function AppInner() {
           storeUrl={CHROME_WEB_STORE_URL}
           webGuardQuiet={pendingStart.webGuardQuiet}
           closable={pendingStart.closable}
+          installable={pendingStart.installable}
           canLockDown={pendingStart.canLockDown}
           incognitoGaps={pendingStart.incognitoGaps}
           onStartLockdown={() => {
