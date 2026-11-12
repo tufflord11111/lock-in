@@ -775,10 +775,40 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// True when Windows started us (the plugin's Run key passes this): stay in the
-/// tray instead of opening a window on every sign-in.
+/// True when Windows started us (the plugin's Run key passes this) at sign-in.
 fn is_silent_launch<S: AsRef<str>>(args: &[S]) -> bool {
     args.iter().any(|a| a.as_ref() == "--silently")
+}
+
+/// How the dashboard comes up at launch, after the network delay.
+#[derive(Debug, PartialEq)]
+enum BootShow {
+    /// Started by hand: shown and focused, as ever.
+    ShowAndFocus,
+    /// Started by Windows at sign-in: shown, so the dashboard is there with the
+    /// parrot, but not activated, so it doesn't take the keyboard from whatever
+    /// the user opened first. (1.2.10 kept it in the tray.)
+    ShowWithoutFocus,
+}
+
+fn boot_show(silent: bool) -> BootShow {
+    if silent {
+        BootShow::ShowWithoutFocus
+    } else {
+        BootShow::ShowAndFocus
+    }
+}
+
+/// Shows a window without activating it: SW_SHOWNOACTIVATE, not Tauri's show(),
+/// which activates.
+fn show_without_focus(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let _ = ShowWindow(HWND(hwnd.0), SW_SHOWNOACTIVATE);
+        }
+    }
 }
 
 const WEB_GUARD_STORE_URL: &str = "https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea";
@@ -2515,15 +2545,20 @@ pub fn run() {
             // The window starts hidden (tauri.conf.json: "visible": false)
             // and this thread makes it visible once the delay has passed.
             let silent = is_silent_launch(&std::env::args().collect::<Vec<_>>());
-            if silent {
-                println!("[Boot] silent launch — staying in the tray");
-            }
-            if let (false, Some(boot_window)) = (silent, app.get_webview_window("main")) {
+            if let Some(boot_window) = app.get_webview_window("main") {
                 thread::spawn(move || {
                     thread::sleep(std::time::Duration::from_secs(3));
-                    let _ = boot_window.show();
-                    let _ = boot_window.set_focus();
-                    println!("[Boot] Window shown after 3 s network delay");
+                    match boot_show(silent) {
+                        BootShow::ShowAndFocus => {
+                            let _ = boot_window.show();
+                            let _ = boot_window.set_focus();
+                            println!("[Boot] Window shown after 3 s network delay");
+                        }
+                        BootShow::ShowWithoutFocus => {
+                            show_without_focus(&boot_window);
+                            println!("[Boot] sign-in launch — window shown, not focused");
+                        }
+                    }
                 });
             }
 
@@ -2546,7 +2581,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, chrome_candidates, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2998,6 +3033,27 @@ mod tests {
     fn keep_running_defaults_on_for_old_state_files() {
         let p: LockProfile = serde_json::from_str("{}").unwrap();
         assert!(p.close_to_tray);
+    }
+
+    #[test]
+    fn a_sign_in_launch_shows_the_dashboard_without_taking_focus() {
+        assert_eq!(boot_show(true), BootShow::ShowWithoutFocus);
+        assert_eq!(boot_show(false), BootShow::ShowAndFocus);
+        // The sign-in path shows with SW_SHOWNOACTIVATE and never calls set_focus.
+        let src = include_str!("lib.rs");
+        let body = &src[..src.find("#[cfg(test)]").unwrap()];
+        let arm = &body[body.find("BootShow::ShowWithoutFocus => {").unwrap()..];
+        let arm = &arm[..arm.find("}").unwrap()];
+        assert!(arm.contains("show_without_focus(&boot_window)"));
+        assert!(!arm.contains("set_focus"));
+        let helper = &body[body.find("fn show_without_focus").unwrap()..];
+        let helper = &helper[..helper.find("\n}\n").unwrap()];
+        assert!(helper.contains("SW_SHOWNOACTIVATE"));
+        assert!(!helper.contains(".show()") && !helper.contains("set_focus"));
+        // And main is still created hidden and unfocused, so nothing shows or focuses earlier.
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["app"]["windows"][0]["visible"], false);
+        assert_eq!(conf["app"]["windows"][0]["focus"], false);
     }
 
     #[test]
