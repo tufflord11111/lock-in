@@ -21,6 +21,7 @@ import { VerificationGate } from "./components/VerificationGate";
 import WelcomeSequence from "./components/WelcomeSequence";
 import { DeleteAccountButton } from "./components/DeleteAccountButton";
 import { WriteFailureToasts } from "./components/WriteFailureToasts";
+import { WebGuardGate } from "./components/WebGuardGate";
 import { AppearancePicker } from "./theme/AppearancePicker";
 import { reportWriteFailure } from "./writeFailures";
 
@@ -148,6 +149,32 @@ function pick() {
       reportWriteFailure("Your session minutes didn't save, so your streak won't count this session.");
       reportWriteFailure("Your session minutes didn't save, so your streak won't count this session.");
       reportWriteFailure("You're offline — your session ended locally but your extension may keep blocking sites until you reconnect.", undefined, "info", { sticky: true });
+      return (
+        <Shell>
+          <WriteFailureToasts />
+        </Shell>
+      );
+    case "webguard-gate":
+      // Edge and Opera GX open without Web Guard: Edge can take it, Opera GX can't.
+      return (
+        <Shell>
+          <WebGuardGate
+            storeUrl="https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea"
+            webGuardQuiet={false}
+            closable={["Edge", "Opera GX"]}
+            installable={[{ id: "edge", name: "Edge" }]}
+            canLockDown={true}
+            incognitoGaps={[]}
+            onStartLockdown={noop}
+            onStartAppsOnly={noop}
+            onClose={noop}
+          />
+        </Shell>
+      );
+    case "lockdown-toasts":
+      // The texts Rust sends as "lockdown-warning" (lib.rs lockdown_warning, APPS_ONLY_NOTICE).
+      reportWriteFailure("Closing Edge in 10 seconds. Save anything you've typed. Install Web Guard in this browser to keep using it during sessions: https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea", undefined, "info");
+      reportWriteFailure("Lock-In can't check your browsers, so this session falls back to blocking apps only: it won't close any browser. Web Guard still blocks sites where it's installed. Restart Lock-In to check browsers again.", undefined, "info");
       return (
         <Shell>
           <WriteFailureToasts />

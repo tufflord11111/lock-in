@@ -100,7 +100,7 @@ export function WriteFailureToasts() {
             ) : (
               <AlertTriangle size={16} className="text-danger shrink-0 mt-0.5" />
             )}
-            <span className="text-[10px] font-bold text-ink leading-relaxed flex-1">
+            <span className="text-[10px] font-bold text-ink leading-relaxed flex-1 min-w-0 [overflow-wrap:anywhere]">
               {item.message}
             </span>
             {item.count > 1 && (
