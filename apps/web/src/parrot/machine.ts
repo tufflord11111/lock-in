@@ -108,7 +108,7 @@ export type BirdState = {
 export type BirdEvent =
   | { type: "tick" }
   | { type: "resize"; width: number; height?: number; branch?: Branch }
-  /** The user moved the branch (a Ctrl-drag, or Reset): a perched bird goes with it. */
+  /** The user set the branch's height (parrot settings' slider, or Reset): a perched bird goes with it. */
   | { type: "branch"; branch: Branch }
   | { type: "session"; active: boolean }
   | { type: "stoodDown"; finished: boolean }

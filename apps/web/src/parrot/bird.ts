@@ -10,8 +10,12 @@ import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, 
 import { alphaBounds, birdBox, dragPosition, grabOffset, inkBox, physicalBox, type Box } from "./layout";
 import {
   BRANCH_AT_KEY,
+  BRANCH_PREVIEW_HOLD_MS,
   branchAtFor,
+  branchAtRange,
   branchBox,
+  branchTop,
+  clampBranchAt,
   branchDrawingFor,
   branchOf,
   branchShown,
@@ -60,6 +64,12 @@ export type Bird = {
   spriteBytes: () => number;
   /** Parrot settings' Reset branch position: back to the default height, and forgotten on this PC. */
   resetBranch: () => void;
+  /** The Branch height slider is moving: the branch shows there, solid, until setBranchHeight. */
+  previewBranch: (at: number) => void;
+  /** The slider was let go: saved on this PC, and hidden again 2 s later unless in use. */
+  setBranchHeight: (at: number) => void;
+  /** The slider's range for this work area (perch fraction), and where the branch is now. */
+  branchRange: () => { min: number; max: number; at: number };
 };
 
 export function createBird(
@@ -122,20 +132,26 @@ export function createBird(
   state = { ...state, branch: placeBranch() };
   if (state.onBranch) state = reduce(state, { type: "resize", width: state.width, height: state.height }, Date.now(), Math.random());
   let faded = false;
+  /**
+   * Parrot settings' Branch height slider is being moved, or was let go under 2 s
+   * ago: the branch shows at that height, solid (never faded) and click-through,
+   * so the user sees where it goes.
+   */
+  let previewing = false;
   let propsKey = "";
   /**
    * The branch, its shadow and the grip shown or not, and faded together by a
    * nearby cursor. The bird never fades.
    */
   const showProps = (now: number) => {
-    const shown = branchShown(state, now);
+    const shown = branchShown(state, now) || previewing;
     const feet = feetOnBranch(state, now);
-    const key = `${shown}:${feet}:${faded}`;
+    const key = `${shown}:${feet}:${faded}:${previewing}`;
     if (key === propsKey) return;
     propsKey = key;
     branch.classList.toggle("parrot-shown", shown);
     shadow.classList.toggle("parrot-shown", feet);
-    branch.classList.toggle("parrot-faded", faded && shown);
+    branch.classList.toggle("parrot-faded", faded && shown && !previewing);
     shadow.classList.toggle("parrot-faded", faded && feet);
     grip.classList.toggle("parrot-faded", faded && feet);
   };
@@ -258,16 +274,14 @@ export function createBird(
     const drawn = ink && inkBox(state, window.innerHeight, ink, turnPose(state, now).scaleX, rowDy(now));
     const boxes = cursorBoxes(state, window.innerHeight, extra, drawn).map((b) => physicalBox(b, dpr));
     // The branch's fade zone: the bird is never in it, and its own box always takes the cursor.
-    const zone = fadeZone(state, window.innerWidth, window.innerHeight, now);
+    // None while the height is previewed, so the branch stays solid then.
+    const zone = previewing ? null : fadeZone(state, window.innerWidth, window.innerHeight, now);
     const fade = zone ? physicalBox(zone, dpr) : null;
-    // The branch's own box, while it is shown: with Ctrl held over it, Rust lets it take the press
-    // (and doesn't fade it), so it can be dragged. Never otherwise: it stays click-through.
-    const grab = branchShown(state, now) ? physicalBox(branchBox(window.innerWidth, window.innerHeight, state.branch), dpr) : null;
-    const key = JSON.stringify([boxes, fade, grab]);
+    const key = JSON.stringify([boxes, fade]);
     if (key === sentBoxes) return;
     sentBoxes = key;
     sentAt = now;
-    invoke("companion_set_hitbox", { boxes, fade, branch: grab }).catch(() => {});
+    invoke("companion_set_hitbox", { boxes, fade }).catch(() => {});
   };
 
   /**
@@ -474,38 +488,30 @@ export function createBird(
   // Capture lost without an up or a cancel: drop the bird rather than leave it stuck to the cursor.
   el.addEventListener("lostpointercapture", () => release(null));
 
-  // ── Moving the branch: Ctrl and the left button, on the branch itself ──
-  // Up and down the right edge only, clamped inside the work area; a perched bird rides it.
-  // Saved on this PC as a fraction of the work area's height. Its own element and handlers:
-  // a press on the bird never reaches them, and this never dispatches a bird drag.
+  // ── The branch's height: parrot settings' slider, never a drag on the screen ──
+  // Up and down the right edge only, clamped inside the work area (branchTop); a perched bird
+  // rides it, one flying to it flies on. Saved on this PC as a fraction of the work area's height.
+  // The branch itself never takes the cursor: no handlers here, and pointer-events none in CSS.
   const moveBranch = (at: number | undefined) => {
     branchAt = at;
     dispatch({ type: "branch", branch: placeBranch() });
     sendHitboxes(Date.now(), true);
   };
-  let branchPress: { grabDy: number } | null = null;
-  branch.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || !e.ctrlKey || press || rub || !branchShown(state, Date.now())) return;
-    e.preventDefault();
-    branch.setPointerCapture(e.pointerId);
-    branchPress = { grabDy: e.clientY - branchBox(window.innerWidth, window.innerHeight, state.branch).y };
-    branch.classList.add("parrot-branch-moving");
-    invoke("companion_set_dragging", { dragging: true }).catch(() => {});
-  });
-  branch.addEventListener("pointermove", (e) => {
-    if (!branchPress) return;
-    moveBranch(branchAtFor(e.clientY - branchPress.grabDy, window.innerHeight, state.branch));
-  });
-  const dropBranch = () => {
-    if (!branchPress) return;
-    branchPress = null;
-    branch.classList.remove("parrot-branch-moving");
-    saveBranchAt(storage(), branchAt);
-    invoke("companion_set_dragging", { dragging: false }).catch(() => {});
+  let previewEnds: number | undefined;
+  /** Shows the branch at its height, solid; `holdMs` set: hides it again that long after, unless in use. */
+  const preview = (holdMs?: number) => {
+    window.clearTimeout(previewEnds);
+    previewing = true;
+    if (holdMs !== undefined) {
+      previewEnds = window.setTimeout(() => {
+        previewing = false;
+        showProps(Date.now());
+        sendHitboxes(Date.now(), true);
+      }, holdMs);
+    }
+    showProps(Date.now());
+    sendHitboxes(Date.now(), true);
   };
-  branch.addEventListener("pointerup", dropBranch);
-  branch.addEventListener("pointercancel", dropBranch);
-  branch.addEventListener("lostpointercapture", dropBranch);
   // Reset from the main window's parrot settings, or another window of the app, changes the saved height.
   window.addEventListener("storage", (e) => {
     if (e.key === BRANCH_AT_KEY || e.key === null) moveBranch(loadBranchAt(storage()));
@@ -537,6 +543,17 @@ export function createBird(
     resetBranch: () => {
       saveBranchAt(storage(), undefined);
       moveBranch(undefined);
+      preview(BRANCH_PREVIEW_HOLD_MS);
     },
+    previewBranch: (at: number) => {
+      moveBranch(clampBranchAt(at, window.innerHeight, state.branch));
+      preview();
+    },
+    setBranchHeight: (at: number) => {
+      moveBranch(clampBranchAt(at, window.innerHeight, state.branch));
+      saveBranchAt(storage(), branchAt);
+      preview(BRANCH_PREVIEW_HOLD_MS);
+    },
+    branchRange: () => ({ ...branchAtRange(window.innerHeight, state.branch), at: branchAtFor(branchTop(window.innerHeight, state.branch), window.innerHeight, state.branch) }),
   };
 }

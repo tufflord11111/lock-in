@@ -71,7 +71,7 @@ describe("the proximity fade, as the sheet renders it", () => {
   it("bird.ts gives the elements those classes, and never fades the bird", () => {
     expect(bird).toMatch(/branch\.classList\.toggle\("parrot-shown", shown\)/);
     expect(bird).toMatch(/shadow\.classList\.toggle\("parrot-shown", feet\)/);
-    expect(bird).toMatch(/branch\.classList\.toggle\("parrot-faded", faded && shown\)/);
+    expect(bird).toMatch(/branch\.classList\.toggle\("parrot-faded", faded && shown && !previewing\)/);
     expect(bird).toMatch(/shadow\.classList\.toggle\("parrot-faded", faded && feet\)/);
     expect(bird).toMatch(/grip\.classList\.toggle\("parrot-faded", faded && feet\)/);
     expect(bird).toMatch(/grip\.className = "parrot-sprite parrot-grip"/);

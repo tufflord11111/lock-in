@@ -58,6 +58,11 @@ async function boot() {
   await listen("companion:start-refused", () => talk.startRefused());
   // Parrot settings' Reset branch position (the main window also clears the saved height).
   await listen("parrot:branch-reset", () => bird.resetBranch());
+  // Parrot settings' Branch height slider: moving shows the branch there, letting go saves it.
+  await listen<{ at: number }>("parrot:branch-preview", (e) => bird.previewBranch(e.payload.at));
+  await listen<{ at: number }>("parrot:branch-set", (e) => bird.setBranchHeight(e.payload.at));
+  // The slider asks for its range, which depends on this overlay's work area and branch drawing.
+  await listen("parrot:branch-range?", () => void emitTo("main", "parrot:branch-range", bird.branchRange()).catch(() => {}));
   // A missed event heals itself within a minute.
   window.setInterval(() => {
     invoke<NativeWorld>("companion_state").then(applyWorld).catch(() => {});

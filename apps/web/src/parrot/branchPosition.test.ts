@@ -6,12 +6,15 @@ import { beginFlight, initialState, perchFor, reduce, type BirdEvent, type BirdS
 import {
   BRANCH_AT_KEY,
   BRANCH_DRAWINGS,
+  BRANCH_PREVIEW_HOLD_MS,
   DEFAULT_BRANCH_AT,
   branchAtFor,
+  branchAtRange,
   branchBox,
   branchOf,
   branchTop,
   branchTopMin,
+  clampBranchAt,
   loadBranchAt,
   perchSpot,
   saveBranchAt,
@@ -168,32 +171,67 @@ describe("moving the branch moves a perched bird with it, and only the branch", 
     expect(dropped.branch).toEqual(s.branch);
   });
 
-  it("the branch has its own Ctrl press and handlers, apart from the bird's: they never start or move a bird drag", () => {
-    const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
-    const start = bird.indexOf("// ── Moving the branch");
-    const end = bird.indexOf("// ── The world around it");
-    expect(start).toBeGreaterThan(0);
-    const branchPart = bird.slice(start, end);
-    // Its press: the left button with Ctrl, on the branch, never during a bird press or rub.
-    expect(branchPart).toMatch(/branch\.addEventListener\("pointerdown", \(e\) => \{\s*if \(e\.button !== 0 \|\| !e\.ctrlKey \|\| press \|\| rub/);
-    expect(branchPart).not.toMatch(/el\.addEventListener/);
-    expect(branchPart).not.toMatch(/type: "drag(Start|Move|End)"/);
-    expect(branchPart).toMatch(/dispatch\(\{ type: "branch", branch: placeBranch\(\) \}\)/);
-    // It saves the height on this PC when let go.
-    expect(branchPart).toMatch(/saveBranchAt\(storage\(\), branchAt\)/);
-    // The bird's own press and drag stay on the bird's element.
-    expect(bird).toMatch(/el\.addEventListener\("pointerdown", \(e\) => \{\s*if \(e\.button !== 0 \|\| rub\) return;/);
+});
+
+describe("the branch's height is set with parrot settings' slider, never by dragging the branch", () => {
+  it("the slider's range is the work-area clamp, and every value in it is reachable", () => {
+    for (const b of DRAWINGS) {
+      for (const h of [600, 900, 1400]) {
+        const { min, max } = branchAtRange(h, b);
+        expect(min).toBeLessThan(max);
+        expect(min).toBeCloseTo((branchTopMin(b) + b.perchY) / h, 6);
+        expect(max).toBeCloseTo((h - b.height + b.perchY) / h, 6);
+        expect(DEFAULT_BRANCH_AT).toBeGreaterThanOrEqual(min);
+        expect(DEFAULT_BRANCH_AT).toBeLessThanOrEqual(max);
+        // Out of range clamps to the ends; inside, the branch sits where the slider says.
+        expect(clampBranchAt(0, h, b)).toBeCloseTo(min, 2);
+        expect(clampBranchAt(1, h, b)).toBeCloseTo(max, 2);
+        const mid = (min + max) / 2;
+        expect(branchTop(h, { ...b, at: clampBranchAt(mid, h, b) }) + b.perchY).toBeCloseTo(h * mid, 0);
+      }
+    }
   });
 
-  it("Rust is sent the branch's box while it is shown, for the Ctrl grab; parrot settings can reset it", () => {
+  it("stays 2 s after the slider is let go, then hides unless in use", () => {
+    expect(BRANCH_PREVIEW_HOLD_MS).toBe(2000);
     const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
-    expect(bird).toMatch(/const grab = branchShown\(state, now\) \? physicalBox\(branchBox\(/);
-    expect(bird).toMatch(/invoke\("companion_set_hitbox", \{ boxes, fade, branch: grab \}\)/);
+    // Shown while previewed, never faded then, and no fade zone goes to Rust then.
+    expect(bird).toMatch(/const shown = branchShown\(state, now\) \|\| previewing;/);
+    expect(bird).toMatch(/"parrot-faded", faded && shown && !previewing\)/);
+    expect(bird).toMatch(/const zone = previewing \? null : fadeZone\(/);
+    // Moving previews with no timer; letting go saves and starts the 2 s.
+    expect(bird).toMatch(/previewBranch: \(at: number\) => \{[^}]*preview\(\);/);
+    expect(bird).toMatch(/setBranchHeight: \(at: number\) => \{[^}]*saveBranchAt\(storage\(\), branchAt\);\s*preview\(BRANCH_PREVIEW_HOLD_MS\);/);
+    // After the hold it's shown again only if branchShown says the bird is using it.
+    expect(bird).toMatch(/previewEnds = window\.setTimeout\(\(\) => \{\s*previewing = false;/);
+  });
+
+  it("the branch takes no pointer: no handlers on it, nothing sent to Rust for it, no key state read", () => {
+    const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
+    expect(bird).not.toMatch(/branch\.addEventListener/);
+    expect(bird).not.toMatch(/ctrlKey|setPointerCapture\(e\.pointerId\);\s*branchPress/);
+    expect(bird).toMatch(/invoke\("companion_set_hitbox", \{ boxes, fade \}\)/);
+    const css = readFileSync(new URL("../theme/parrot.css", import.meta.url), "utf8");
+    expect(css).not.toMatch(/\.parrot-branch[^{]*\{[^}]*pointer-events: auto/);
+    const rust = readFileSync(new URL("../../../desktop/src-tauri/src/companion.rs", import.meta.url), "utf8");
+    expect(rust).not.toMatch(/GetAsyncKeyState|GetKeyState|SetWindowsHookEx|grabs_branch/);
+  });
+
+  it("parrot settings has the Branch height slider and Reset branch position, wired to the overlay", () => {
     const main = readFileSync(new URL("./main.ts", import.meta.url), "utf8");
     expect(main).toMatch(/listen\("parrot:branch-reset", \(\) => bird\.resetBranch\(\)\)/);
+    expect(main).toMatch(/listen<\{ at: number \}>\("parrot:branch-preview", \(e\) => bird\.previewBranch\(e\.payload\.at\)\)/);
+    expect(main).toMatch(/listen<\{ at: number \}>\("parrot:branch-set", \(e\) => bird\.setBranchHeight\(e\.payload\.at\)\)/);
+    expect(main).toMatch(/emitTo\("main", "parrot:branch-range", bird\.branchRange\(\)\)/);
     const settings = readFileSync(new URL("../components/CompanionSettings.tsx", import.meta.url), "utf8");
+    expect(settings).toMatch(/Branch height/);
+    expect(settings).toMatch(/type="range"/);
+    expect(settings).toMatch(/emitTo\("parrot", "parrot:branch-preview", \{ at: value \}\)/);
+    expect(settings).toMatch(/onPointerUp=\{commit\}/);
+    expect(settings).toMatch(/emitTo\("parrot", "parrot:branch-set", \{ at \}\)/);
     expect(settings).toMatch(/Reset branch position/);
     expect(settings).toMatch(/saveBranchAt\(window\.localStorage, undefined\)/);
     expect(settings).toMatch(/emitTo\("parrot", "parrot:branch-reset"\)/);
+    expect(settings).not.toMatch(/Ctrl/);
   });
 });

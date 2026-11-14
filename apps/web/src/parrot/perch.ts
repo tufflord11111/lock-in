@@ -37,7 +37,8 @@ export type Branch = {
   rowDy?: Record<string, number>;
   /**
    * Where the perch point sits, as a fraction of the work area's height
-   * (DEFAULT_BRANCH_AT when not set): the user moves it with a Ctrl-drag, and
+   * (DEFAULT_BRANCH_AT when not set): the user sets it with parrot settings'
+   * Branch height slider (never by dragging the branch on the screen), and
    * it is kept on this PC (loadBranchAt), so it survives restarts and new resolutions.
    */
   at?: number;
@@ -168,12 +169,32 @@ export function branchTop(height: number, b: Branch = BRANCH): number {
   return Math.round(y * k) / k;
 }
 
-/** The fraction that puts the branch's top at `top` (clamped as branchTop does): what a drag saves. */
+/** The fraction that puts the branch's top at `top` (clamped as branchTop does): what gets saved. */
 export function branchAtFor(top: number, height: number, b: Branch = BRANCH): number {
   if (height <= 0) return DEFAULT_BRANCH_AT;
   const placed = branchTop(height, { ...b, at: (top + b.perchY) / height });
   return (placed + b.perchY) / height;
 }
+
+/**
+ * The Branch height slider's range for this work area, as perch fractions: from
+ * the highest the branch may go (branchTopMin) to the lowest (its bottom on the
+ * work area's). The same clamp as branchTop, so every slider value is reachable.
+ */
+export function branchAtRange(height: number, b: Branch = BRANCH): { min: number; max: number } {
+  if (height <= 0) return { min: DEFAULT_BRANCH_AT, max: DEFAULT_BRANCH_AT };
+  const max = height - b.height;
+  const min = Math.min(branchTopMin(b), max);
+  return { min: (min + b.perchY) / height, max: (max + b.perchY) / height };
+}
+
+/** A slider value, clamped as branchTop clamps it: the fraction actually used and saved. */
+export function clampBranchAt(at: number, height: number, b: Branch = BRANCH): number {
+  return branchAtFor(height * at - b.perchY, height, b);
+}
+
+/** After the slider is let go (or Reset), the branch stays shown this long, then hides unless in use. */
+export const BRANCH_PREVIEW_HOLD_MS = 2000;
 
 /** The branch's box: flush with the right edge, its perch point `at` of the way down (branchTop). */
 export function branchBox(width: number, height: number, b: Branch = BRANCH): Box {

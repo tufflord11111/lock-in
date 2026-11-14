@@ -1,7 +1,8 @@
+import { useEffect, useRef, useState } from "react";
 import { Bird } from "lucide-react";
-import { emitTo } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { useCompanionSettingsView, writeCompanionSettings } from "../hooks/useCompanion";
-import { saveBranchAt } from "../parrot/perch";
+import { DEFAULT_BRANCH_AT, loadBranchAt, saveBranchAt } from "../parrot/perch";
 
 /**
  * Back to the default height on the right edge. The height is kept on this PC only
@@ -16,12 +17,88 @@ export function resetBranchPosition() {
   void emitTo("parrot", "parrot:branch-reset").catch(() => {});
 }
 
+const fieldClass = "bg-transparent border-1 border-ink rounded-lg px-2 py-1 text-xs font-bold text-ink";
+
+type BranchRange = { min: number; max: number; at: number };
+
+/**
+ * The branch's height on the right edge, as the perch point's fraction of the work
+ * area's height. The overlay knows the work area and the branch drawing, so it says the
+ * range; moving shows the branch there (solid, click-through), letting go saves it on
+ * this PC, and the overlay hides it again 2 s later unless the bird is using it.
+ */
+function BranchHeight() {
+  const saved = (() => {
+    try {
+      return loadBranchAt(window.localStorage);
+    } catch {
+      return undefined;
+    }
+  })();
+  // Until the overlay answers: the whole screen, the overlay clamps.
+  const [range, setRange] = useState<BranchRange>({ min: 0.05, max: 0.95, at: saved ?? DEFAULT_BRANCH_AT });
+  const moving = useRef(false);
+  useEffect(() => {
+    const off = listen<BranchRange>("parrot:branch-range", (e) => {
+      if (!moving.current) setRange(e.payload);
+    });
+    void emitTo("parrot", "parrot:branch-range?").catch(() => {});
+    return () => void off.then((f) => f()).catch(() => {});
+  }, []);
+  const at = Math.min(range.max, Math.max(range.min, range.at));
+  const preview = (value: number) => {
+    moving.current = true;
+    setRange((r) => ({ ...r, at: value }));
+    void emitTo("parrot", "parrot:branch-preview", { at: value }).catch(() => {});
+  };
+  const commit = () => {
+    if (!moving.current) return;
+    moving.current = false;
+    void emitTo("parrot", "parrot:branch-set", { at }).catch(() => {});
+    // The overlay clamps and saves; this shows the value it kept.
+    void emitTo("parrot", "parrot:branch-range?").catch(() => {});
+  };
+  const reset = () => {
+    resetBranchPosition();
+    setRange((r) => ({ ...r, at: DEFAULT_BRANCH_AT }));
+    void emitTo("parrot", "parrot:branch-range?").catch(() => {});
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex items-center justify-between gap-4 text-sm font-black text-ink label-plain tracking-tight">
+        Branch height
+        <span className="flex items-center gap-2">
+          <input
+            type="range"
+            aria-label="Branch height"
+            min={range.min}
+            max={range.max}
+            step={0.005}
+            value={at}
+            onChange={(e) => preview(Number(e.target.value))}
+            onPointerUp={commit}
+            onKeyUp={commit}
+            onBlur={commit}
+            className="w-40 accent-[var(--ink-2)] cursor-pointer"
+          />
+          <span className="text-xs tabular-nums w-9 text-right">{Math.round(at * 100)}%</span>
+        </span>
+      </label>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-[9px] font-bold text-ink/40">How far down the right edge the branch sits. It shows there while you move this.</p>
+        <button type="button" className={fieldClass + " cursor-pointer whitespace-nowrap"} onClick={reset}>
+          Reset branch position
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const INTERVALS = [30, 45, 60, 90, 120, 240];
 
 /** The parrot's on/off, how often it may speak, and its quiet hours. */
 export function CompanionSettings({ userId }: { userId: string }) {
   const settings = useCompanionSettingsView(userId);
-  const fieldClass = "bg-transparent border-1 border-ink rounded-lg px-2 py-1 text-xs font-bold text-ink";
 
   return (
     <section className="bg-surface border-1 border-ink p-6 rounded-2xl shadow-[shadow:var(--shadow-2)]">
@@ -111,15 +188,7 @@ export function CompanionSettings({ userId }: { userId: string }) {
               />
             </span>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-black text-ink label-plain tracking-tight">Branch position</p>
-              <p className="text-[9px] font-bold text-ink/40 mt-1">Hold Ctrl and drag the branch up or down the right edge to move it</p>
-            </div>
-            <button type="button" className={fieldClass + " cursor-pointer whitespace-nowrap"} onClick={resetBranchPosition}>
-              Reset branch position
-            </button>
-          </div>
+          <BranchHeight />
         </div>
       )}
     </section>

@@ -1406,7 +1406,7 @@ describe("the bird grips the branch: branch, shadow, bird, then the front grip (
 
   it("fades the branch and its shadow to 20% and the grip out, together; the bird never; the grip and shadow take no pointer", () => {
     const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
-    expect(bird).toMatch(/branch\.classList\.toggle\("parrot-faded", faded && shown\)/);
+    expect(bird).toMatch(/branch\.classList\.toggle\("parrot-faded", faded && shown && !previewing\)/);
     expect(bird).toMatch(/shadow\.classList\.toggle\("parrot-faded", faded && feet\)/);
     expect(bird).toMatch(/grip\.classList\.toggle\("parrot-faded", faded && feet\)/);
     expect(bird).not.toMatch(/el\.classList\.toggle\("parrot-faded"/);
@@ -1416,9 +1416,8 @@ describe("the bird grips the branch: branch, shadow, bird, then the front grip (
     // The grip is a sprite canvas (no pointer events); the shadow is a branch prop (none either).
     expect(css).toMatch(/\.parrot-sprite \{[^}]*pointer-events: none;/);
     expect(css).toMatch(/\.parrot-branch, \.parrot-branch-shadow \{[^}]*pointer-events: none;/);
-    // The branch takes a press only shown and not faded: Rust lets it (Ctrl held over it) to be moved.
-    expect(css).toMatch(/\.parrot-branch\.parrot-shown:not\(\.parrot-faded\) \{ pointer-events: auto;/);
-    expect(css).not.toMatch(/\.parrot-branch-shadow[^{,]*\{[^}]*pointer-events: auto/);
+    // Neither ever takes a pointer: the branch is moved only from parrot settings.
+    expect(css).not.toMatch(/\.parrot-branch[^{]*\{[^}]*pointer-events: auto/);
     expect(bird).toMatch(/grip\.className = "parrot-sprite parrot-grip"/);
   });
 
