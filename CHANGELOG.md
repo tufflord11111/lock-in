@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.0] — unreleased
+
+- A parrot companion on the desktop: it walks along the bottom of the screen, perches on a branch on the right edge, naps there during sessions, and now and then suggests one (at most every 30 minutes by default, never in quiet hours). Click it for its menu, drag it, or rub it with the right button to pet it. On by default; Show the parrot in parrot settings or Show parrot in the tray turns it off. Its settings are saved to the account (`config/companion`); the branch height slider is kept on this PC.
+- Every session that blocks websites now closes browsers without Web Guard signed in to the session's account, after a 10 second warning. 1.2.10 did this only if picked at the start. Apps-only sessions close no browsers. If the browser check can't start, the session falls back to apps-only and says so.
+- Web Guard from the Chrome Web Store keeps Edge and Brave open too. The warning and the start dialog say "Install Web Guard in this browser to keep using it during sessions", with a button that opens the store page in that browser, or that Web Guard is signed out or on another account.
+- The web blocker takes "youtube", "YouTube.com" or a full link and shows what it will block. Labels are "During focus sessions" and "Always (even without a session)". The blocked-sites count includes always-blocked sites.
+- Starting with Windows now shows the dashboard, without taking focus.
+- Fixed: a session whose only blocked sites were always-blocked counted as blocking no sites.
+- Fixed: Block Registry rows and buttons flickered at their bottom edge on hover; long links ran off the edge of notices.
+
 ## [1.2.10] — 2026-11-04
 
 - Browser lockdown. If you start a session that blocks websites while Web Guard isn't answering, or another browser is open, Lock-In offers to close the browsers it can't block. They get a 10 second warning, by Windows notification if the window is hidden, then close, and close again if reopened. Anything typed and not sent in them is lost. Browsers with a working Web Guard stay open.
