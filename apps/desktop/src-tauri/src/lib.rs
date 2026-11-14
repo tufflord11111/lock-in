@@ -613,14 +613,21 @@ fn deliver_warning(app: &tauri::AppHandle, title: &str, message: String) {
 /// couldn't open, so none can prove it runs Web Guard.
 const APPS_ONLY_NOTICE: &str = "Lock-In can't check your browsers, so this session falls back to blocking apps only: it won't close any browser. Web Guard still blocks sites where it's installed. Restart Lock-In to check browsers again.";
 
+/// Said where Web Guard is running but doesn't count for this session's account.
+const WRONG_ACCOUNT: &str = "Web Guard is installed but signed in to a different account or signed out — sign in with this account to keep this browser open.";
+
 /// What the 10-second warning says. A browser that can run Web Guard is told how
 /// to stay open next time, with the Store link (the toast can't hold a button).
-fn lockdown_warning(browser: &str, lost_web_guard: bool) -> String {
+/// `wrong_account`: Web Guard beats from it, signed out or on another account.
+fn lockdown_warning(browser: &str, lost_web_guard: bool, wrong_account: bool) -> String {
     let name = browsers::name_of(browser);
-    if lost_web_guard {
+    if wrong_account {
+        let after = if lost_web_guard { " Once closed, it stays closed until the session ends." } else { "" };
+        format!("Closing {name} in 10 seconds. Save anything you've typed. {WRONG_ACCOUNT}{after}")
+    } else if lost_web_guard {
         format!("Web Guard stopped answering in {name}. Closing it in 10 seconds, and it stays closed until the session ends. Save anything you've typed.")
     } else if browsers::takes_web_guard(browser) {
-        format!("Closing {name} in 10 seconds. Save anything you've typed. Install Web Guard in this browser to keep using it during sessions: {WEB_GUARD_STORE_URL}")
+        format!("Closing {name} in 10 seconds. Save anything you've typed. Install Web Guard in this browser to keep using it during sessions, signed in to this Lock-In account: {WEB_GUARD_STORE_URL}")
     } else {
         format!("Closing {name} in 10 seconds. Save anything you've typed. Lock-In can't block sites in it during this session.")
     }
@@ -692,8 +699,9 @@ fn lockdown_runner(
                         pids.iter().any(|p| open.contains(p))
                     }) => {}
                 lockdown::Action::Warn { browser, lost_web_guard } => {
+                    let wrong_account = beats.wrong_account(browser, uid.as_deref(), now_millis());
                     log_ui_event(&app, "lockdown-warned");
-                    deliver_warning(&app, "Lock-In is closing a browser", lockdown_warning(browser, lost_web_guard));
+                    deliver_warning(&app, "Lock-In is closing a browser", lockdown_warning(browser, lost_web_guard, wrong_account));
                 }
                 lockdown::Action::IncognitoGap { browser } => {
                     let name = browsers::name_of(browser);
@@ -1837,8 +1845,11 @@ struct LockdownStatus {
     /// close every browser, including ones with a working Web Guard.
     listening: bool,
     closable: Vec<String>,
-    /// The closable browsers that Web Guard would keep open, by id and name.
+    /// The closable browsers that Web Guard would keep open, by id and name, leaving
+    /// out those already running it on the wrong account.
     installable: Vec<BrowserRef>,
+    /// Closable browsers where Web Guard runs but is signed out or on another account.
+    wrong_account: Vec<String>,
     incognito_gaps: Vec<String>,
 }
 
@@ -1893,8 +1904,13 @@ async fn lockdown_status(uid: Option<String>, app_state: State<'_, AppState>) ->
             closable: closable.iter().map(|id| browsers::name_of(id).to_string()).collect(),
             installable: closable
                 .iter()
-                .filter(|id| browsers::takes_web_guard(id))
+                .filter(|id| browsers::takes_web_guard(id) && !beats.wrong_account(id, uid, now))
                 .map(|id| BrowserRef { id: id.to_string(), name: browsers::name_of(id).to_string() })
+                .collect(),
+            wrong_account: closable
+                .iter()
+                .filter(|id| beats.wrong_account(id, uid, now))
+                .map(|id| browsers::name_of(id).to_string())
                 .collect(),
             incognito_gaps: open
                 .iter()
@@ -2620,7 +2636,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, store_browser_candidates, lockdown_warning, WEB_GUARD_STORE_URL, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, store_browser_candidates, lockdown_warning, WEB_GUARD_STORE_URL, WRONG_ACCOUNT, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2895,16 +2911,28 @@ mod tests {
     #[test]
     fn the_warning_says_how_to_keep_a_web_guard_browser_open() {
         for id in ["chrome", "edge", "brave"] {
-            let m = lockdown_warning(id, false);
+            let m = lockdown_warning(id, false, false);
             assert!(m.contains("Install Web Guard in this browser to keep using it during sessions"), "{m}");
+            // It can't tell more, so one general line on the account.
+            assert!(m.contains("signed in to this Lock-In account"), "{m}");
             assert!(m.contains(WEB_GUARD_STORE_URL), "{m}");
         }
         for id in ["opera_gx", "firefox", "vivaldi"] {
-            let m = lockdown_warning(id, false);
+            let m = lockdown_warning(id, false, false);
             assert!(!m.contains("Install Web Guard"), "{m}");
             assert!(m.contains("can't block sites in it"), "{m}");
         }
-        assert!(lockdown_warning("edge", true).starts_with("Web Guard stopped answering in Edge"));
+        assert!(lockdown_warning("edge", true, false).starts_with("Web Guard stopped answering in Edge"));
+    }
+
+    #[test]
+    fn web_guard_on_the_wrong_account_is_told_to_sign_in_with_this_one() {
+        let m = lockdown_warning("edge", false, true);
+        assert!(m.contains("Web Guard is installed but signed in to a different account or signed out — sign in with this account to keep this browser open."), "{m}");
+        assert!(!m.contains("Install Web Guard"), "{m}");
+        // Signed out mid-session: the same line, and that a close then lasts the session.
+        let lost = lockdown_warning("chrome", true, true);
+        assert!(lost.contains(WRONG_ACCOUNT) && lost.contains("stays closed until the session ends"), "{lost}");
     }
 
     #[test]

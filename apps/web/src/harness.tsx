@@ -155,14 +155,15 @@ function pick() {
         </Shell>
       );
     case "webguard-gate":
-      // Edge and Opera GX open without Web Guard: Edge can take it, Opera GX can't.
+      // Chrome runs Web Guard on another account; Edge has none and can take it; Opera GX can't.
       return (
         <Shell>
           <WebGuardGate
             storeUrl="https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea"
             webGuardQuiet={false}
-            closable={["Edge", "Opera GX"]}
+            closable={["Chrome", "Edge", "Opera GX"]}
             installable={[{ id: "edge", name: "Edge" }]}
+            wrongAccount={["Chrome"]}
             canLockDown={true}
             incognitoGaps={[]}
             onStartLockdown={noop}

@@ -9,6 +9,8 @@ type Props = {
   closable: string[];
   /** The closable browsers that can run Web Guard (Chrome, Edge, Brave): installing it keeps them open. */
   installable?: { id: string; name: string }[];
+  /** Closable browsers running Web Guard signed out or on another Lock-In account, by name. */
+  wrongAccount?: string[];
   /** False if the heartbeat port couldn't open: lockdown would close everything, so only apps can be blocked. */
   canLockDown: boolean;
   /** Browsers that keep running with Web Guard, but not in Incognito. */
@@ -38,6 +40,7 @@ export function WebGuardGate({
   webGuardQuiet,
   closable,
   installable = [],
+  wrongAccount = [],
   canLockDown,
   incognitoGaps,
   onStartLockdown,
@@ -76,14 +79,23 @@ export function WebGuardGate({
         {canLockDown && (
           <p className="text-xs font-bold text-ink/70 mb-3">
             Closing other browsers: {closable.length > 0 ? `${list(closable)} and any` : "any"} browser
-            without Web Guard close{closable.length > 0 ? "" : "s"} after a 10 second warning, and again if
+            without Web Guard signed in to this account close{closable.length > 0 ? "" : "s"} after a 10 second warning, and again if
             reopened. Unsaved typing in them is lost.
+          </p>
+        )}
+        {canLockDown && wrongAccount.length > 0 && (
+          <p className="mb-3 rounded-lg border-1 border-ink/30 p-3 text-xs font-bold text-ink">
+            {list(wrongAccount)}: Web Guard is installed but signed in to a different account or signed out — sign in
+            with this account to keep {wrongAccount.length > 1 ? "these browsers" : "this browser"} open.
           </p>
         )}
         {canLockDown && installable.length > 0 && (
           <div className="mb-3 rounded-lg border-1 border-ink/30 p-3">
             <p className="text-xs font-bold text-ink mb-2">
               Install Web Guard in this browser to keep using it during sessions.
+            </p>
+            <p className="text-[10px] font-bold text-ink/60 mb-2">
+              It has to be signed in to this Lock-In account.
             </p>
             <div className="flex flex-wrap gap-2 mb-2">
               {installable.map((b) => (

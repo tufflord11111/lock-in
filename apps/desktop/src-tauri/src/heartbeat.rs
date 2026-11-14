@@ -81,6 +81,19 @@ impl BeatStore {
         self.latest(browser, uid)
             .map_or(false, |b| now.saturating_sub(b.at) < FRESH_MS)
     }
+
+    /// Web Guard is running in this browser (a fresh beat) but doesn't count for this
+    /// account: signed out (no uid) or signed in to another Lock-In account. False with
+    /// no fresh beat at all, when the app can't tell whether Web Guard is there.
+    pub fn wrong_account(&self, browser: &str, uid: Option<&str>, now: u64) -> bool {
+        let fresh_beat = self
+            .beats
+            .lock()
+            .ok()
+            .and_then(|beats| beats.get(browser).map(|b| now.saturating_sub(b.at) < FRESH_MS))
+            .unwrap_or(false);
+        fresh_beat && self.latest(browser, uid).is_none()
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -274,6 +287,24 @@ mod tests {
             incognito_allowed: true,
             uid: uid.map(str::to_string),
         }
+    }
+
+    #[test]
+    fn web_guard_signed_out_or_on_another_account_is_told_apart_from_no_web_guard() {
+        let store = BeatStore::default();
+        // No beat: can't tell.
+        assert!(!store.wrong_account("edge", Some("u1"), 1_000));
+        // Signed out.
+        store.record(body("edge", None), 1_000);
+        assert!(store.wrong_account("edge", Some("u1"), 2_000));
+        // Another account.
+        store.record(body("chrome", Some("u2")), 1_000);
+        assert!(store.wrong_account("chrome", Some("u1"), 2_000));
+        // This account: counts, so not wrong.
+        store.record(body("brave", Some("u1")), 1_000);
+        assert!(!store.wrong_account("brave", Some("u1"), 2_000));
+        // A stale beat says nothing either way.
+        assert!(!store.wrong_account("edge", Some("u1"), 1_000 + FRESH_MS));
     }
 
     #[test]

@@ -521,6 +521,7 @@ function AppInner() {
     webGuardQuiet: boolean;
     closable: string[];
     installable: { id: string; name: string }[];
+    wrongAccount: string[];
     canLockDown: boolean;
     incognitoGaps: string[];
   } | null>(null);
@@ -532,6 +533,7 @@ function AppInner() {
           listening: boolean;
           closable: string[];
           installable?: { id: string; name: string }[];
+          wrong_account?: string[];
           incognito_gaps: string[];
         }>(
           "lockdown_status",
@@ -550,6 +552,7 @@ function AppInner() {
             webGuardQuiet,
             closable,
             installable: canLockDown ? status.installable ?? [] : [],
+            wrongAccount: canLockDown ? status.wrong_account ?? [] : [],
             canLockDown,
             incognitoGaps: status?.incognito_gaps ?? [],
           });
@@ -885,6 +888,7 @@ function AppInner() {
           webGuardQuiet={pendingStart.webGuardQuiet}
           closable={pendingStart.closable}
           installable={pendingStart.installable}
+          wrongAccount={pendingStart.wrongAccount}
           canLockDown={pendingStart.canLockDown}
           incognitoGaps={pendingStart.incognitoGaps}
           onStartLockdown={() => {
