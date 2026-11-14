@@ -1,5 +1,20 @@
 import { Bird } from "lucide-react";
+import { emitTo } from "@tauri-apps/api/event";
 import { useCompanionSettingsView, writeCompanionSettings } from "../hooks/useCompanion";
+import { saveBranchAt } from "../parrot/perch";
+
+/**
+ * Back to the default height on the right edge. The height is kept on this PC only
+ * (localStorage, shared with the overlay), so this forgets it here and tells the overlay.
+ */
+export function resetBranchPosition() {
+  try {
+    saveBranchAt(window.localStorage, undefined);
+  } catch {
+    // No storage: the overlay still hears the reset.
+  }
+  void emitTo("parrot", "parrot:branch-reset").catch(() => {});
+}
 
 const INTERVALS = [30, 45, 60, 90, 120, 240];
 
@@ -95,6 +110,15 @@ export function CompanionSettings({ userId }: { userId: string }) {
                 }}
               />
             </span>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-black text-ink label-plain tracking-tight">Branch position</p>
+              <p className="text-[9px] font-bold text-ink/40 mt-1">Hold Ctrl and drag the branch up or down the right edge to move it</p>
+            </div>
+            <button type="button" className={fieldClass + " cursor-pointer whitespace-nowrap"} onClick={resetBranchPosition}>
+              Reset branch position
+            </button>
           </div>
         </div>
       )}

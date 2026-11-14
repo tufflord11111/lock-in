@@ -21,7 +21,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, HMONITOR, MONITORINFO, MONITOR_DEFAULTTONEAREST};
 use windows::Win32::System::SystemInformation::GetTickCount;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, IsWindowEnabled, LASTINPUTINFO};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetLastInputInfo, IsWindowEnabled, LASTINPUTINFO, VK_CONTROL};
 use windows::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SHQueryUserNotificationState, SetWindowSubclass, QUNS_PRESENTATION_MODE,
     QUNS_RUNNING_D3D_FULL_SCREEN,
@@ -242,6 +242,19 @@ fn takes_cursor(cursor: (f64, f64), boxes: &[Hitbox], dragging: bool) -> bool {
     dragging || cursor_hits(cursor, boxes)
 }
 
+/// Moving the branch: with the cursor on the branch's own box (sent by the page while it is
+/// shown) and Ctrl held, the branch takes the press and doesn't fade, so it can be dragged up
+/// or down. Otherwise it fades and stays click-through as ever. `ctrl` is asked only with the
+/// cursor on the branch: Ctrl's up/down state is the only input state read, and only there.
+fn grabs_branch(cursor: (f64, f64), branch: Option<Hitbox>, ctrl: impl FnOnce() -> bool) -> bool {
+    branch.is_some_and(|b| inside(cursor, &b)) && ctrl()
+}
+
+fn ctrl_down() -> bool {
+    // The high bit: held now.
+    unsafe { GetAsyncKeyState(i32::from(VK_CONTROL.0)) as u16 & 0x8000 != 0 }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Fit {
     x: i32,
@@ -280,6 +293,8 @@ struct Shared {
     hitboxes: Vec<Hitbox>,
     /// The page's fade zone while the branch is shown: round the branch only, never the bird.
     fade_zone: Option<Hitbox>,
+    /// The branch's own box while it is shown: Ctrl-grabbable there (grabs_branch).
+    branch: Option<Hitbox>,
     /// A press on the bird is under way, with either button: a left drag or a right rub
     /// (petting). The page says so; the same pin either way.
     dragging: bool,
@@ -659,13 +674,15 @@ fn run(app: AppHandle) {
                 let inside = {
                     let shared = state.shared.lock().unwrap_or_else(|e| e.into_inner());
                     let now_ms = started.elapsed().as_millis() as u64;
-                    let next = step_fade(fade, now_ms, at, shared.fade_zone, shared.dragging);
+                    // Ctrl over the branch: it takes the press and stays solid, to be moved.
+                    let grab = !shared.dragging && grabs_branch(at, shared.branch, ctrl_down);
+                    let next = step_fade(fade, now_ms, at, shared.fade_zone, shared.dragging || grab);
                     let changed = next.faded != fade.faded;
                     fade = next;
                     if changed {
                         let _ = app.emit_to(LABEL, "parrot-fade", fade.faded);
                     }
-                    takes_cursor(at, &shared.hitboxes, shared.dragging)
+                    takes_cursor(at, &shared.hitboxes, shared.dragging) || grab
                 };
                 if ignoring == inside {
                     let _ = window.set_ignore_cursor_events(!inside);
@@ -743,13 +760,19 @@ pub fn companion_ready(app: AppHandle, state: State<'_, CompanionState>) -> Resu
 }
 
 /// The bird's box first (none in the air), then any cards. `fade` is the branch's fade zone,
-/// only while the branch is shown.
+/// and `branch` its own box, both only while the branch is shown.
 #[tauri::command]
-pub fn companion_set_hitbox(boxes: Vec<Hitbox>, fade: Option<Hitbox>, state: State<'_, CompanionState>) -> Result<(), String> {
+pub fn companion_set_hitbox(
+    boxes: Vec<Hitbox>,
+    fade: Option<Hitbox>,
+    branch: Option<Hitbox>,
+    state: State<'_, CompanionState>,
+) -> Result<(), String> {
     let mut shared = state.shared.lock().map_err(|e| e.to_string())?;
     shared.hitboxes = boxes;
     shared.hitboxes.truncate(MAX_HITBOXES);
     shared.fade_zone = fade;
+    shared.branch = branch;
     Ok(())
 }
 
@@ -862,6 +885,33 @@ mod tests {
         assert!(takes_cursor(AT_BIRD, &[BIRD_BOX], false));
         // Elsewhere in the zone the click goes through to whatever is under the branch.
         assert!(!takes_cursor(AT_NEAR, &[BIRD_BOX], false));
+    }
+
+    const BRANCH_BOX: Hitbox = Hitbox { x: 1200.0, y: 600.0, w: 300.0, h: 120.0 };
+    const AT_BRANCH: (f64, f64) = (1300.0, 650.0);
+
+    #[test]
+    fn only_ctrl_on_the_branch_grabs_it_and_keeps_it_solid() {
+        // Without Ctrl the branch fades and passes the click through, as ever.
+        assert!(!grabs_branch(AT_BRANCH, Some(BRANCH_BOX), || false));
+        assert!(poll(Fade::default(), 0, AT_BRANCH).faded);
+        assert!(!takes_cursor(AT_BRANCH, &[BIRD_BOX], false));
+        // With Ctrl on the branch itself it takes the press, and isn't faded.
+        assert!(grabs_branch(AT_BRANCH, Some(BRANCH_BOX), || true));
+        assert!(!step_fade(Fade { faded: true, away_since: None }, 0, AT_BRANCH, Some(ZONE), true).faded);
+        // Ctrl elsewhere in the fade zone, or with no branch shown, grabs nothing.
+        assert!(!grabs_branch(AT_NEAR, Some(BRANCH_BOX), || true));
+        assert!(!grabs_branch(AT_BRANCH, None, || true));
+    }
+
+    #[test]
+    fn ctrl_is_asked_only_with_the_cursor_on_the_branch() {
+        let mut asked = false;
+        assert!(!grabs_branch(AT_FAR, Some(BRANCH_BOX), || {
+            asked = true;
+            true
+        }));
+        assert!(!asked);
     }
 
     #[test]

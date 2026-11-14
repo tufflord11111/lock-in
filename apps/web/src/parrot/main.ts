@@ -56,6 +56,8 @@ async function boot() {
   });
   await listen<Settings>("companion:settings", (e) => talk.setSettings(e.payload));
   await listen("companion:start-refused", () => talk.startRefused());
+  // Parrot settings' Reset branch position (the main window also clears the saved height).
+  await listen("parrot:branch-reset", () => bird.resetBranch());
   // A missed event heals itself within a minute.
   window.setInterval(() => {
     invoke<NativeWorld>("companion_state").then(applyWorld).catch(() => {});

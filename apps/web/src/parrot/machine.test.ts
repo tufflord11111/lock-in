@@ -74,7 +74,7 @@ import {
   FADE_NEAR_PX,
   INK,
   INTO_SCREEN,
-  PERCH_HEIGHT,
+  DEFAULT_BRANCH_AT,
   PERCH_MARGIN_PX,
   boxGap,
   branchBox,
@@ -855,11 +855,11 @@ describe("the awake rhythm: short walks, longer rests, the branch now and then",
 describe("the branch and the perch", () => {
   const H = 900;
 
-  it("is flush with the right edge, its perch point 55% of the way down", () => {
+  it("is flush with the right edge, its perch point 75% of the way down by default", () => {
     const box = branchBox(1440, H);
     expect(box.x + box.w).toBe(1440);
-    expect(box.y + BRANCH.perchY).toBeCloseTo(H * PERCH_HEIGHT, 0);
-    expect(PERCH_HEIGHT).toBe(0.55);
+    expect(box.y + BRANCH.perchY).toBeCloseTo(H * DEFAULT_BRANCH_AT, 0);
+    expect(DEFAULT_BRANCH_AT).toBe(0.75);
   });
 
   it("stands the bird's feet on the branch at the perch's height, as near the perch point as the screen allows", () => {
@@ -1416,6 +1416,9 @@ describe("the bird grips the branch: branch, shadow, bird, then the front grip (
     // The grip is a sprite canvas (no pointer events); the shadow is a branch prop (none either).
     expect(css).toMatch(/\.parrot-sprite \{[^}]*pointer-events: none;/);
     expect(css).toMatch(/\.parrot-branch, \.parrot-branch-shadow \{[^}]*pointer-events: none;/);
+    // The branch takes a press only shown and not faded: Rust lets it (Ctrl held over it) to be moved.
+    expect(css).toMatch(/\.parrot-branch\.parrot-shown:not\(\.parrot-faded\) \{ pointer-events: auto;/);
+    expect(css).not.toMatch(/\.parrot-branch-shadow[^{,]*\{[^}]*pointer-events: auto/);
     expect(bird).toMatch(/grip\.className = "parrot-sprite parrot-grip"/);
   });
 

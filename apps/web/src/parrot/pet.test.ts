@@ -289,3 +289,57 @@ describe("the front grip never leans, scales or fluffs", () => {
     }
   });
 });
+
+describe("v25: the ground pet leans and rocks, the branch pet doesn't", () => {
+  const { openMs } = petTimes();
+
+  /** The lean the overlay draws (bird.ts leanNow): leanFor with the feet's place, rounded to 0.1 degree. */
+  const drawn = async (s: BirdState, t: number, side: -1 | 1) => {
+    const { leanFor } = await import("./pet");
+    return Math.round(leanFor(s.pet!, t, s.reducedMotion, side, feetOnBranch(s, t)) * 10) / 10;
+  };
+
+  it("on the ground: a non-zero lean toward the hand, flipping as it crosses the head (the rock)", async () => {
+    const s = rubbing(go(start(), { type: "petRub" }), T0, T0 + 1_500);
+    const t = T0 + openMs + 400;
+    expect(s.mode).toBe("pet");
+    expect(await drawn(s, t, 1)).toBe(PET_LEAN_DEG);
+    expect(await drawn(s, t, -1)).toBe(-PET_LEAN_DEG);
+  });
+
+  it("on the ground right after the branch, flown down or dragged off: the same lean", async () => {
+    const { beginFlight: fly, perchFor: perch } = await import("./machine");
+    const up = fly(start(), T0, perch(start()), true);
+    let s = tick(up, up.flight!.endAt);
+    expect(s.onBranch).toBe(true);
+    // Flown down: the stay is over, it flies to the ground and walks.
+    let t = s.flight ? s.flight.endAt : up.flight!.endAt;
+    s = { ...s, restUntil: t + 10, nextAt: t + 10 };
+    for (let k = 0; k < 400 && (s.onBranch || s.mode === "flight"); k++) s = tick(s, (t += 50));
+    expect(s.onBranch).toBe(false);
+    s = rubbing(s, t, t + 3_000);
+    expect(s.mode).toBe("pet");
+    expect(feetOnBranch(s, t + 3_000)).toBe(false);
+    expect(Math.abs(await drawn(s, t + 3_000, 1))).toBeGreaterThan(0);
+    // Dragged off the branch and dropped in the open.
+    let d = tick(up, up.flight!.endAt);
+    let u = up.flight!.endAt;
+    d = go(d, { type: "dragStart" }, (u += 10));
+    d = go(d, { type: "dragMove", x: 300, lift: 0, maxLift: 800 }, (u += 10));
+    d = go(d, { type: "dragEnd" }, (u += 10));
+    for (let k = 0; k < 40 && d.mode === "fall"; k++) d = tick(d, (u += 50));
+    d = rubbing(d, u, u + 1_500);
+    expect(d.mode).toBe("pet");
+    expect(d.onBranch).toBe(false);
+    expect(Math.abs(await drawn(d, u + 1_500, -1))).toBeGreaterThan(0);
+  });
+
+  it("on the branch: lean 0 all the way through, either side", async () => {
+    const { beginFlight: fly, perchFor: perch } = await import("./machine");
+    const up = fly(start(), T0, perch(start()), true);
+    const at = up.flight!.endAt + 1_000;
+    const s = rubbing(go(tick(up, up.flight!.endAt), { type: "petRub" }, at), at, at + 1_500);
+    expect(s.mode).toBe("pet");
+    for (let t = at; t < at + 3_000; t += 50) for (const side of [-1, 1] as const) expect(await drawn(s, t, side)).toBe(0);
+  });
+});

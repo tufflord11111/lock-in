@@ -108,6 +108,8 @@ export type BirdState = {
 export type BirdEvent =
   | { type: "tick" }
   | { type: "resize"; width: number; height?: number; branch?: Branch }
+  /** The user moved the branch (a Ctrl-drag, or Reset): a perched bird goes with it. */
+  | { type: "branch"; branch: Branch }
   | { type: "session"; active: boolean }
   | { type: "stoodDown"; finished: boolean }
   | { type: "hidden"; hidden: boolean }
@@ -715,6 +717,13 @@ function step(s: BirdState, event: BirdEvent, now: number, rand: number): BirdSt
       const resized = { ...sized, x: Math.min(s.x, maxX(event.width, s.cell)) };
       // A walk's end point may now be off the screen.
       return s.mode === "walk" ? enterRest(resized, now, rand) : resized;
+    }
+    case "branch": {
+      const moved = { ...s, branch: event.branch };
+      // Perched, it rides the branch; flying to it, it flies on to where the perch is now.
+      if (s.onBranch && s.mode !== "drag") return { ...moved, ...perchFor(moved) };
+      if (s.mode === "flight" && s.flight?.toBranch) return { ...moved, flight: { ...s.flight, to: perchFor(moved) } };
+      return moved;
     }
     case "session": {
       if (event.active === s.sessionActive) return s;

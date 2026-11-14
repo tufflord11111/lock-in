@@ -35,6 +35,12 @@ export type Branch = {
   cell?: { x: number; y: number };
   /** B's rule: how much lower each row sits perched, CSS px; 0 for a row not listed. */
   rowDy?: Record<string, number>;
+  /**
+   * Where the perch point sits, as a fraction of the work area's height
+   * (DEFAULT_BRANCH_AT when not set): the user moves it with a Ctrl-drag, and
+   * it is kept on this PC (loadBranchAt), so it survives restarts and new resolutions.
+   */
+  at?: number;
 };
 
 /** One drawing of the branch per sheet scale, in that drawing's px, as the manifest has it. */
@@ -125,18 +131,79 @@ export const playsOnBranch = (row: string): boolean => BRANCH_ROWS.has(row);
 /** The 1x branch: the machine's default until the overlay says which drawing it shows. */
 export const BRANCH: Branch = branchOf(BRANCH_DRAWINGS[0]);
 
-/** The perch point sits this far down the work area. */
-export const PERCH_HEIGHT = 0.55;
+/**
+ * The perch point sits this far down the work area by default: low on the right
+ * edge, where it covers less of what is open (it was 0.55). The work area stops at
+ * the taskbar, so it is always clear of it.
+ */
+export const DEFAULT_BRANCH_AT = 0.75;
 /** A drop this close to the branch lands on the perch. */
 export const DROP_ON_PERCH_PX = 60;
 /** A cursor this close to the branch fades it, its shadow and the front grip (never the bird). */
 export const FADE_NEAR_PX = 120;
 
-/** The branch's box: flush with the right edge, its perch point PERCH_HEIGHT down. */
-export function branchBox(width: number, height: number, b: Branch = BRANCH): Box {
-  // On a whole device px of its drawing's scale, so the bird placed from it by B's rule is too.
+/**
+ * How high the branch's top may go: low enough that a bird perched on it, in its
+ * highest row (B's rule: the mirrored cell's top, less any row's negative rowDy),
+ * stays inside the work area. 0 when the art doesn't say where the cell goes.
+ */
+export function branchTopMin(b: Branch = BRANCH): number {
+  if (!b.cell) return 0;
+  const up = Math.min(0, ...Object.values(b.rowDy ?? {}));
+  return Math.max(0, -(b.cell.y + up));
+}
+
+/**
+ * The branch's top, CSS px: its perch point `at` (b.at, else DEFAULT_BRANCH_AT)
+ * of the way down, clamped inside the work area (the whole branch, and a bird
+ * perched on it), on a whole device px of its drawing's scale so the bird placed
+ * from it by B's rule is too.
+ */
+export function branchTop(height: number, b: Branch = BRANCH): number {
   const k = b.scale ?? 1;
-  return { x: width - b.width, y: Math.round((height * PERCH_HEIGHT - b.perchY) * k) / k, w: b.width, h: b.height };
+  const at = b.at ?? DEFAULT_BRANCH_AT;
+  const max = height - b.height;
+  const min = Math.min(branchTopMin(b), max);
+  const y = Math.min(max, Math.max(min, height * at - b.perchY));
+  return Math.round(y * k) / k;
+}
+
+/** The fraction that puts the branch's top at `top` (clamped as branchTop does): what a drag saves. */
+export function branchAtFor(top: number, height: number, b: Branch = BRANCH): number {
+  if (height <= 0) return DEFAULT_BRANCH_AT;
+  const placed = branchTop(height, { ...b, at: (top + b.perchY) / height });
+  return (placed + b.perchY) / height;
+}
+
+/** The branch's box: flush with the right edge, its perch point `at` of the way down (branchTop). */
+export function branchBox(width: number, height: number, b: Branch = BRANCH): Box {
+  return { x: width - b.width, y: branchTop(height, b), w: b.width, h: b.height };
+}
+
+/** Where this PC keeps the branch's height (a local setting: not the account's). */
+export const BRANCH_AT_KEY = "parrot.branchAt";
+
+/** The saved fraction, if there is a sensible one; else undefined (the default). */
+export function loadBranchAt(storage: Pick<Storage, "getItem"> | null | undefined): number | undefined {
+  let raw: string | null = null;
+  try {
+    raw = storage?.getItem(BRANCH_AT_KEY) ?? null;
+  } catch {
+    return undefined;
+  }
+  if (raw === null) return undefined;
+  const at = Number(raw);
+  return Number.isFinite(at) && at > 0 && at < 1 ? at : undefined;
+}
+
+/** Keeps the fraction on this PC; undefined forgets it (back to the default). */
+export function saveBranchAt(storage: Pick<Storage, "setItem" | "removeItem"> | null | undefined, at: number | undefined): void {
+  try {
+    if (at === undefined) storage?.removeItem(BRANCH_AT_KEY);
+    else storage?.setItem(BRANCH_AT_KEY, String(Math.round(at * 10_000) / 10_000));
+  } catch {
+    // Storage unavailable: the branch stays where it is for this run.
+  }
 }
 
 /** B's rule: how much lower this row sits perched, CSS px (0 for a row meta.branch.rowDy doesn't list). */

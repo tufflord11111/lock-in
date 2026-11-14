@@ -8,7 +8,22 @@ import { DISPLAY_CELL, LID_COLOUR, contactAt, createLoop, eyeAt, frameAt, frameR
 import { lookFor, wantedFiles } from "./look";
 import { blinkPlan, canBlink, combinePlans, firstBlink, lidAt, lidBox, lidOver, stepBlink } from "./blink";
 import { alphaBounds, birdBox, dragPosition, grabOffset, inkBox, physicalBox, type Box } from "./layout";
-import { branchBox, branchDrawingFor, branchOf, branchShown, cursorBoxes, fadeZone, feetOnBranch, perchDy, shadowBox, type Branch } from "./perch";
+import {
+  BRANCH_AT_KEY,
+  branchAtFor,
+  branchBox,
+  branchDrawingFor,
+  branchOf,
+  branchShown,
+  cursorBoxes,
+  fadeZone,
+  feetOnBranch,
+  loadBranchAt,
+  perchDy,
+  saveBranchAt,
+  shadowBox,
+  type Branch,
+} from "./perch";
 import { createSpriteCache } from "./spriteCache";
 import { PET_IDLE_MS, PET_START_PX, cursorSide, leanFor } from "./pet";
 import { DEBUG, createFrameLog } from "./frameCheck";
@@ -43,6 +58,8 @@ export type Bird = {
   debugNote: (text: string) => void;
   /** Decoded sprite memory held right now, bytes. */
   spriteBytes: () => number;
+  /** Parrot settings' Reset branch position: back to the default height, and forgotten on this PC. */
+  resetBranch: () => void;
 };
 
 export function createBird(
@@ -85,10 +102,19 @@ export function createBird(
     node.style.backgroundImage = url(file);
     node.style.backgroundSize = `${box.w}px ${box.h}px`;
   };
-  /** Places the drawing for this display, and says where its perch is. */
+  /** Where the user put the branch, as a fraction of the work area's height; undefined: the default. */
+  const storage = (): Storage | null => {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  };
+  let branchAt = loadBranchAt(storage());
+  /** Places the drawing for this display, at the user's height, and says where its perch is. */
   const placeBranch = (): Branch => {
     const drawing = branchDrawingFor(window.devicePixelRatio);
-    const b = branchOf(drawing);
+    const b: Branch = { ...branchOf(drawing), ...(branchAt !== undefined ? { at: branchAt } : {}) };
     setBox(branch, drawing ? branchBox(window.innerWidth, window.innerHeight, b) : null, drawing?.file);
     setBox(shadow, drawing?.shadow ? shadowBox(window.innerWidth, window.innerHeight, b) : null, drawing?.shadow?.file);
     return b;
@@ -234,11 +260,14 @@ export function createBird(
     // The branch's fade zone: the bird is never in it, and its own box always takes the cursor.
     const zone = fadeZone(state, window.innerWidth, window.innerHeight, now);
     const fade = zone ? physicalBox(zone, dpr) : null;
-    const key = JSON.stringify([boxes, fade]);
+    // The branch's own box, while it is shown: with Ctrl held over it, Rust lets it take the press
+    // (and doesn't fade it), so it can be dragged. Never otherwise: it stays click-through.
+    const grab = branchShown(state, now) ? physicalBox(branchBox(window.innerWidth, window.innerHeight, state.branch), dpr) : null;
+    const key = JSON.stringify([boxes, fade, grab]);
     if (key === sentBoxes) return;
     sentBoxes = key;
     sentAt = now;
-    invoke("companion_set_hitbox", { boxes, fade }).catch(() => {});
+    invoke("companion_set_hitbox", { boxes, fade, branch: grab }).catch(() => {});
   };
 
   /**
@@ -445,6 +474,43 @@ export function createBird(
   // Capture lost without an up or a cancel: drop the bird rather than leave it stuck to the cursor.
   el.addEventListener("lostpointercapture", () => release(null));
 
+  // ── Moving the branch: Ctrl and the left button, on the branch itself ──
+  // Up and down the right edge only, clamped inside the work area; a perched bird rides it.
+  // Saved on this PC as a fraction of the work area's height. Its own element and handlers:
+  // a press on the bird never reaches them, and this never dispatches a bird drag.
+  const moveBranch = (at: number | undefined) => {
+    branchAt = at;
+    dispatch({ type: "branch", branch: placeBranch() });
+    sendHitboxes(Date.now(), true);
+  };
+  let branchPress: { grabDy: number } | null = null;
+  branch.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || !e.ctrlKey || press || rub || !branchShown(state, Date.now())) return;
+    e.preventDefault();
+    branch.setPointerCapture(e.pointerId);
+    branchPress = { grabDy: e.clientY - branchBox(window.innerWidth, window.innerHeight, state.branch).y };
+    branch.classList.add("parrot-branch-moving");
+    invoke("companion_set_dragging", { dragging: true }).catch(() => {});
+  });
+  branch.addEventListener("pointermove", (e) => {
+    if (!branchPress) return;
+    moveBranch(branchAtFor(e.clientY - branchPress.grabDy, window.innerHeight, state.branch));
+  });
+  const dropBranch = () => {
+    if (!branchPress) return;
+    branchPress = null;
+    branch.classList.remove("parrot-branch-moving");
+    saveBranchAt(storage(), branchAt);
+    invoke("companion_set_dragging", { dragging: false }).catch(() => {});
+  };
+  branch.addEventListener("pointerup", dropBranch);
+  branch.addEventListener("pointercancel", dropBranch);
+  branch.addEventListener("lostpointercapture", dropBranch);
+  // Reset from the main window's parrot settings, or another window of the app, changes the saved height.
+  window.addEventListener("storage", (e) => {
+    if (e.key === BRANCH_AT_KEY || e.key === null) moveBranch(loadBranchAt(storage()));
+  });
+
   // ── The world around it ────────────────────────────────────────────────
   motion.addEventListener("change", () => dispatch({ type: "reducedMotion", reduced: motion.matches }));
   // A DPI change resizes the window too, so the sheet follows through draw().
@@ -467,6 +533,10 @@ export function createBird(
     setFaded: (on) => {
       faded = on;
       showProps(Date.now());
+    },
+    resetBranch: () => {
+      saveBranchAt(storage(), undefined);
+      moveBranch(undefined);
     },
   };
 }

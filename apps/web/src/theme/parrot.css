@@ -62,6 +62,16 @@ body {
   opacity: 1;
 }
 
+/*
+ * Moving the branch: Rust lets it take the press only with Ctrl held over it (and doesn't fade it
+ * then); shown and not faded, it takes that press and shows it moves up and down. Its shadow never
+ * takes a pointer.
+ */
+.parrot-branch.parrot-shown:not(.parrot-faded) {
+  pointer-events: auto;
+  cursor: ns-resize;
+}
+
 /* A cursor nearby: the branch, its shadow and the front grip step out of the way. The bird never fades. */
 .parrot-shown.parrot-faded {
   opacity: 0.2;
