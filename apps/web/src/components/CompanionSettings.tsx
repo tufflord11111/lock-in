@@ -85,7 +85,7 @@ function BranchHeight() {
         </span>
       </label>
       <div className="flex items-center justify-between gap-4">
-        <p className="text-[9px] font-bold text-ink/40">How far down the right edge the branch sits. It shows there while you move this.</p>
+        <p className="text-[9px] font-bold text-ink/40">How far down the right edge the branch sits. It shows there while you move this. Kept on this PC only.</p>
         <button type="button" className={fieldClass + " cursor-pointer whitespace-nowrap"} onClick={reset}>
           Reset branch position
         </button>
@@ -148,6 +148,10 @@ export function CompanionSettings({ userId }: { userId: string }) {
           />
         </button>
       </div>
+      <p className="text-[9px] font-bold text-ink/40 mt-3">
+        On by default. Whether it shows, how often it suggests a session and its quiet hours are saved to your
+        Lock-In account, so they follow you to other PCs.
+      </p>
       {settings.enabled && (
         <div className="mt-5 flex flex-col gap-3">
           <label className="flex items-center justify-between gap-4 text-sm font-black text-ink label-plain tracking-tight">
