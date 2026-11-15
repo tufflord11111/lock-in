@@ -173,9 +173,19 @@ export type LoopHost = {
 };
 
 /**
+ * While drawing every frame, a step is never further off than this, even if no
+ * animation frame comes. A webview can stop sending them to a page it treats as
+ * hidden or covered (the 1.3.0 MSIX did, with the cursor on the bird): without
+ * this the bird stopped mid-landing and never fell asleep. Frames come every
+ * 33 ms when they come at all, so this never fires then.
+ */
+export const FRAME_FALLBACK_MS = 100;
+
+/**
  * The single loop. step() runs at most 30 times a second while moving. With
  * nothing moving it holds no rAF at all: one timer if a frame is due later,
- * nothing if not, until poke().
+ * nothing if not, until poke(). While moving it holds one rAF and one fallback
+ * timer, whichever fires first steps and cancels the other.
  */
 export function createLoop(host: LoopHost, step: () => LoopPlan) {
   let rafId: number | null = null;
@@ -189,9 +199,20 @@ export function createLoop(host: LoopHost, step: () => LoopPlan) {
     timerId = null;
   };
 
+  /** No animation frame in FRAME_FALLBACK_MS: step anyway, then plan as usual. */
+  const onFallback = () => {
+    timerId = null;
+    if (rafId !== null) host.cancelRaf(rafId);
+    rafId = null;
+    // The next real frame steps at once: its clock and the timer's aren't the same.
+    lastStepTs = null;
+    apply(step());
+  };
+
   const apply = (plan: LoopPlan) => {
     if (plan.kind === "frames") {
       rafId = host.raf(onFrame);
+      timerId = host.setTimer(onFallback, FRAME_FALLBACK_MS);
     } else if (plan.kind === "wait") {
       lastStepTs = null;
       timerId = host.setTimer(() => {
@@ -208,9 +229,13 @@ export function createLoop(host: LoopHost, step: () => LoopPlan) {
     // A small tolerance, so a 60 Hz display steps every second callback
     // instead of slipping to every third.
     if (lastStepTs !== null && ts - lastStepTs < FRAME_BUDGET_MS - 2) {
+      // Too soon to step: wait for the next frame, with the same fallback still set.
       rafId = host.raf(onFrame);
       return;
     }
+    // A frame came: the fallback isn't needed for this step.
+    if (timerId !== null) host.clearTimer(timerId);
+    timerId = null;
     lastStepTs = ts;
     apply(step());
   };
