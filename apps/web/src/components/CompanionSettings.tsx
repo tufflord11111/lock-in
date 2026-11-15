@@ -42,7 +42,7 @@ function BranchHeight() {
     const off = listen<BranchRange>("parrot:branch-range", (e) => {
       if (!moving.current) setRange(e.payload);
     });
-    void emitTo("parrot", "parrot:branch-range?").catch(() => {});
+    void emitTo("parrot", "parrot:branch-range-request").catch(() => {});
     return () => void off.then((f) => f()).catch(() => {});
   }, []);
   const at = Math.min(range.max, Math.max(range.min, range.at));
@@ -56,12 +56,12 @@ function BranchHeight() {
     moving.current = false;
     void emitTo("parrot", "parrot:branch-set", { at }).catch(() => {});
     // The overlay clamps and saves; this shows the value it kept.
-    void emitTo("parrot", "parrot:branch-range?").catch(() => {});
+    void emitTo("parrot", "parrot:branch-range-request").catch(() => {});
   };
   const reset = () => {
     resetBranchPosition();
     setRange((r) => ({ ...r, at: DEFAULT_BRANCH_AT }));
-    void emitTo("parrot", "parrot:branch-range?").catch(() => {});
+    void emitTo("parrot", "parrot:branch-range-request").catch(() => {});
   };
   return (
     <div className="flex flex-col gap-2">

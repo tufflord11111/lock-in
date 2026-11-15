@@ -219,10 +219,10 @@ describe("the branch's height is set with parrot settings' slider, never by drag
 
   it("parrot settings has the Branch height slider and Reset branch position, wired to the overlay", () => {
     const main = readFileSync(new URL("./main.ts", import.meta.url), "utf8");
-    expect(main).toMatch(/listen\("parrot:branch-reset", \(\) => bird\.resetBranch\(\)\)/);
-    expect(main).toMatch(/listen<\{ at: number \}>\("parrot:branch-preview", \(e\) => bird\.previewBranch\(e\.payload\.at\)\)/);
-    expect(main).toMatch(/listen<\{ at: number \}>\("parrot:branch-set", \(e\) => bird\.setBranchHeight\(e\.payload\.at\)\)/);
-    expect(main).toMatch(/emitTo\("main", "parrot:branch-range", bird\.branchRange\(\)\)/);
+    expect(main).toMatch(/on\("parrot:branch-reset", \(\) => bird\.resetBranch\(\)\)/);
+    expect(main).toMatch(/on<\{ at: number \}>\("parrot:branch-preview", \(e\) => bird\.previewBranch\(e\.payload\.at\)\)/);
+    expect(main).toMatch(/on<\{ at: number \}>\("parrot:branch-set", \(e\) => bird\.setBranchHeight\(e\.payload\.at\)\)/);
+    expect(main).toMatch(/on\("parrot:branch-range-request", \(\) => void emitTo\("main", "parrot:branch-range", bird\.branchRange\(\)\)/);
     const settings = readFileSync(new URL("../components/CompanionSettings.tsx", import.meta.url), "utf8");
     expect(settings).toMatch(/Branch height/);
     expect(settings).toMatch(/type="range"/);
