@@ -1398,7 +1398,7 @@ describe("the bird grips the branch: branch, shadow, bird, then the front grip (
     expect(bird.indexOf("el.before(shadow)")).toBeGreaterThan(bird.indexOf("el.before(branch)"));
     expect(bird).toMatch(/canvas\.after\(grip\)/);
     // Drawn on the same frame as the bird, from the same frame's cell, scaled and placed the same way.
-    expect(bird).toMatch(/gripCtx\.drawImage\(overBitmap, over\.sx, over\.sy, over\.sw, over\.sh, 0, over\.dy \* k, grip\.width, over\.sh \* k\)/);
+    expect(bird).toMatch(/g\.drawImage\(overBitmap, over\.sx, over\.sy, over\.sw, over\.sh, 0, over\.dy \* k, grip\.width, over\.sh \* k\)/);
     // The grip never leans or fluffs: it only rides the bird's box (place, mirroring, rowDy).
     expect(bird).not.toMatch(/grip\.style\.(transform|scale|rotate|translate)\b/);
     expect(bird).not.toMatch(/grip\.classList\.(toggle|add)\("parrot-fluff"/);

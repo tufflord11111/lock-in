@@ -32,9 +32,10 @@ export type SpriteCache<B> = {
   get: (file: string) => B | undefined;
   /**
    * The files needed now and next, most needed first: decodes those missing,
-   * as far as the budget allows, and frees what nothing needs.
+   * as far as the budget allows, and frees what nothing needs. The first
+   * `required` (default 1) are the frame on screen's and load regardless.
    */
-  want: (files: readonly string[]) => void;
+  want: (files: readonly string[], required?: number) => void;
   /** Decoded bytes held right now. */
   bytes: () => number;
   /** The files held right now. */
@@ -58,9 +59,10 @@ export function createSpriteCache<B>(opts: {
 
   const total = () => [...held.values()].reduce((n, h) => n + h.bytes, 0) + [...pending].reduce((n, f) => n + opts.bytesOf(f), 0);
 
-  const evict = () => {
+  /** Frees what nothing wants, least recently used first, until the held rows fit with `room` to spare. */
+  const evict = (room = 0) => {
     const resident = [...held.entries()].map(([file, h]) => ({ file, bytes: h.bytes, usedAt: h.usedAt }));
-    for (const file of planEvictions(resident, wanted, Math.max(0, budget - [...pending].reduce((n, f) => n + opts.bytesOf(f), 0)))) {
+    for (const file of planEvictions(resident, wanted, Math.max(0, budget - room - [...pending].reduce((n, f) => n + opts.bytesOf(f), 0)))) {
       const h = held.get(file);
       if (!h) continue;
       held.delete(file);
@@ -90,13 +92,18 @@ export function createSpriteCache<B>(opts: {
       if (h) h.usedAt = now();
       return h?.bitmap;
     },
-    want(files) {
+    want(files, required = 1) {
       wanted = files;
       evict();
       files.forEach((file, i) => {
         if (held.has(file) || pending.has(file)) return;
-        // The row it is showing always loads; the ones it might show next only if they fit.
-        if (i > 0 && total() + opts.bytesOf(file) > budget) return;
+        // What the frame on screen needs always loads; what it might show next only if it fits,
+        // once rows nothing wants any more have made room. Never refused while they hold it:
+        // a frame waiting for a layer that never comes stays on the frame before, for good.
+        if (i >= required && total() + opts.bytesOf(file) > budget) {
+          evict(opts.bytesOf(file));
+          if (total() + opts.bytesOf(file) > budget) return;
+        }
         load(file);
       });
     },

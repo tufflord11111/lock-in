@@ -181,16 +181,35 @@ export type LoopHost = {
  */
 export const FRAME_FALLBACK_MS = 100;
 
+/** After a step throws, the loop tries again this soon: not a 30 Hz spin, not a freeze. */
+export const ERROR_RETRY_MS = 250;
+
 /**
  * The single loop. step() runs at most 30 times a second while moving. With
  * nothing moving it holds no rAF at all: one timer if a frame is due later,
  * nothing if not, until poke(). While moving it holds one rAF and one fallback
  * timer, whichever fires first steps and cancels the other.
+ *
+ * A step that throws is reported to onError and retried after ERROR_RETRY_MS:
+ * one bad frame never stops the loop.
  */
-export function createLoop(host: LoopHost, step: () => LoopPlan) {
+export function createLoop(host: LoopHost, rawStep: () => LoopPlan, onError: (err: unknown) => void = () => {}) {
   let rafId: number | null = null;
   let timerId: number | null = null;
   let lastStepTs: number | null = null;
+
+  const step = (): LoopPlan => {
+    try {
+      return rawStep();
+    } catch (err) {
+      try {
+        onError(err);
+      } catch {
+        // A failing reporter must not stop the loop either.
+      }
+      return { kind: "wait", ms: ERROR_RETRY_MS };
+    }
+  };
 
   const clear = () => {
     if (rafId !== null) host.cancelRaf(rafId);

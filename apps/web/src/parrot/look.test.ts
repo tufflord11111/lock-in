@@ -44,9 +44,11 @@ describe("the bird's look where its feet are", () => {
 
   it("draws the underband, the bird and the grip on one frame, only once all are decoded: under, bird, then grip", () => {
     const bird = readFileSync(new URL("./bird.ts", import.meta.url), "utf8");
-    expect(bird).toMatch(/if \(bitmap && \(!under \|\| underBitmap\) && \(!over \|\| overBitmap\) && ctx && gripCtx && frameKey !== drawnFrame\)/);
-    expect(bird.indexOf("ctx.drawImage(underBitmap")).toBeLessThan(bird.indexOf("ctx.drawImage(bitmap"));
-    expect(bird.indexOf("ctx.drawImage(bitmap")).toBeLessThan(bird.indexOf("gripCtx.drawImage(overBitmap"));
+    expect(bird).toMatch(/if \(bitmap && \(!under \|\| underBitmap\) && \(!over \|\| overBitmap\) && ctx && gripCtx && backBirdCtx && backGripCtx && frameKey !== drawnFrame\)/);
+    // Painted off screen in this order, then shown on both canvases together (paint.ts).
+    expect(bird.indexOf("b.drawImage(underBitmap")).toBeLessThan(bird.indexOf("b.drawImage(bitmap"));
+    expect(bird.indexOf("b.drawImage(bitmap")).toBeLessThan(bird.indexOf("g.drawImage(overBitmap"));
+    expect(bird).toMatch(/const painted = paintBoth\(/);
   });
 
   it("every layer strip fits its cell; the underband has every grounded row, the grip every row drawn on the branch", () => {

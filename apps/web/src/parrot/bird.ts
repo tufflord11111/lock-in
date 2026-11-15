@@ -29,6 +29,7 @@ import {
   type Branch,
 } from "./perch";
 import { createSpriteCache } from "./spriteCache";
+import { paintBoth } from "./paint";
 import { PET_IDLE_MS, PET_START_PX, cursorSide, leanFor } from "./pet";
 import { DEBUG, createFrameLog } from "./frameCheck";
 import {
@@ -215,13 +216,28 @@ export function createBird(
   canvas.after(grip);
   const ctx = canvas.getContext("2d");
   const gripCtx = grip.getContext("2d");
+  // Off-screen twins: a frame is painted here first, then shown on both canvases together
+  // (paint.ts), so a failure part-way never leaves the bird and the grip on different rows.
+  const backBird = document.createElement("canvas");
+  const backGrip = document.createElement("canvas");
+  const backBirdCtx = backBird.getContext("2d");
+  const backGripCtx = backGrip.getContext("2d");
+  /** One line per kind of error a minute, so a bad frame repeating at 30 Hz can't flood the log. */
+  const lastReported = new Map<string, number>();
+  const report = (where: string, err: unknown) => {
+    const key = `${where}: ${err instanceof Error ? err.message : String(err)}`;
+    const now = Date.now();
+    if ((lastReported.get(key) ?? 0) > now - 60_000) return;
+    lastReported.set(key, now);
+    console.error(`[parrot] ${key}`, err);
+  };
   let canvasFor = 0;
   const baseline = DISPLAY_CELL.baseline ?? DISPLAY_CELL.height;
   const sizeCanvas = () => {
     const dpr = window.devicePixelRatio;
     if (dpr === canvasFor) return;
     canvasFor = dpr;
-    for (const c of [canvas, grip]) {
+    for (const c of [canvas, grip, backBird, backGrip]) {
       c.width = Math.round(DISPLAY_CELL.width * dpr);
       c.height = Math.round(DISPLAY_CELL.height * dpr);
     }
@@ -314,30 +330,41 @@ export function createBird(
     // On the screen it leans toward the cursor; inside the mirrored box that is the other way when facing in.
     // The bird leans; the grip never does. It takes only the box's place, mirroring and rowDy.
     canvas.style.transform = lean === 0 ? "" : `rotate(${lean * Math.sign(scaleX)}deg)`;
-    // This row, and the rows it may need next, with their layers, decoded and held.
-    sprites.want(wantedFiles(state, now, scale));
     // The look for where its feet are: the underband under it on the ground; the front grip over it on the branch.
     const look = lookFor(name, frame, onBranch);
     const under = look.under ? layerRect(scale, look.under, name, frame) : null;
     const over = look.over ? layerRect(scale, look.over, name, frame) : null;
+    // This frame's row and layers, which it can't draw without, then the rows it may need next
+    // with theirs, decoded and held. The frame's own always load (spriteCache.ts).
+    const needNow = [rect.file, ...(under ? [under.file] : []), ...(over ? [over.file] : [])];
+    sprites.want([...new Set([...needNow, ...wantedFiles(state, now, scale)])], needNow.length);
     const bitmap = sprites.get(rect.file);
     const underBitmap = under ? sprites.get(under.file) : undefined;
     const overBitmap = over ? sprites.get(over.file) : undefined;
     const strip = (r: typeof under) => (r ? `${r.file}:${r.sx}` : "");
     const frameKey = `${rect.file}:${rect.sx}:${rect.sy}:${canvas.width}:${strip(under)}:${strip(over)}`;
     // The layers and the bird go up together, on the same frame, or the last frame stays.
-    if (bitmap && (!under || underBitmap) && (!over || overBitmap) && ctx && gripCtx && frameKey !== drawnFrame) {
+    if (bitmap && (!under || underBitmap) && (!over || overBitmap) && ctx && gripCtx && backBirdCtx && backGripCtx && frameKey !== drawnFrame) {
       const k = canvas.height / scale.cell.height;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (under && underBitmap) ctx.drawImage(underBitmap, under.sx, under.sy, under.sw, under.sh, 0, under.dy * k, canvas.width, under.sh * k);
-      ctx.drawImage(bitmap, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
-      // The grip: the same frame's cell, drawn just as the bird's is, over it.
-      gripCtx.clearRect(0, 0, grip.width, grip.height);
-      if (over && overBitmap) gripCtx.drawImage(overBitmap, over.sx, over.sy, over.sw, over.sh, 0, over.dy * k, grip.width, over.sh * k);
-      drawnFrame = frameKey;
-      measureInk(frameKey);
-      if (shownFile === "") resolveReady();
-      shownFile = rect.file;
+      const painted = paintBoth(
+        { bird: ctx, grip: gripCtx },
+        { bird: backBirdCtx, grip: backGripCtx, birdCanvas: backBird, gripCanvas: backGrip },
+        (b, g) => {
+          if (under && underBitmap) b.drawImage(underBitmap, under.sx, under.sy, under.sw, under.sh, 0, under.dy * k, canvas.width, under.sh * k);
+          b.drawImage(bitmap, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, canvas.width, canvas.height);
+          // The grip: the same frame's cell, drawn just as the bird's is, over it.
+          if (over && overBitmap) g.drawImage(overBitmap, over.sx, over.sy, over.sw, over.sh, 0, over.dy * k, grip.width, over.sh * k);
+        },
+        { w: canvas.width, h: canvas.height },
+        (err) => report(`paint ${frameKey}`, err),
+      );
+      // Not shown: the last good frame stays on both canvases, and the next draw tries again.
+      if (painted) {
+        drawnFrame = frameKey;
+        measureInk(frameKey);
+        if (shownFile === "") resolveReady();
+        shownFile = rect.file;
+      }
     }
     // Only over the row on the canvas: while a new row decodes, the old frame stays up.
     showLid(shownFile === rect.file ? lidOver(eyeAt(scale, name, frame), shut) : null);
@@ -391,6 +418,8 @@ export function createBird(
       lastPlan = plan.kind;
       return plan;
     },
+    // A step that throws is retried shortly (animator.ts); say so once a minute.
+    (err) => report("step", err),
   );
 
   const dispatch = (event: BirdEvent) => {
