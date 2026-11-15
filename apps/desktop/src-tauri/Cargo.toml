@@ -41,5 +41,10 @@ default = ["updater", "autostart"]
 updater = ["dep:tauri-plugin-updater"]
 autostart = ["dep:tauri-plugin-autostart"]
 store = ["windows/ApplicationModel", "dep:windows-future"]
+# Test builds only (app-gen-vNN.exe): honour %APPDATA%\com.lockin.app\DEV_MODE, which
+# shortens the Bail out fuse to 30 s, shows the 2-minute Micro and the demo keys, and
+# reads DEV_EXTENSION_ID. Release builds (tauri build, pack:msix) never enable it, so
+# they never read either file and don't contain their names.
+dev-mode = []
 
 

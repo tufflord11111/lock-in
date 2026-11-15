@@ -6,6 +6,9 @@ carry on.
 
 ## Before you start
 
+- **Use a test build for Micro and the 30 s Bail out.** Only an exe built with
+  `pnpm --filter @lock-in/desktop build:dev` (the `dev-mode` feature) honours the `DEV_MODE`
+  file. Release builds (`build`, `pack:msix`) ignore it: no Micro, and Bail out is 5 minutes.
 - **Use a test account.** Every session here credits the signed-in account and sets
   its `presence` to locked-in. Sign out of your own account first.
 - **Block only something harmless.** A session kills what the account blocks. On the

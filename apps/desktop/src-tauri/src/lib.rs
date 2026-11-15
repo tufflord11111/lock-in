@@ -232,8 +232,27 @@ fn default_lock_mode() -> String {
 /// How long the bail-out fuse burns. Long enough that bailing out is a
 /// decision rather than a reflex, short enough to be a real escape hatch.
 const BAILOUT_FUSE_MS: u64 = 5 * 60 * 1000;
-/// DEV_MODE shortens it so the whole path can be exercised in a test run.
+/// Test builds with DEV_MODE shorten it so the whole path can be exercised in a test run.
+#[cfg(feature = "dev-mode")]
 const BAILOUT_FUSE_DEV_MS: u64 = 30 * 1000;
+
+/// How long a fuse armed now burns. Without the dev-mode feature it is always
+/// BAILOUT_FUSE_MS: no file, setting or variable can change it.
+fn bailout_fuse_ms(app: &tauri::AppHandle) -> u64 {
+    fuse_ms_for(|| is_dev_mode(app.clone()))
+}
+
+/// The fuse, given a way to ask whether DEV_MODE is on. A release build never
+/// asks: the question, and the file behind it, only exist with dev-mode.
+fn fuse_ms_for(dev_mode: impl FnOnce() -> bool) -> u64 {
+    #[cfg(feature = "dev-mode")]
+    if dev_mode() {
+        return BAILOUT_FUSE_DEV_MS;
+    }
+    #[cfg(not(feature = "dev-mode"))]
+    let _ = dev_mode;
+    BAILOUT_FUSE_MS
+}
 
 /// Minimum length of a user-supplied block term.
 ///
@@ -512,13 +531,20 @@ struct AppState {
 }
 
 /// An extra accepted extension id, for an unpacked test copy of Web Guard. Read
-/// from DEV_EXTENSION_ID beside DEV_MODE, and only when DEV_MODE exists.
+/// from DEV_EXTENSION_ID beside DEV_MODE, and only when DEV_MODE exists, in a
+/// dev-mode test build. A release build accepts only the store's id.
+#[cfg(feature = "dev-mode")]
 fn dev_extension_id(app: &tauri::AppHandle) -> Option<String> {
     if !is_dev_mode(app.clone()) {
         return None;
     }
     let dir = app.path().app_data_dir().ok()?;
     std::fs::read_to_string(dir.join("DEV_EXTENSION_ID")).ok()
+}
+
+#[cfg(not(feature = "dev-mode"))]
+fn dev_extension_id(_app: &tauri::AppHandle) -> Option<String> {
+    None
 }
 
 /// True when the Store package and a direct-download install are both here.
@@ -1516,16 +1542,24 @@ fn sync_permanent_exe(
 }
 
 // ─── IPC Command: is_dev_mode ────────────────────────────────────────────────
-// True only when a file named DEV_MODE exists in the app data directory
-// (%APPDATA%\com.lockin.app\DEV_MODE). Unlocks test-only UI such as the
-// 2-minute "Micro" session. Deliberately a file, not a setting: nothing in the
-// app can create it, so a normal install can never show those controls.
+// Test builds (the dev-mode feature) only: true when a file named DEV_MODE exists
+// in the app data directory (%APPDATA%\com.lockin.app\DEV_MODE). Unlocks test-only
+// UI such as the 2-minute "Micro" session and the 30 s Bail out fuse. A release
+// build is compiled without the feature: always false, and it never looks for the
+// file, which any user could create in their own %APPDATA%.
+#[cfg(feature = "dev-mode")]
 #[tauri::command]
 fn is_dev_mode(app: tauri::AppHandle) -> bool {
     match app.path().app_data_dir() {
         Ok(dir) => dir.join("DEV_MODE").is_file(),
         Err(_) => false,
     }
+}
+
+#[cfg(not(feature = "dev-mode"))]
+#[tauri::command]
+fn is_dev_mode(_app: tauri::AppHandle) -> bool {
+    false
 }
 
 // ─── IPC Commands: boot snapshot ─────────────────────────────────────────────
@@ -1650,7 +1684,7 @@ fn arm_bailout(
         });
     }
 
-    let fuse = if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS };
+    let fuse = bailout_fuse_ms(&app);
     let deadline = now + fuse;
     profile.bailout_deadline = Some(deadline);
     profile.bailout_used_date = Some(local_date);
@@ -1784,8 +1818,8 @@ struct EnforcerState {
     bailout_deadline: Option<u64>,
     bailout_used_date: Option<String>,
     /// How long a fuse armed right now would burn. The UI states this before
-    /// the operator commits, and DEV_MODE shortens it, so it cannot be a
-    /// constant on the webview side.
+    /// the operator commits, and a dev-mode test build with DEV_MODE shortens
+    /// it, so it cannot be a constant on the webview side.
     bailout_fuse_ms: u64,
     /// Entries for the webview to write, then ack_session_record.
     pending_records: Vec<SessionRecord>,
@@ -1811,7 +1845,7 @@ fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Resu
             session_end_time: profile.session_end_time,
             bailout_deadline: profile.bailout_deadline,
             bailout_used_date: profile.bailout_used_date.clone(),
-            bailout_fuse_ms: if is_dev_mode(app.clone()) { BAILOUT_FUSE_DEV_MS } else { BAILOUT_FUSE_MS },
+            bailout_fuse_ms: bailout_fuse_ms(&app),
             pending_records: profile.pending_records.clone(),
             close_to_tray: profile.close_to_tray,
             other_install: app_state.other_install,
@@ -2871,6 +2905,37 @@ mod tests {
         let bad = sniper_status(false);
         assert!(!bad.ready);
         assert_eq!(bad.message, "Sniper subsystem degraded — run as Administrator.");
+    }
+
+    #[cfg(not(feature = "dev-mode"))]
+    #[test]
+    fn a_release_build_never_asks_for_dev_mode_and_the_fuse_is_five_minutes() {
+        let mut asked = false;
+        let fuse = super::fuse_ms_for(|| {
+            asked = true;
+            true
+        });
+        assert!(!asked, "a release build must not look for DEV_MODE at all");
+        assert_eq!(fuse, 5 * 60 * 1000);
+        // Neither file name is anywhere in the code a release build compiles: the only
+        // mentions of either are behind the dev-mode feature.
+        let src = include_str!("lib.rs");
+        let body = &src[..src.find("#[cfg(test)]").unwrap()];
+        for name in ["\"DEV_MODE\"", "\"DEV_EXTENSION_ID\"", "BAILOUT_FUSE_DEV_MS"] {
+            assert!(body.matches(name).count() > 0, "{name} not found: the check would prove nothing");
+            for (at, _) in body.match_indices(name) {
+                let item_start = body[..at].rfind("\n#[cfg(").or_else(|| body[..at].rfind("\n    #[cfg(")).unwrap();
+                let gate = &body[item_start..at];
+                assert!(gate.contains("#[cfg(feature = \"dev-mode\")]"), "{name} at byte {at} is not behind dev-mode");
+            }
+        }
+    }
+
+    #[cfg(feature = "dev-mode")]
+    #[test]
+    fn a_dev_mode_test_build_shortens_the_fuse_only_with_the_file() {
+        assert_eq!(super::fuse_ms_for(|| true), 30 * 1000);
+        assert_eq!(super::fuse_ms_for(|| false), 5 * 60 * 1000);
     }
 
     #[test]
