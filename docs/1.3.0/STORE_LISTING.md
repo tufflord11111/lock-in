@@ -17,21 +17,25 @@ No pause button. The session ends when the timer does, or early if you Bail out 
 
 ## What's new (paste into "What's new in this version")
 
-- A parrot companion: it walks along the bottom of your screen, naps on its branch during sessions and now and then suggests one. On by default, easy to turn off.
-- Every session that blocks websites now closes browsers that can't block them, after a 10 second warning. Browsers with Web Guard signed in to your account stay open.
-- Web Guard works in Edge and Brave as well as Chrome, and Lock-In tells you how to install it, or sign it in, before a browser is closed.
-- A clearer web blocker: type "youtube" and it blocks youtube.com, with plain labels for "during focus sessions" and "always".
+Changes since 1.2.8, the current Store version:
+
+- A parrot companion walks along the bottom of your screen, naps on its branch during sessions and now and then suggests one. On by default; turn it off in parrot settings or from the tray.
+- New: every session that blocks websites closes browsers that can't block them, after a 10 second warning. Browsers running Web Guard (Chrome, Edge or Brave) signed in to your account stay open. Sessions that block only apps close none.
+- Lock-In lives in the tray. Closing the window keeps it running; during a session, closing hides it and Quit points you to Bail out.
+- Lock-In ends and records sessions even with the window closed, and credits only the minutes your PC was awake. Another device can no longer start or stop a session on this PC.
+- A clearer Block Registry: type "youtube" and it blocks youtube.com, with plain labels for "during focus sessions" and "always".
 - The dashboard opens when Lock-In starts with Windows, without taking the keyboard.
-- Fixes for a session whose only blocked sites were "always" blocks, flickering rows in the Block Registry, and long links in notices.
+- Fixes: a session voided after a bail-out, a block like "msedge" closing Lock-In's own window, the offline indicator, calendar links, and more.
 
-## What changed from 1.2.10
+## What changed in the disclosure
 
-1.2.10's line said "Optional browser lockdown": lockdown only ran if it was picked when the
-session started. From 1.3.0 every session that blocks websites closes browsers without a live
-Web Guard signed in to the session's account. Chrome, Edge and Brave can run Web Guard (from the
-Chrome Web Store); every other browser, Firefox included, is closed. So the word "Optional" is
-gone, and the line names the browser closing in site-blocking sessions. A session can still block
-apps only, and then no browser is closed.
+The live listing is 1.2.8's, from before browser lockdown existed, so it has no lockdown line. The
+1.2.10 draft line ("Optional browser lockdown…") was never published. From 1.3.0 every session
+that blocks websites closes browsers without a live Web Guard signed in to the session's account.
+Chrome, Edge and Brave can run Web Guard (from the Chrome Web Store); every other browser, Firefox
+included, is closed. So the disclosure line above is new, has no "Optional", and names the browser
+closing in site-blocking sessions. A session can still block apps only, and then no browser is
+closed.
 
 ## Notes
 
