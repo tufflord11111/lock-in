@@ -7,6 +7,8 @@ import { dismissWriteFailure, guardWrite, reportWriteFailure } from "../writeFai
 import { logUiEvent } from "../uiEventLog";
 import { reportEngineFailure } from "../engineHealth";
 import type { EnforcerState } from "../components/EnforcerDisarmPanel";
+import { standDownAction } from "./standDown";
+import { isSessionRunningRefusal, serverSessionToRearm } from "./sessionGuards";
 import {
   useCallback,
   useEffect,
@@ -82,7 +84,9 @@ export function useFocusSession(
   setTotalMinutesFocused: Dispatch<SetStateAction<number>>,
   blockedApps: string[] = [],
   blockedWebsites: string[] = [],
-  updatePresence?: (state: "online" | "offline" | "locked-in") => Promise<void>
+  updatePresence?: (state: "online" | "offline" | "locked-in") => Promise<void>,
+  /** Rust re-armed this PC's session from Firebase (M7): the block lists must reach it again. */
+  onRearmed?: () => void
 ) {
   const [isActive, setIsActive] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -170,24 +174,38 @@ export function useFocusSession(
   useEffect(() => {
     const unlisten = listen<{ reason: string; retained_targets: number }>(
       "enforcer-stood-down",
-      (event) => {
-        lastStoodDownRef.current = Date.now();
+      async (event) => {
         const reason = event.payload?.reason ?? "unknown";
+        // 1.3.1 L7: the event alone never ends a session. Rust's own state is
+        // read first; still armed (or unreadable) means the event is ignored.
+        let rust: EnforcerState | null = null;
+        try {
+          rust = await invoke<EnforcerState>("get_enforcer_state");
+        } catch (err) {
+          console.warn("[LOCK-IN] stand-down event: Rust state unreadable, ignoring it:", err);
+        }
+        const action = standDownAction(
+          reason,
+          { sessionLive: sessionLiveRef.current, isActive: isActiveRef.current },
+          rust
+        );
+        if (action === "ignore") {
+          console.warn(`[LOCK-IN] ignored enforcer-stood-down (${reason}): Rust has not stood down`);
+          logUiEvent("stood-down-ignored", userId);
+          return;
+        }
+        lastStoodDownRef.current = Date.now();
         flushRecordsRef.current();
         if (reason === "bailout-expired") {
           console.info("[LOCK-IN] bail-out fuse burned down — ending the session, voided");
           logUiEvent("bailout-fired", userId);
-          if (sessionLiveRef.current) {
-            endSessionRef.current();
-            return;
-          }
         }
-        if (reason === "deadline-expired" && sessionLiveRef.current) {
-          console.info("[LOCK-IN] Rust deadline reached before the UI countdown — ending the session");
+        if (action === "end-session") {
+          console.info(`[LOCK-IN] Rust ended the session (${reason}) — ending it here`);
           endSessionRef.current();
           return;
         }
-        if (isActiveRef.current) {
+        if (action === "reset") {
           resetLocalSession(`enforcer-stood-down: ${reason}`);
         }
       }
@@ -368,6 +386,29 @@ export function useFocusSession(
     if (!sessionLiveRef.current) return;
     sessionLiveRef.current = false;
 
+    // STEP 0 (1.3.1 H2): Rust decides whether the session may end. Before its
+    // deadline it refuses, and the way out is Bail out. Any other failure (an
+    // enforcer we can't reach) still ends the session here: fail open.
+    try {
+      const res = await invoke("update_enforcement", { isActive: false, blockedList: [], endTime: null });
+      console.log("[Enforcer] Stand-down confirmed:", res);
+      flushRecordsRef.current();
+    } catch (err) {
+      if (isSessionRunningRefusal(err)) {
+        console.warn("[Enforcer] stand-down refused — the session is still running:", err);
+        sessionLiveRef.current = true;
+        reportWriteFailure(err instanceof Error ? err.message : String(err), undefined, "info");
+        // The countdown may have stopped itself at zero a moment early.
+        if (intervalRef.current === null) queueMicrotask(() => startCountdownRef.current());
+        return;
+      }
+      reportEngineFailure(
+        "update_enforcement(stop)",
+        "The enforcer didn't confirm the end of your session, so blocked apps may keep closing until its original end time. Restart Lock-In if they do.",
+        err
+      );
+    }
+
     // STEP 1: Clear timer immediately
     clearTimer();
     endTimeRef.current = null;
@@ -383,20 +424,8 @@ export function useFocusSession(
       updatePresence("online");
     }
 
-    // STEP 3: Signal Rust to stand down (already fire-and-forget). Rust decides
-    // what the session earned; the entry goes out with flushSessionRecords.
-    invoke("update_enforcement", { isActive: false, blockedList: [], endTime: null })
-      .then((res) => {
-        console.log("[Enforcer] Stand-down confirmed:", res);
-        flushRecordsRef.current();
-      })
-      .catch((err) =>
-        reportEngineFailure(
-          "update_enforcement(stop)",
-          "The enforcer didn't confirm the end of your session, so blocked apps may keep closing until its original end time. Restart Lock-In if they do.",
-          err
-        )
-      );
+    // STEP 3: Rust stood down in STEP 0 and decided what the session earned;
+    // the entry goes out with flushSessionRecords.
 
     // STEP 4: Clear chrome storage if available
     if (typeof (window as any).chrome !== 'undefined'
@@ -444,6 +473,12 @@ export function useFocusSession(
   useEffect(() => {
     endSessionRef.current = endSession;
   }, [endSession]);
+  // Latest startCountdown, for endSession (declared before it).
+  const startCountdownRef = useRef<() => void>(() => {});
+  const onRearmedRef = useRef(onRearmed);
+  useEffect(() => {
+    onRearmedRef.current = onRearmed;
+  }, [onRearmed]);
 
   /**
    * The 1 s countdown. Factored out of startSession so a session ADOPTED from
@@ -474,6 +509,9 @@ export function useFocusSession(
       });
     }, 1000);
   }, [clearTimer, secondsRemaining]);
+  useEffect(() => {
+    startCountdownRef.current = startCountdown;
+  }, [startCountdown]);
 
   const startSession = useCallback(
     (minutes: number, label: string, options: { appsOnly?: boolean; lockdown?: boolean; blocksSites?: boolean } = {}) => {
@@ -509,7 +547,8 @@ export function useFocusSession(
       // sessionState, the extension saw focusActive with the previous session's
       // endTime-less sessionState and blocked indefinitely — and boot
       // reconciliation, which needs sessionState.isActive, could never clear it.
-      const endTime = Date.now() + seconds * 1000;
+      const startedAt = Date.now();
+      const endTime = startedAt + seconds * 1000;
       endTimeRef.current = endTime;
       sessionLiveRef.current = true;
       const startMessage =
@@ -519,6 +558,7 @@ export function useFocusSession(
           update(ref(db), {
             [`users/${userId}/sessionState`]: {
               isActive: true,
+              startedAt, // lets this PC re-arm the session if its state file is lost (M7)
               endTime,
               objective: label.trim(),
               blockedUrls: masterBlockList,
@@ -545,6 +585,8 @@ export function useFocusSession(
         uid: userId,
         lockdown: options.lockdown === true,
         blocksSites: options.blocksSites === true && !options.appsOnly,
+        // Rust caps the deadline at now + this (1.3.1 H2).
+        plannedMinutes: Math.ceil(minutes),
       })
         .then((res) => console.log("RUST RESPONSE:", res))
         .catch((err) =>
@@ -576,7 +618,30 @@ export function useFocusSession(
     let cancelled = false;
     const probeSentAt = Date.now();
 
+    // M7: Rust has no session, but Firebase says this PC's session is still
+    // live (the state file was lost or edited while the app was closed). Ask
+    // Rust to re-arm it; Rust refuses one that already ended here. Resolves to
+    // Rust's state afterwards.
+    const rearmFromServer = async (s: EnforcerState): Promise<EnforcerState> => {
+      if (s.focus_active) return s;
+      try {
+        const snap = await get(ref(db, `users/${userId}/sessionState`));
+        const session = serverSessionToRearm(snap.val(), deviceId, userId, Date.now());
+        if (!session) return s;
+        const rearmed = await invoke<boolean>("rearm_from_server", { session });
+        if (!rearmed) return s;
+        console.info("[LOCK-IN] re-armed this PC's session from Firebase");
+        logUiEvent("session-rearmed", userId);
+        onRearmedRef.current?.();
+        return await invoke<EnforcerState>("get_enforcer_state");
+      } catch (err) {
+        console.info("[LOCK-IN] no session re-armed from Firebase:", err);
+        return s;
+      }
+    };
+
     invoke<EnforcerState>("get_enforcer_state")
+      .then(rearmFromServer)
       .then((s) => {
         if (cancelled) return;
 
@@ -630,7 +695,7 @@ export function useFocusSession(
     return () => {
       cancelled = true;
     };
-  }, [userId, resetLocalSession, startCountdown, updatePresence]);
+  }, [userId, deviceId, resetLocalSession, startCountdown, updatePresence]);
 
   // (3) RECONCILE — clear a session this device ended but never told Firebase
   // about. Session-end writes made offline only queue in memory; closing the

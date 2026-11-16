@@ -46,3 +46,19 @@ test("an emergency unlock lifts a running session, then it comes back", () => {
 test("a session with no end time locks until it's cleared", () => {
   assert.equal(isLocked({ focusActive: true, sessionEndTime: null }, 1_000), true);
 });
+
+// 1.3.1 B1 / L5: a sign-out from the popup clears the account's blocks only
+// when no session is locking. During one, the blocks stay until it ends.
+import { signOutClears } from "./lockState.js";
+
+test("L5: a sign-out during a locked session does not clear its blocks", () => {
+  assert.equal(signOutClears({ focusActive: true, sessionEndTime: 2_000 }, 1_000), false);
+  assert.equal(signOutClears({ manualLock: true }, 1_000), false);
+});
+
+test("L5: a sign-out with no session, or once it has ended, clears as before", () => {
+  assert.equal(signOutClears({ focusActive: false }, 1_000), true);
+  assert.equal(signOutClears({ focusActive: true, sessionEndTime: 2_000 }, 2_000), true);
+  // During a granted emergency unlock nothing is locked, so it clears too.
+  assert.equal(signOutClears({ focusActive: true, sessionEndTime: 9_000, unlockExpiry: 5_000 }, 1_000), true);
+});

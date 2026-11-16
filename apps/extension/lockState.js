@@ -13,3 +13,12 @@ export function isLocked({ manualLock, focusActive, sessionEndTime, unlockExpiry
     focusActive === true && (typeof sessionEndTime !== "number" || now < sessionEndTime);
   return manualLock === true || sessionLive;
 }
+
+/**
+ * Does a sign-out from the popup clear this account's blocks now? Only when
+ * nothing is locking (1.3.1 L5). During a session the popup may still sign
+ * out, but the session's blocks stay until it ends; the worker clears them then.
+ */
+export function signOutClears(state, now) {
+  return !isLocked(state, now);
+}

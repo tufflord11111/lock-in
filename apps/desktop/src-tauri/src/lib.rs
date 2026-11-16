@@ -1,6 +1,8 @@
 mod companion;
 mod browsers;
 mod heartbeat;
+mod integrity;
+pub use integrity::scrub_webview2_env;
 mod lockdown;
 mod notify;
 
@@ -126,6 +128,18 @@ struct LockProfile {
     /// waits here until the webview confirms the write.
     #[serde(default)]
     pending_records: Vec<SessionRecord>,
+    /// When the running session was armed (epoch ms). Restore checks the
+    /// deadline and the awake time against it.
+    #[serde(default)]
+    session_started_at: Option<u64>,
+    /// Permanent blocks removed while the session ran. They keep being killed
+    /// until it ends: a removal mid-session takes effect after it.
+    #[serde(default)]
+    session_held_permanent: HashSet<String>,
+    /// When this PC last ended a session (epoch ms). A server session that
+    /// started before this has already ended here and is never re-armed.
+    #[serde(default)]
+    last_session_ended_at: Option<u64>,
     /// When the enforcer last looked at the clock. Not persisted: time with the
     /// app closed must not count as enforced.
     #[serde(skip)]
@@ -177,6 +191,8 @@ impl LockProfile {
         self.session_objective = objective;
         self.session_uid = uid;
         self.last_clock_check = Some(now);
+        self.session_started_at = Some(now);
+        self.session_held_permanent.clear();
         // Any fuse still set here belongs to a session that is over.
         self.bailout_deadline = None;
     }
@@ -185,8 +201,17 @@ impl LockProfile {
     /// its fuse is armed, whichever deadline ended it. bailout_used_date and
     /// exe_blacklist stay: one bail-out per day, and standing config.
     fn end_session(&mut self, ended_at: u64) {
+        self.end_session_as(ended_at, false);
+    }
+
+    /// end_session, with `never_completed` for an end that didn't happen with
+    /// the enforcer watching (a restore, a clear): recorded aborted at best.
+    fn end_session_as(&mut self, ended_at: u64, never_completed: bool) {
         let voided = self.bailout_deadline.is_some();
-        let reached_end = self.session_end_time.is_some_and(|end| ended_at >= end);
+        let reached_end = !never_completed && self.session_end_time.is_some_and(|end| ended_at >= end);
+        self.last_session_ended_at = Some(ended_at);
+        self.session_started_at = None;
+        self.session_held_permanent.clear();
         let minutes = if voided { 0 } else { self.session_awake_ms.div_ceil(60_000) };
         if voided || minutes > 0 {
             if self.pending_records.len() >= MAX_PENDING_RECORDS {
@@ -807,7 +832,9 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     profile.exe_pending.clear();
     profile.permanent_exe.clear();
     profile.permanent_pending.clear();
+    profile.session_held_permanent.clear();
     profile.session_end_time = None;
+    profile.session_started_at = None;
     // A clear is a stand-down too. A fuse left behind would void the next
     // session on its first tick. bailout_used_date stays: one per day.
     profile.bailout_deadline = None;
@@ -960,67 +987,12 @@ fn restore_profile(profile: &Arc<Mutex<LockProfile>>, path: &PathBuf, app: &taur
     };
     *p = restored;
 
-    // A surviving disarm latch must still suppress arming, whatever the file
-    // claims. Normal writes preserve this invariant; a hand-edited or
-    // older-format file might not.
-    if p.disarm_latch {
-        p.is_locked = false;
-        p.focus_active = false;
-        p.exe_blacklist.clear();
-        p.exe_approved.clear();
-        p.exe_pending.clear();
-        p.permanent_exe.clear();
-        p.permanent_pending.clear();
-        p.session_end_time = None;
-        p.bailout_deadline = None;
-        println!("[Persist] restored with disarm latch SET — forced disarmed, all blocks cleared");
-    }
-
-    // Expire a session whose deadline passed while the app was closed, so it
-    // never arms even for the first 2 s tick.
-    if p.focus_active {
-        // A fuse that burned down while the app was closed still fires: the
-        // whole point is that quitting cannot outrun it.
-        if let Some(fuse) = p.bailout_deadline {
-            if now_millis() >= fuse {
-                p.end_session(fuse);
-                println!("[Persist] bail-out fuse burned down while closed — stood down, void");
-                emit_stood_down(app, "bailout-expired", p.exe_blacklist.len());
-            }
-        }
-    }
-
-    if p.focus_active {
-        match p.session_end_time {
-            Some(end) if now_millis() >= end => {
-                // focus_active=false is what prevents arming; the list stays.
-                p.end_session(end);
-                println!("[Persist] restored session had already expired — stood down, list retained");
-                // Inert at boot — no webview is listening yet — but keeps
-                // every stand-down site on the same path. The pull probe on
-                // first auth covers this case regardless.
-                emit_stood_down(app, "restored-expired", p.exe_blacklist.len());
-            }
-            Some(_) => {
-                // Live deadline — the loop will expire it on time.
-            }
-            None => {
-                // A state file from a build before session_end_time existed
-                // (serde default → None). A session with no deadline can never
-                // end on its own: that is permanent lockout for anyone upgrading
-                // from a pre-deadline build. Stand down; the list stays.
-                p.focus_active = false;
-                p.bailout_deadline = None;
-                println!("[Persist] restored session has NO deadline — standing down");
-                emit_stood_down(app, "restored-no-deadline", p.exe_blacklist.len());
-            }
-        }
-    }
-
-    // A state file from before 1.2.9 can hold a fuse with no session behind it
-    // (a stand-down that did not clear it). It must not void the next session.
-    if !p.focus_active {
-        p.bailout_deadline = None;
+    // Every rule for a restored profile lives in integrity::settle_restored.
+    // Emits are inert at boot (no webview is listening yet) but keep every
+    // stand-down on the same path; the pull probe on first auth covers it.
+    for reason in integrity::settle_restored(&mut p, now_millis()) {
+        println!("[Persist] restore stood the session down: {}", reason);
+        emit_stood_down(app, reason, p.exe_blacklist.len());
     }
 
     println!(
@@ -1181,6 +1153,7 @@ fn update_enforcement(
     uid: Option<String>,
     lockdown: Option<bool>,
     blocks_sites: Option<bool>,
+    planned_minutes: Option<u64>,
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
@@ -1217,13 +1190,26 @@ fn update_enforcement(
                 EnforcementDecision::Arm | EnforcementDecision::StandDown => {}
             }
             if is_active {
-                // Never arm a session that can't be running. With no deadline it
-                // would never expire on its own; with a past one the loop could
-                // run a kill pass before its next expiry check. The webview
-                // filters these too — this is the backstop.
-                if let Some(reason) = arm_refusal(end_time, now_millis()) {
-                    println!("[Enforcer] REFUSED arm — {} (remote = {})", reason, remote);
-                    return Err(format!("Refused to arm: {}", reason));
+                // Not over a running session (H2): re-arming would replace its
+                // deadline. A session already past its deadline (the tick
+                // hasn't ended it yet) is ended first, so it is recorded.
+                if let Err(reason) = integrity::local_arm(&profile, now) {
+                    println!("[Enforcer] REFUSED arm — {}", reason);
+                    return Err(reason);
+                }
+                // The deadline is the webview's, capped at now + the planned
+                // duration (H2). No deadline, a past one, or no plan: refused.
+                let end = match integrity::session_end(now, end_time, planned_minutes) {
+                    Ok(end) => end,
+                    Err(reason) => {
+                        println!("[Enforcer] REFUSED arm — {} (remote = {})", reason, remote);
+                        return Err(reason);
+                    }
+                };
+                if profile.focus_active {
+                    let previous_end = profile.session_end_time.unwrap_or(now);
+                    profile.note_clock(now);
+                    profile.end_session(previous_end);
                 }
                 // An explicit LOCAL session start is the only thing that lifts
                 // the latch — deliberate operator action, not a reconnect or a
@@ -1239,10 +1225,10 @@ fn update_enforcement(
                 // do nothing. The passed `blocked_list` is ignored for arming.
                 profile.exe_blacklist = profile.exe_approved.clone();
                 // Deadline so a session persisted across a restart still ends.
-                profile.start_session(now, end_time, objective, uid, lockdown.unwrap_or(false), blocks_sites.unwrap_or(false));
+                profile.start_session(now, Some(end), objective, uid, lockdown.unwrap_or(false), blocks_sites.unwrap_or(false));
                 println!(
-                    "🔒 ENFORCER ARMED: Active = {}, remote = {}, approved targets = {:?}, end_time = {:?}",
-                    is_active, remote, profile.exe_blacklist, end_time
+                    "🔒 ENFORCER ARMED: Active = {}, remote = {}, approved targets = {:?}, end_time = {}",
+                    is_active, remote, profile.exe_blacklist, end
                 );
             } else {
                 // Session ending. exe_blacklist is standing config and is NOT
@@ -1251,8 +1237,16 @@ fn update_enforcement(
                 // offline boot had nothing to restore.
                 let was_active = profile.focus_active;
                 if was_active {
+                    // Only at the deadline or once the fuse has burned (H2):
+                    // before that the way out is Bail out, not this command.
+                    if let Err(reason) = integrity::local_stop(&profile, now) {
+                        println!("[Enforcer] REFUSED local stop — session armed until {:?}", profile.session_end_time);
+                        log_ui_event(&app, "local-stop-refused");
+                        return Err(reason);
+                    }
+                    let at = integrity::stop_time(&profile, now);
                     profile.note_clock(now);
-                    profile.end_session(now);
+                    profile.end_session(at);
                 } else {
                     profile.session_end_time = None;
                     // bailout_used_date stays: it is what makes it one per day.
@@ -1286,71 +1280,33 @@ fn sync_blocklist(
     blocked_list: Vec<String>,
     approved_list: Vec<String>,
     from_remote: Option<bool>,
+    uid: Option<String>,
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
     let remote = from_remote.unwrap_or(false);
-    match app_state.profile.lock() {
-        Ok(mut profile) => {
-            // Disarm latch: a reconnect must not refill anything that a clear
-            // just wiped, until a deliberate local session start lifts it.
-            if profile.disarm_latch {
-                println!("[Enforcer] disarm latch ACTIVE — refusing blocklist sync");
-                return Ok("Blocklist sync skipped — disarm latch active".to_string());
-            }
-            // `all` is every entry in blockedApps. `mine` is the subset the
-            // frontend vouches for as this-device origin (H1) — plus, on the
-            // first run after upgrade, the pre-existing set (H2).
-            let all: HashSet<String> = blocked_list
-                .iter()
-                .filter_map(|s| sanitize_block_entry(s))
-                .collect();
-            let mine: HashSet<String> = approved_list
-                .iter()
-                .filter_map(|s| sanitize_block_entry(s))
-                .collect();
-
-            if remote {
-                // Approved = anything already approved OR vouched as this-device
-                // origin, that still exists in blockedApps. A NEW entry with a
-                // different/absent origin is STAGED for local approval (G1),
-                // never armed.
-                let approved_kept: HashSet<String> = profile
-                    .exe_approved
-                    .union(&mine).filter(|&n| all.contains(n)).cloned()
-                    .collect();
-                let pending: HashSet<String> =
-                    all.difference(&approved_kept).cloned().collect();
-                profile.exe_approved = approved_kept;
-                profile.exe_pending = pending.clone();
-                // If a session is live, reflect approvals/removals immediately.
-                if profile.focus_active {
-                    profile.exe_blacklist = profile.exe_approved.clone();
-                }
-                println!(
-                    "📋 BLOCKLIST SYNCED (remote) — {} approved, {} pending approval",
-                    profile.exe_approved.len(),
-                    pending.len()
-                );
-                persist_profile(&profile, &app_state.state_path);
-                if !pending.is_empty() {
-                    emit_exe_pending(&app, &pending);
-                }
-                Ok(format!("Blocklist sync — {} pending approval", pending.len()))
-            } else {
-                // Local/trusted path (reserved for an explicit on-device write).
-                profile.exe_approved = all.clone();
-                profile.exe_pending.clear();
-                if profile.focus_active {
-                    profile.exe_blacklist = profile.exe_approved.clone();
-                }
-                println!("📋 BLOCKLIST SYNCED (local) — {} approved", all.len());
-                persist_profile(&profile, &app_state.state_path);
-                Ok("Blocklist synced".to_string())
-            }
-        }
-        Err(e) => Err(format!("Mutex lock failed: {}", e)),
+    let mut profile = app_state.profile.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
+    // Disarm latch: a reconnect must not refill anything that a clear just
+    // wiped, until a deliberate local session start lifts it.
+    if profile.disarm_latch {
+        println!("[Enforcer] disarm latch ACTIVE — refusing blocklist sync");
+        return Ok("Blocklist sync skipped — disarm latch active".to_string());
     }
+    // `blocked_list` is every entry in blockedApps; `approved_list` the subset
+    // the frontend vouches for as this-device origin. The rules (G1, the
+    // session freeze, the account check) are in integrity::apply_session_sync.
+    let pending = integrity::apply_session_sync(&mut profile, &blocked_list, &approved_list, remote, uid.as_deref())?;
+    println!(
+        "📋 BLOCKLIST SYNCED (remote={}) — {} approved, {} pending approval",
+        remote,
+        profile.exe_approved.len(),
+        pending.len()
+    );
+    persist_profile(&profile, &app_state.state_path);
+    if !pending.is_empty() {
+        emit_exe_pending(&app, &pending);
+    }
+    Ok(format!("Blocklist sync — {} pending approval", pending.len()))
 }
 
 /// Where a .lnk points, read through the shell's own IShellLinkW. On its own thread
@@ -1490,56 +1446,30 @@ fn get_running_apps() -> Result<Vec<String>, String> {
 fn sync_permanent_exe(
     blocked_list: Vec<String>,
     from_remote: Option<bool>,
+    uid: Option<String>,
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
     let remote = from_remote.unwrap_or(false);
-    match app_state.profile.lock() {
-        Ok(mut profile) => {
-            // Post-wipe: refuse to refill or stage until a deliberate local
-            // session start lifts the latch, so a reconnect cannot undo a clear.
-            if profile.disarm_latch {
-                println!("[Permanent] disarm latch ACTIVE — ignoring permanent sync");
-                return Ok("Permanent sync skipped — disarm latch active".to_string());
-            }
-
-            let sanitized: HashSet<String> = blocked_list
-                .iter()
-                .filter_map(|s| sanitize_block_entry(s))
-                .collect();
-
-            if remote {
-                // F4: a remote write may keep/remove already-approved entries,
-                // but a NEW permanent block cannot start killing until it is
-                // approved on THIS machine. New names are staged, not enforced.
-                let enforced: HashSet<String> =
-                    sanitized.intersection(&profile.permanent_exe).cloned().collect();
-                let pending: HashSet<String> =
-                    sanitized.difference(&profile.permanent_exe).cloned().collect();
-                profile.permanent_exe = enforced;
-                profile.permanent_pending = pending.clone();
-                println!(
-                    "[Permanent] remote sync — {} enforced, {} pending approval",
-                    profile.permanent_exe.len(),
-                    pending.len()
-                );
-                persist_profile(&profile, &app_state.state_path);
-                if !pending.is_empty() {
-                    emit_permanent_pending(&app, &pending);
-                }
-                Ok(format!("Permanent sync — {} pending approval", pending.len()))
-            } else {
-                // Local/trusted path (not currently used by the web listener,
-                // reserved for an explicit on-device write).
-                profile.permanent_exe = sanitized.clone();
-                profile.permanent_pending.clear();
-                println!("[Permanent] local sync — {} enforced", sanitized.len());
-                persist_profile(&profile, &app_state.state_path);
-                Ok("Permanent exe updated".to_string())
-            }
-        }
-        Err(e) => Err(format!("Lock failed: {}", e)),
+    let mut profile = app_state.profile.lock().map_err(|e| format!("Lock failed: {}", e))?;
+    // Post-wipe: refuse to refill or stage until a deliberate local session
+    // start lifts the latch, so a reconnect cannot undo a clear.
+    if profile.disarm_latch {
+        println!("[Permanent] disarm latch ACTIVE — ignoring permanent sync");
+        return Ok("Permanent sync skipped — disarm latch active".to_string());
     }
+    let pending = integrity::apply_permanent_sync(&mut profile, &blocked_list, remote, uid.as_deref())?;
+    println!(
+        "[Permanent] sync (remote={}) — {} enforced, {} pending approval",
+        remote,
+        profile.permanent_exe.len(),
+        pending.len()
+    );
+    persist_profile(&profile, &app_state.state_path);
+    if !pending.is_empty() {
+        emit_permanent_pending(&app, &pending);
+    }
+    Ok(format!("Permanent sync — {} pending approval", pending.len()))
 }
 
 // ─── IPC Command: is_dev_mode ────────────────────────────────────────────────
@@ -1645,59 +1575,19 @@ struct BailoutResult {
 fn arm_bailout(
     app: tauri::AppHandle,
     app_state: State<AppState>,
-    local_date: String,
 ) -> Result<BailoutResult, String> {
     let mut profile = app_state
         .profile
         .lock()
         .map_err(|e| format!("profile lock poisoned: {}", e))?;
-
-    let now = now_millis();
-
-    // A fuse already burning is reported, never restarted: restarting it would
-    // be a way to extend the session, which is the opposite of the point.
-    if let Some(deadline) = profile.bailout_deadline {
-        if deadline > now {
-            return Ok(BailoutResult {
-                armed: false,
-                deadline: Some(deadline),
-                refused: Some("already-burning".to_string()),
-                remaining_ms: Some(deadline - now),
-            });
-        }
-    }
-
-    if !profile.focus_active {
-        return Ok(BailoutResult {
-            armed: false,
-            deadline: None,
-            refused: Some("no-session".to_string()),
-            remaining_ms: None,
-        });
-    }
-
-    if profile.bailout_used_date.as_deref() == Some(local_date.as_str()) {
-        return Ok(BailoutResult {
-            armed: false,
-            deadline: None,
-            refused: Some("used-today".to_string()),
-            remaining_ms: None,
-        });
-    }
-
     let fuse = bailout_fuse_ms(&app);
-    let deadline = now + fuse;
-    profile.bailout_deadline = Some(deadline);
-    profile.bailout_used_date = Some(local_date);
-    persist_profile(&profile, &app_state.state_path);
-    println!("[Enforcer] bail-out armed — fuse {} ms, deadline {}", fuse, deadline);
-
-    Ok(BailoutResult {
-        armed: true,
-        deadline: Some(deadline),
-        refused: None,
-        remaining_ms: Some(fuse),
-    })
+    // The day is this PC's local date (H2), never one the webview sends.
+    let result = integrity::arm_bailout_at(&mut profile, now_millis(), &integrity::local_today(), fuse);
+    if result.armed {
+        persist_profile(&profile, &app_state.state_path);
+        println!("[Enforcer] bail-out armed — fuse {} ms, deadline {:?}", fuse, result.deadline);
+    }
+    Ok(result)
 }
 
 // ─── IPC Command: append_ui_event ────────────────────────────────────────────
@@ -1732,6 +1622,9 @@ const UI_EVENTS: &[&str] = &[
     "lockdown-warned",
     "lockdown-closed",
     "lockdown-incognito-gap",
+    "local-stop-refused",
+    "session-rearmed",
+    "stood-down-ignored",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.
@@ -1824,6 +1717,10 @@ struct EnforcerState {
     bailout_fuse_ms: u64,
     /// Entries for the webview to write, then ack_session_record.
     pending_records: Vec<SessionRecord>,
+    /// Blocks removed during this session that are still enforced until it
+    /// ends: the Blocks tab shows them as "Removes after this session".
+    session_held: Vec<String>,
+    session_started_at: Option<u64>,
     close_to_tray: bool,
     other_install: bool,
     build_label: String,
@@ -1848,6 +1745,8 @@ fn get_enforcer_state(app: tauri::AppHandle, app_state: State<AppState>) -> Resu
             bailout_used_date: profile.bailout_used_date.clone(),
             bailout_fuse_ms: bailout_fuse_ms(&app),
             pending_records: profile.pending_records.clone(),
+            session_held: integrity::held_removals(&profile),
+            session_started_at: profile.session_started_at,
             close_to_tray: profile.close_to_tray,
             other_install: app_state.other_install,
             build_label: build_label(),
@@ -1978,6 +1877,31 @@ fn ack_session_record(ended_at: u64, app_state: State<AppState>) -> Result<(), S
     Ok(())
 }
 
+// ─── IPC Command: rearm_from_server ──────────────────────────────────────────
+// M7: the webview found this PC's own session still live in Firebase while Rust
+// has none (the state file was lost or edited while the app was closed). Rust
+// re-arms it unless it already ended here. Arming only ever blocks more.
+#[tauri::command]
+fn rearm_from_server(
+    session: integrity::ServerSession,
+    app: tauri::AppHandle,
+    app_state: State<AppState>,
+) -> Result<bool, String> {
+    let mut profile = app_state
+        .profile
+        .lock()
+        .map_err(|e| format!("Mutex lock failed: {}", e))?;
+    let was_active = profile.focus_active;
+    integrity::rearm_from_server(&mut profile, &session, now_millis())?;
+    let rearmed = !was_active && profile.focus_active;
+    if rearmed {
+        println!("🔒 ENFORCER RE-ARMED from the server session, until {:?}", profile.session_end_time);
+        log_ui_event(&app, "session-rearmed");
+        persist_profile(&profile, &app_state.state_path);
+    }
+    Ok(rearmed)
+}
+
 // ─── IPC Command: clear_disarm_latch ─────────────────────────────────────────
 // Released by the frontend's disarm-recovery pass, and only AFTER the stale
 // Firebase session flags have been cleared. If those writes fail the latch
@@ -2003,19 +1927,15 @@ fn clear_disarm_latch(app_state: State<AppState>) -> Result<String, String> {
 // called it any more, so it was removed.)
 #[tauri::command]
 fn clear_all_blocks(app: tauri::AppHandle, app_state: State<AppState>) -> Result<String, String> {
-    match app_state.profile.lock() {
-        Ok(mut profile) => {
-            let (cleared_session, cleared_permanent) = wipe_all_blocks(&mut profile);
-            persist_profile(&profile, &app_state.state_path);
-            emit_stood_down(&app, "clear-all-blocks", 0);
-            println!("🧹 CLEAR ALL BLOCKS: session + permanent wiped (latch armed)");
-            Ok(format!(
-                "Cleared {} session target(s) and {} permanent block(s)",
-                cleared_session, cleared_permanent
-            ))
-        }
-        Err(e) => Err(format!("Mutex lock failed: {}", e)),
-    }
+    let mut profile = app_state.profile.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
+    let (cleared_session, cleared_permanent) = integrity::clear_all(&mut profile, now_millis())?;
+    persist_profile(&profile, &app_state.state_path);
+    emit_stood_down(&app, "clear-all-blocks", 0);
+    println!("🧹 CLEAR ALL BLOCKS: session + permanent wiped (latch armed)");
+    Ok(format!(
+        "Cleared {} session target(s) and {} permanent block(s)",
+        cleared_session, cleared_permanent
+    ))
 }
 
 // ─── IPC Command: confirm_pending_permanent ──────────────────────────────────
@@ -2328,6 +2248,9 @@ pub fn run() {
         browser_lockdown: false,
         session_blocks_sites: false,
         pending_records: Vec::new(),
+        session_started_at: None,
+        session_held_permanent: HashSet::new(),
+        last_session_ended_at: None,
         last_clock_check: None,
     }));
 
@@ -2373,7 +2296,7 @@ pub fn run() {
         })
         // Every one is also listed in app_commands.in, and only a window whose
         // capability grants it can call it: "main" alone (see build.rs).
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build, companion_set_enabled, companion_show_main, companion_ready, companion_set_hitbox, companion_set_dragging, companion_interaction_ended, companion_state, #[cfg(debug_assertions)] companion_log_menu, #[cfg(debug_assertions)] companion_debug_log])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, rearm_from_server, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build, companion_set_enabled, companion_show_main, companion_ready, companion_set_hitbox, companion_set_dragging, companion_interaction_ended, companion_state, #[cfg(debug_assertions)] companion_log_menu, #[cfg(debug_assertions)] companion_debug_log])
         .setup(move |app| {
             let handle = app.handle().clone();
 
@@ -2520,23 +2443,20 @@ pub fn run() {
                         }
                     }
 
-                    // Read state — drop lock immediately after clone
-                    let (is_locked, lock_mode, exe_list, focus_active, permanent_exe_list) =
+                    // Read state — drop lock immediately after
+                    let (is_locked, lock_mode, focus_active, terms) =
                         match profile_for_sniper.lock() {
                             Ok(profile) => (
                                 profile.is_locked,
                                 profile.lock_mode.clone(),
-                                profile.exe_blacklist.clone(),
                                 profile.focus_active,
-                                profile.permanent_exe.clone(),
+                                integrity::kill_terms(&profile),
                             ),
                             Err(_) => continue,
                         };
 
-                    println!("[Enforcer] Loop tick — focus_active: {}, is_locked: {}, exe_blacklist: {:?}", 
-                             focus_active, is_locked, exe_list);
-
-                    let enforcer_active = is_locked || focus_active;
+                    println!("[Enforcer] Loop tick — focus_active: {}, is_locked: {}, terms: {:?}",
+                             focus_active, is_locked, terms);
 
                     // Protected-process list, rebuilt per tick so the kill pass
                     // below always carries the current binary name.
@@ -2551,24 +2471,7 @@ pub fn run() {
 
                     // ── Kill pass ──────────────────────────────────────────
                     // Permanent blocks always apply; session targets only while
-                    // the enforcer is armed. Both are re-validated here as well
-                    // as at the IPC boundary, because a state file written by an
-                    // older build could hold terms that predate the guards.
-                    let mut terms: Vec<String> = Vec::new();
-                    for blocked in &permanent_exe_list {
-                        if let Some(t) = sanitize_block_entry(blocked) {
-                            terms.push(t);
-                        }
-                    }
-                    if enforcer_active {
-                        for blocked in &exe_list {
-                            if let Some(t) = sanitize_block_entry(blocked) {
-                                terms.push(t);
-                            }
-                        }
-                    }
-                    terms.sort();
-                    terms.dedup();
+                    // the enforcer is armed (integrity::kill_terms).
 
                     if !terms.is_empty() {
                         // One cheap refresh per tick, not one process spawn per
@@ -3084,13 +2987,14 @@ mod tests {
     }
 
     #[test]
-    fn a_session_that_expired_while_closed_keeps_what_it_earned() {
+    fn a_session_that_expired_while_closed_keeps_what_it_earned_but_is_not_completed() {
+        // 1.3.1 (M7): what ends while the app isn't running is never "completed".
         let mut p = started(2 * MIN);
         tick(&mut p, 2_000, MIN);
         let mut p: LockProfile = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
-        p.end_session(2 * MIN);
+        assert_eq!(crate::integrity::settle_restored(&mut p, 3 * MIN), vec!["restored-expired"]);
         assert_eq!(p.pending_records[0].minutes, 1);
-        assert_eq!(p.pending_records[0].status, "completed");
+        assert_eq!(p.pending_records[0].status, "aborted");
     }
 
     #[test]

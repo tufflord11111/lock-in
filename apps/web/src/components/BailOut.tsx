@@ -83,7 +83,7 @@ export function BailOut({ userId, className = "" }: { userId?: string; className
     if (!isTauri) return;
     setRefusal(null);
     try {
-      const res = await invoke<BailoutResult>("arm_bailout", { localDate: today() });
+      const res = await invoke<BailoutResult>("arm_bailout") /* Rust uses this PC's local date (1.3.1 H2) */;
       if (res.armed) {
         setDeadline(res.deadline ?? null);
         setUsedToday(true);

@@ -185,6 +185,8 @@ function AppInner() {
     forceOfflineMode,
   } = useAuth();
   const [currentTab, setCurrentTab] = useState<AppTab>("home");
+  // Bumped when Rust re-arms a session from Firebase (M7), to resend the lists.
+  const [rearmNonce, setRearmNonce] = useState(0);
   const { theme, setTheme } = useTheme();
   const t = useCopy();
   /* Botanical replaces the header strip with a full-width band. The token is
@@ -382,6 +384,8 @@ function AppInner() {
       blockedList: allValues,
       approvedList: approved,
       fromRemote: true,
+      // While a session runs, Rust takes lists only from its account (1.3.1 H1).
+      uid: user.uid,
     }).catch((err) =>
       reportEngineFailure(
         "sync_blocklist",
@@ -389,7 +393,7 @@ function AppInner() {
         err
       )
     );
-  }, [user?.uid, blocklistHydrated, blockedAppsRaw, blockedAppsMeta, deviceId]);
+  }, [user?.uid, blocklistHydrated, blockedAppsRaw, blockedAppsMeta, deviceId, rearmNonce]);
 
   // Sync permanentExe from Firebase to Rust enforcer
   useEffect(() => {
@@ -404,7 +408,7 @@ function AppInner() {
           : [];
         // fromRemote: this is a Firebase-driven sync, so Rust stages any NEW
         // permanent block for local approval (F4) instead of enforcing it.
-        invoke('sync_permanent_exe', { blockedList: list, fromRemote: true }).catch((err) =>
+        invoke('sync_permanent_exe', { blockedList: list, fromRemote: true, uid: user.uid }).catch((err) =>
           reportEngineFailure(
             "sync_permanent_exe",
             "Your permanent blocks didn't reach the enforcer, so recent changes may not apply. Restart Lock-In.",
@@ -415,7 +419,7 @@ function AppInner() {
       (err) => console.error('[LOCK-IN] permanentExe listener error:', err)
     );
     return () => unsub();
-  }, [user?.uid]);
+  }, [user?.uid, rearmNonce]);
 
   const handleAddExe = async (exe: string) => {
     if (!user?.uid) return;
@@ -505,7 +509,9 @@ function AppInner() {
     setTotalMinutesFocused,
     blockedApps,
     WEB_BLOCKLIST,
-    updatePresence
+    updatePresence,
+    // A re-armed session (M7) cleared any disarm latch: send the lists again.
+    () => setRearmNonce((n) => n + 1)
   );
 
   // A session that blocks websites, started while Web Guard is quiet or another
@@ -937,6 +943,7 @@ function AppInner() {
               _updateAutostart={updateAutostart}
               isSyncing={isSyncing}
               engineOffline={engineOffline}
+              sessionActive={isActive}
             />
           )}
         </div>

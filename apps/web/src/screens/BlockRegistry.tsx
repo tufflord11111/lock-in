@@ -15,6 +15,8 @@ import { DeleteAccountButton } from "../components/DeleteAccountButton";
 import { CompanionSettings } from "../components/CompanionSettings";
 import { AppearancePicker } from "../theme/AppearancePicker";
 import { useCopy } from "../theme/copy";
+import { HELD_LABEL, heldSites, heldToast } from "./heldBlocks";
+import type { EnforcerState } from "../components/EnforcerDisarmPanel";
 
 export const DEFAULT_WEB_BLOCKS = [
   'tiktok.com', 'youtube.com', 'netflix.com', 'instagram.com', 'facebook.com',
@@ -32,6 +34,8 @@ interface BlockRegistryProps {
   _updateAutostart: (enabled: boolean) => Promise<void>;
   isSyncing: boolean;
   engineOffline: boolean;
+  /** A session is running: removals apply after it ends (1.3.1 H1). */
+  sessionActive?: boolean;
 }
 
 export function BlockRegistry({
@@ -43,9 +47,41 @@ export function BlockRegistry({
   totalMinutesToday,
   _updateAutostart,
   isSyncing,
-  engineOffline
+  engineOffline,
+  sessionActive = false
 }: BlockRegistryProps) {
   const [newExe, setNewExe] = useState("");
+
+  // ── 1.3.1 H1: removals during a session apply after it ──────────────────
+  // Sites: what the session started with (sessionState.blockedUrls) less what
+  // the lists show now. Apps: what Rust still kills that the lists dropped.
+  const [sessionUrls, setSessionUrls] = useState<unknown>(undefined);
+  const [heldApps, setHeldApps] = useState<string[]>([]);
+  const refreshHeldApps = useCallback(() => {
+    invoke<EnforcerState>("get_enforcer_state")
+      .then((s) => setHeldApps(s.session_held ?? []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!sessionActive) {
+      setSessionUrls(undefined);
+      setHeldApps([]);
+      return;
+    }
+    const off = onValue(ref(db, `users/${userId}/sessionState/blockedUrls`), (snap) => setSessionUrls(snap.val()));
+    refreshHeldApps();
+    const timer = setInterval(refreshHeldApps, 4000);
+    return () => {
+      off();
+      clearInterval(timer);
+    };
+  }, [sessionActive, userId, refreshHeldApps]);
+  /** Say so when a removal waits for the session's end, instead of a silent no-op. */
+  const noteHeld = (name: string) => {
+    if (!sessionActive) return;
+    reportWriteFailure(heldToast(name), undefined, "info");
+    setTimeout(refreshHeldApps, 800);
+  };
   const [isDragging, setIsDragging] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [runningApps, setRunningApps] = useState<string[]>([]);
@@ -304,6 +340,7 @@ export function BlockRegistry({
   // button can hang offline, and a refusal is a toast instead of an uncaught
   // rejection in a console nobody sees.
   const removeDefaultBlock = (domain: string) => {
+    noteHeld(domain);
     // removedDefaults is stored as an array; always write it whole. Deleting a
     // single index would turn it into an object and break every .includes().
     guardWrite(
@@ -313,6 +350,7 @@ export function BlockRegistry({
   };
 
   const removeCustomBlock = (domain: string) => {
+    noteHeld(domain);
     const safeKey = domain.replace(/\./g, '_');
     guardWrite(
       remove(ref(db, `users/${userId}/customBlocks/${safeKey}`)),
@@ -405,6 +443,7 @@ export function BlockRegistry({
   };
 
   const removePermanentExe = (exe: string) => {
+    noteHeld(exe);
     const safeKey = exe.replace(/\./g, '_');
     guardWrite(
       remove(ref(db, `users/${userId}/permanentExe/${safeKey}`)),
@@ -438,6 +477,7 @@ export function BlockRegistry({
   };
 
   const removePermanentWeb = (key: string, domain: string) => {
+    noteHeld(domain);
     guardWrite(
       remove(ref(db, `users/${userId}/permanentBlocks/${key}`)),
       `Couldn't remove the permanent block on ${domain}. It's still blocked.`
@@ -660,7 +700,7 @@ export function BlockRegistry({
                 </div>
               ))}
               <p className="text-[8px] font-black label-plain tracking-[0.3em] text-ink-2/30 mt-2 mb-1">{t("blocks.custom")}</p>
-              {Object.keys(customWebBlocks).length === 0 && Object.keys(permanentWebBlocks).length === 0 ? (
+              {Object.keys(customWebBlocks).length === 0 && Object.keys(permanentWebBlocks).length === 0 && heldSites(sessionUrls, listedSites).length === 0 ? (
                 <p className="text-[9px] font-black label-plain tracking-wider text-ink-2/25 py-2 text-center">{t("blocks.none")}</p>
               ) : (
                 <>
@@ -675,6 +715,12 @@ export function BlockRegistry({
                       </div>
                     );
                   })}
+                  {heldSites(sessionUrls, listedSites).map((domain) => (
+                    <div key={`held-${domain}`} className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-surface border border-dashed border-ink-2/30 rounded-md gap-x-2 gap-y-1">
+                      <span className="text-[10px] font-mono text-ink-2/50 flex-1 truncate line-through">{domain}</span>
+                      <span className="text-[7px] font-black label-plain px-1.5 py-0.5 border border-ink-2/40 text-ink-2/70 rounded whitespace-nowrap">{HELD_LABEL}</span>
+                    </div>
+                  ))}
                   {Object.entries(permanentWebBlocks).map(([key, value]) => {
                     const displayDomain = typeof value === 'string' ? value : key.replace(/_/g, '.');
                     return (
@@ -805,7 +851,7 @@ export function BlockRegistry({
                   <div className="flex items-center gap-2 shrink-0">
                     <span title={t("blocks.scope.appSessionTip") ?? ""} aria-label={`${t("blocks.scope.session")}. ${t("blocks.scope.appSessionTip") ?? ""}`} className="text-[7px] font-black label-plain px-1.5 py-0.5 border-1 border-ink text-ink rounded whitespace-nowrap cursor-help">{t("blocks.scope.session")}</span>
                     <button onClick={() => makeExePermanent(exe)} title={t("blocks.scope.toAlwaysTip") ?? ""} className="text-[7px] font-black label-action-plain px-2 py-0.5 border border-ink/30 rounded text-ink/40 hover:border-highlight-2 hover:text-ink transition-colors whitespace-nowrap">{t("blocks.scope.toAlways")}</button>
-                    <button onClick={() => removeBlock(exe)} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
+                    <button onClick={() => { noteHeld(exe); removeBlock(exe); }} className="text-ink/20 hover:text-danger-soft transition-colors ml-1">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -827,7 +873,16 @@ export function BlockRegistry({
                   </div>
                 </motion.div>
               ))}
-              {blockedApps.length === 0 && permanentApps.length === 0 && (
+              {heldApps.map((exe) => (
+                <div
+                  key={`held-${exe}`}
+                  className="flex items-center justify-between bg-surface border-1 border-dashed border-ink/30 p-4 rounded-xl"
+                >
+                  <span className="font-bold text-sm truncate pr-2 text-ink/40 tracking-tight italic flex-1 line-through">{exe}</span>
+                  <span className="text-[7px] font-black label-plain px-1.5 py-0.5 border-1 border-ink/40 text-ink/60 rounded whitespace-nowrap">{HELD_LABEL}</span>
+                </div>
+              ))}
+              {blockedApps.length === 0 && permanentApps.length === 0 && heldApps.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-4 opacity-10" style={{ height: '80px', padding: '1rem' }}>
                   <ShieldAlert size={32} strokeWidth={1} />
                   <p className="text-[10px] font-black label-plain tracking-[0.3em] mt-2">{t("blocks.clear")}</p>

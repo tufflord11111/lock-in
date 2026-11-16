@@ -3,7 +3,8 @@ import { getDatabase, ref, onValue, update, set, forceWebSockets } from "firebas
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extension";
 import { buildRules, sameRules } from "./dnrRules.js";
 import { browserFromBrands, BEAT_URL } from "./beat.js";
-import { isLocked } from "./lockState.js";
+import { isLocked, signOutClears } from "./lockState.js";
+import { sessionSiteList, permanentSiteList, freezeSessionSites, effectiveSites } from "./sessionSites.js";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -63,6 +64,12 @@ let sessionEndTime = null;
 // emergencyUnlock.expiry (epoch ms), or null.
 let unlockExpiry = null;
 let activeDynamicBlacklist = [...STATIC_BLACKLIST];
+// The running session's lists as they were at its start plus anything added,
+// { endTime, sites, permanent }, or null. Removals wait for the session's end.
+let frozenSession = null;
+// A sign-out arrived while a session was locked: the blocks stay until it ends,
+// then they are cleared as the sign-out asked (L5).
+let signOutPending = false;
 /**
  * MV3 evicts this worker after ~30 s idle and every variable here resets. The
  * blocklists only ever came from a Firebase snapshot, so after an eviction
@@ -87,6 +94,11 @@ const hydrating = (async () => {
       if (typeof g.manualLock === "boolean") manualLock = g.manualLock;
       if (typeof g.unlockExpiry === "number" || g.unlockExpiry === null) unlockExpiry = g.unlockExpiry;
       if (typeof g.uid === "string") storedUid = g.uid;
+      if (g.frozenSession && typeof g.frozenSession.endTime === "number"
+          && Array.isArray(g.frozenSession.sites) && Array.isArray(g.frozenSession.permanent)) {
+        frozenSession = g.frozenSession;
+      }
+      if (g.signOutPending === true) signOutPending = true;
       console.log("[Lock-In] hydrated guard state from storage", {
         sites: activeDynamicBlacklist.length,
         permanent: permanentBlocklist.length,
@@ -114,6 +126,8 @@ function persistGuardState() {
     sessionEndTime,
     manualLock,
     unlockExpiry,
+    frozenSession,
+    signOutPending,
     savedAt: Date.now(),
   };
   chrome.storage.local.set({ [PERSIST_KEY]: payload }).catch((err) =>
@@ -177,40 +191,17 @@ function startLockInSession(uid) {
     sessionEndTime =
       typeof data.sessionState?.endTime === "number" ? data.sessionState.endTime : null;
 
-    // Build final dynamic blocklist:
-    // DEFAULT_BLOCKS + customBlocks - removedDefaults
-    const removedDefaults = data.removedDefaults 
-      ? (Array.isArray(data.removedDefaults) ? data.removedDefaults : Object.values(data.removedDefaults))
-      : [];
-
-    const customBlocks = data.customBlocks
-      ? Object.values(data.customBlocks).map(v => 
-          typeof v === 'string' ? v : null
-        ).filter(Boolean)
-      : [];
-
-    const activeDefaults = BLOCKED_DOMAINS.filter(
-      d => !removedDefaults.includes(d)
+    // DEFAULT_BLOCKS + customBlocks - removedDefaults, plus the session's own
+    // blockedUrls, and while a session runs, everything it started with
+    // (sessionSites.js has the rules and their tests).
+    activeDynamicBlacklist = sessionSiteList(BLOCKED_DOMAINS, data);
+    permanentBlocklist = permanentSiteList(data);
+    frozenSession = freezeSessionSites(
+      frozenSession,
+      { sites: activeDynamicBlacklist, permanent: permanentBlocklist },
+      { focusActive, endTime: sessionEndTime },
+      Date.now()
     );
-
-    // Session blocklist from THIS user's sessionState (written by the desktop
-    // on startSession). Unioned, not substituted: masterBlockList carries the
-    // desktop defaults + exe names but NOT customBlocks, so preferring it
-    // outright would drop the user's custom site blocks mid-session. Filtered
-    // by removedDefaults so a removed default is not silently re-added.
-    const sessionBlockedUrls = Array.isArray(data.sessionState?.blockedUrls)
-      ? data.sessionState.blockedUrls.filter(
-          u => typeof u === 'string' && !removedDefaults.includes(u)
-        )
-      : [];
-
-    activeDynamicBlacklist = [
-      ...new Set([...activeDefaults, ...customBlocks, ...sessionBlockedUrls])
-    ];
-
-    permanentBlocklist = data.permanentBlocks
-      ? Object.values(data.permanentBlocks).filter(v => typeof v === 'string')
-      : [];
 
     // Mirror to disk so an eviction does not lose it.
     storedUid = activeUid;
@@ -284,6 +275,8 @@ function stopLockInSession() {
   unlockExpiry = null;
   activeDynamicBlacklist = [...STATIC_BLACKLIST];
   permanentBlocklist = [];
+  frozenSession = null;
+  signOutPending = false;
   storedUid = null;
   chrome.storage.local.remove(PERSIST_KEY).catch(() => {});
   updateBadge();
@@ -291,8 +284,21 @@ function stopLockInSession() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+function lockInputs() {
+  return { manualLock, focusActive, sessionEndTime, unlockExpiry };
+}
+
+/** The lists to enforce right now, with whatever the running session holds. */
+function enforcedLists() {
+  return effectiveSites(
+    { sites: activeDynamicBlacklist, permanent: permanentBlocklist },
+    frozenSession,
+    Date.now()
+  );
+}
+
 function isLockedNow() {
-  return isLocked({ manualLock, focusActive, sessionEndTime, unlockExpiry }, Date.now());
+  return isLocked(lockInputs(), Date.now());
 }
 
 function pulseHeartbeat() {
@@ -348,10 +354,11 @@ function armExpiryAlarm(name, when) {
 
 async function reconcileRules() {
   await hydrating;
+  const lists = enforcedLists();
   const wanted = buildRules({
     locked: isLockedNow(),
-    sessionSites: activeDynamicBlacklist,
-    permanentSites: permanentBlocklist,
+    sessionSites: lists.sites,
+    permanentSites: lists.permanent,
   });
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
   if (!sameRules(existing, wanted)) {
@@ -422,13 +429,14 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
 function guardNavigation(tabId, url) {
   if (!url) return;
   try {
+    const lists = enforcedLists();
     // Always block permanent sites
-    if (isDomainBlocked(url, permanentBlocklist)) {
+    if (isDomainBlocked(url, lists.permanent)) {
       chrome.tabs.update(tabId, { url: getBlockUrl() });
       return;
     }
     // Block session sites only when locked
-    if (isLockedNow() && isDomainBlocked(url, activeDynamicBlacklist)) {
+    if (isLockedNow() && isDomainBlocked(url, lists.sites)) {
       chrome.tabs.update(tabId, { url: getBlockUrl() });
     }
   } catch (_) {}
@@ -449,6 +457,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   // produces none. sessionEnd/unlockEnd land on time; keepAlive (about every
   // 30 s) is the backstop for a missed one.
   hydrating.then(() => {
+    // A sign-out made during the session clears once the session is over and
+    // nobody has signed back in.
+    if (signOutPending && !activeUid && signOutClears(lockInputs(), Date.now())) {
+      console.log("[Lock-In] session over — applying the sign-out made during it");
+      stopLockInSession();
+      return;
+    }
     updateBadge();
     applyRules();
   });
@@ -471,11 +486,21 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ─── Message Handler ──────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "checkStatus") {
-    hydrating.then(() => sendResponse({ isLocked: isLockedNow(), blocklist: activeDynamicBlacklist }));
+    hydrating.then(() => sendResponse({ isLocked: isLockedNow(), blocklist: enforcedLists().sites }));
     return true;
   } else if (request.action === "SIGNED_OUT") {
-    // Sent by the popup before it signs out: the one user-made clear.
-    stopLockInSession().then(() => sendResponse({ status: "cleared" }));
+    // Sent by the popup before it signs out: the one user-made clear. While a
+    // session is locked it waits for the session's end (L5).
+    hydrating.then(() => {
+      if (signOutClears(lockInputs(), Date.now())) {
+        stopLockInSession().then(() => sendResponse({ status: "cleared" }));
+      } else {
+        signOutPending = true;
+        persistGuardState();
+        console.log("[Lock-In] sign-out during a session: blocks stay until it ends");
+        sendResponse({ status: "kept-until-session-ends" });
+      }
+    });
     return true;
   } else if (request.type === "GET_TIMER_STATE") {
     chrome.storage.local.get(["timeLeft", "focusActive"], (res) => {

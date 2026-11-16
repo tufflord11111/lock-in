@@ -29,6 +29,9 @@ export type EnforcerState = {
   close_to_tray?: boolean;
   /** Set when Rust has no app data folder: enforcing from memory, nothing persisted. */
   persistence_error?: string | null;
+  /** Blocks removed during this session, still enforced until it ends (1.3.1 H1). */
+  session_held?: string[];
+  session_started_at?: number | null;
 };
 
 type Props = {

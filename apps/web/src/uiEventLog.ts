@@ -16,7 +16,9 @@ export type UiEvent =
   | "name-repair"
   | "session-recorded"
   | "autostart-error"
-  | "start-apps-only";
+  | "start-apps-only"
+  | "stood-down-ignored"
+  | "session-rearmed";
 
 const isTauri =
   typeof window !== "undefined" && !!(window as any).__TAURI_INTERNALS__;
