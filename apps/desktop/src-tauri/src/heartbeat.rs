@@ -79,7 +79,7 @@ impl BeatStore {
 
     pub fn is_fresh(&self, browser: &str, uid: Option<&str>, now: u64) -> bool {
         self.latest(browser, uid)
-            .map_or(false, |b| now.saturating_sub(b.at) < FRESH_MS)
+            .is_some_and(|b| now.saturating_sub(b.at) < FRESH_MS)
     }
 
     /// Web Guard is running in this browser (a fresh beat) but doesn't count for this
@@ -119,7 +119,7 @@ pub fn accept_beat(request: &str, port: u16, allowed_ids: &[String]) -> Result<B
     if !head.starts_with("POST /beat HTTP/1.") {
         return Err(Rejected::NotFound);
     }
-    let host_ok = header(head, "host").map_or(false, |h| {
+    let host_ok = header(head, "host").is_some_and(|h| {
         h == format!("127.0.0.1:{}", port) || h == format!("localhost:{}", port)
     });
     if !host_ok {
@@ -128,7 +128,7 @@ pub fn accept_beat(request: &str, port: u16, allowed_ids: &[String]) -> Result<B
     let origin = header(head, "origin").unwrap_or("");
     let origin_ok = origin
         .strip_prefix("chrome-extension://")
-        .map_or(false, |id| allowed_ids.iter().any(|a| a == id));
+        .is_some_and(|id| allowed_ids.iter().any(|a| a == id));
     if !origin_ok {
         return Err(Rejected::WrongOrigin);
     }

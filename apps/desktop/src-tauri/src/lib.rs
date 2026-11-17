@@ -186,7 +186,7 @@ impl LockProfile {
     /// exe_blacklist stay: one bail-out per day, and standing config.
     fn end_session(&mut self, ended_at: u64) {
         let voided = self.bailout_deadline.is_some();
-        let reached_end = self.session_end_time.map_or(false, |end| ended_at >= end);
+        let reached_end = self.session_end_time.is_some_and(|end| ended_at >= end);
         let minutes = if voided { 0 } else { self.session_awake_ms.div_ceil(60_000) };
         if voided || minutes > 0 {
             if self.pending_records.len() >= MAX_PENDING_RECORDS {
@@ -311,7 +311,7 @@ fn own_process_tree(processes: &[(u32, Option<u32>, bool)], root: u32) -> HashSe
     loop {
         let before = tree.len();
         for (pid, parent, is_browser) in processes {
-            if !is_browser && parent.map_or(false, |p| tree.contains(&p)) {
+            if !is_browser && parent.is_some_and(|p| tree.contains(&p)) {
                 tree.insert(*pid);
             }
         }
@@ -419,7 +419,7 @@ fn analyze_block_entry(raw: &str) -> Result<(String, bool), String> {
     let system: Vec<String> = PROTECTED_PROCESSES.iter().map(|s| s.to_string()).collect();
     if targets_protected(&clean, &system)
         || targets_only_webview(&clean)
-        || own_process_stem().map_or(false, |own| targets_own_process(&clean, &own))
+        || own_process_stem().is_some_and(|own| targets_own_process(&clean, &own))
     {
         return Err(
             "would match a protected Windows system process (explorer, csrss, lsass, svchost…) or Lock-In itself — killing those crashes the machine or the enforcer".to_string(),
@@ -622,7 +622,7 @@ fn deliver_warning(app: &tauri::AppHandle, title: &str, message: String) {
     let _ = app.emit("lockdown-warning", LockdownWarningPayload { message: message.clone() });
     let focused = app
         .get_webview_window("main")
-        .map_or(false, |w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
+        .is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
     if focused {
         return;
     }
@@ -704,7 +704,7 @@ fn lockdown_runner(
         let running = running_browsers(&mut sys);
         let ids: Vec<&'static str> = running.keys().copied().collect();
         let last_beat = |b: &str| beats.latest(b, uid.as_deref()).map(|beat| beat.at);
-        let incognito_off = |b: &str| beats.latest(b, uid.as_deref()).map_or(false, |beat| !beat.incognito_allowed);
+        let incognito_off = |b: &str| beats.latest(b, uid.as_deref()).is_some_and(|beat| !beat.incognito_allowed);
         let tick = lockdown::Tick {
             now: now_millis(),
             lockdown: in_lockdown,
@@ -720,7 +720,7 @@ fn lockdown_runner(
                 // Nothing on screen to lose or to warn about, like Edge's startup
                 // boost in the background. It still closes on time.
                 lockdown::Action::Warn { browser, .. }
-                    if !running.get(browser).map_or(false, |pids| {
+                    if !running.get(browser).is_some_and(|pids| {
                         let open = pids_with_windows();
                         pids.iter().any(|p| open.contains(p))
                     }) => {}
@@ -1168,6 +1168,9 @@ fn enforcement_decision(
 // ─── IPC Command: update_enforcement ─────────────────────────────────────────
 // Lightweight alias called by the session start/stop flow.
 // Accepts { isActive, blockedList } to enforce during a focus session.
+// Tauri takes command arguments as named parameters; a struct would change the
+// IPC shape every caller sends.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 fn update_enforcement(
     is_active: bool,
@@ -1187,7 +1190,7 @@ fn update_enforcement(
     match app_state.profile.lock() {
         Ok(mut profile) => {
             let now = now_millis();
-            let fuse_burning = profile.bailout_deadline.map_or(false, |d| d > now);
+            let fuse_burning = profile.bailout_deadline.is_some_and(|d| d > now);
             match enforcement_decision(is_active, remote, profile.focus_active, fuse_burning) {
                 EnforcementDecision::IgnoreRemoteStop => {
                     println!(
@@ -1314,9 +1317,7 @@ fn sync_blocklist(
                 // never armed.
                 let approved_kept: HashSet<String> = profile
                     .exe_approved
-                    .union(&mine)
-                    .cloned()
-                    .filter(|n| all.contains(n))
+                    .union(&mine).filter(|&n| all.contains(n)).cloned()
                     .collect();
                 let pending: HashSet<String> =
                     all.difference(&approved_kept).cloned().collect();
@@ -1414,7 +1415,7 @@ fn top_level_windows() -> Vec<TopWindow> {
             found.push(TopWindow {
                 pid,
                 visible: IsWindowVisible(hwnd).as_bool(),
-                owned: GetWindow(hwnd, GW_OWNER).map_or(false, |owner| !owner.is_invalid()),
+                owned: GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.is_invalid()),
                 titled: GetWindowTextLengthW(hwnd) > 0,
             });
         }
@@ -1948,7 +1949,7 @@ async fn lockdown_status(uid: Option<String>, app_state: State<'_, AppState>) ->
                 .collect(),
             incognito_gaps: open
                 .iter()
-                .filter(|id| is_fresh(id) && beats.latest(id, uid).map_or(false, |b| !b.incognito_allowed))
+                .filter(|id| is_fresh(id) && beats.latest(id, uid).is_some_and(|b| !b.incognito_allowed))
                 .map(|id| browsers::name_of(id).to_string())
                 .collect(),
         }
@@ -2721,7 +2722,7 @@ mod tests {
             let granted = cap["permissions"].as_array().unwrap();
             for command in APP_COMMANDS {
                 let permission = format!("allow-{}", command.replace('_', "-"));
-                assert!(granted.iter().any(|p| p == &permission.as_str()), "{} missing", permission);
+                assert!(granted.iter().any(|p| p == permission.as_str()), "{} missing", permission);
             }
         }
     }
@@ -3167,7 +3168,7 @@ mod tests {
 
     #[test]
     fn the_only_ways_out_are_tray_quit_and_a_close_that_was_not_prevented() {
-        let src = include_str!("lib.rs");
+        let src = include_str!("lib.rs").replace("\r\n", "\n");
         let body = &src[..src.find("#[cfg(test)]").unwrap()];
         // Exactly two exits in the app: the tray's Quit, behind quit_allowed, and main being destroyed.
         assert_eq!(body.matches(".exit(0)").count(), 2);
@@ -3182,7 +3183,7 @@ mod tests {
         assert!(handler.contains("if hide {\n                    api.prevent_close();\n                    let _ = window.hide();"));
         assert!(handler.contains("matches!(event, tauri::WindowEvent::Destroyed) && window.label() == \"main\""));
         // Nothing else in the Rust ends the app or destroys main: companion.rs destroys only its own window.
-        let companion = include_str!("companion.rs");
+        let companion = include_str!("companion.rs").replace("\r\n", "\n");
         assert!(!companion.contains(".exit("));
         assert_eq!(companion.matches(".destroy()").count(), 1);
         assert!(companion.contains("const LABEL: &str = \"parrot\";"));
@@ -3199,7 +3200,7 @@ mod tests {
         assert_eq!(boot_show(true), BootShow::ShowWithoutFocus);
         assert_eq!(boot_show(false), BootShow::ShowAndFocus);
         // The sign-in path shows with SW_SHOWNOACTIVATE and never calls set_focus.
-        let src = include_str!("lib.rs");
+        let src = include_str!("lib.rs").replace("\r\n", "\n");
         let body = &src[..src.find("#[cfg(test)]").unwrap()];
         let arm = &body[body.find("BootShow::ShowWithoutFocus => {").unwrap()..];
         let arm = &arm[..arm.find("}").unwrap()];

@@ -119,7 +119,7 @@ impl Tracker {
 
     pub fn tick(&mut self, t: &Tick) -> Vec<Action> {
         let first_tick = self.last_tick.is_none();
-        let woke = self.last_tick.map_or(false, |prev| t.now.saturating_sub(prev) >= WAKE_GAP_MS);
+        let woke = self.last_tick.is_some_and(|prev| t.now.saturating_sub(prev) >= WAKE_GAP_MS);
         self.last_tick = Some(t.now);
         if woke {
             self.wake_grace_until = t.now + t.fresh_ms;
@@ -135,7 +135,7 @@ impl Tracker {
             }
             let beat = (t.last_beat)(browser.id);
             let in_wake_grace = entry.had_beat && t.now < self.wake_grace_until;
-            let beating = beat.map_or(false, |at| t.now.saturating_sub(at) < t.fresh_ms);
+            let beating = beat.is_some_and(|at| t.now.saturating_sub(at) < t.fresh_ms);
             if beating {
                 entry.had_beat = true;
             }
@@ -193,7 +193,7 @@ impl Tracker {
                 Phase::Closed { relaunched_at } => {
                     let back_at = relaunched_at.unwrap_or(t.now);
                     // A beat since it came back: Web Guard is working in it now.
-                    if !entry.banned && beat.map_or(false, |at| at > back_at) {
+                    if !entry.banned && beat.is_some_and(|at| at > back_at) {
                         entry.phase = Phase::Clear;
                     } else if entry.banned || t.now.saturating_sub(back_at) >= RELAUNCH_GRACE_MS {
                         entry.phase = Phase::Closing { force_at: t.now + FORCE_AFTER_MS };

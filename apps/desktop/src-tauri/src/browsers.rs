@@ -69,7 +69,7 @@ pub fn name_of(id: &str) -> &'static str {
 /// without .exe, `path` the lowercased full path if it could be read. A name that
 /// could belong to anything only counts with a path that proves it.
 pub fn identify(stem: &str, path: Option<&str>) -> Option<&'static str> {
-    let under = |folder: &str| path.map_or(false, |p| p.contains(folder));
+    let under = |folder: &str| path.is_some_and(|p| p.contains(folder));
     let opera = || if under("\\opera gx\\") { "opera_gx" } else { "opera" };
     match stem {
         // Chromium builds and Cent Browser ship their own chrome.exe.
