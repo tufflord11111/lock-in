@@ -2987,14 +2987,15 @@ mod tests {
     }
 
     #[test]
-    fn a_session_that_expired_while_closed_keeps_what_it_earned_but_is_not_completed() {
-        // 1.3.1 (M7): what ends while the app isn't running is never "completed".
+    fn a_session_that_expired_while_closed_keeps_what_it_earned() {
+        // 1.3.1 (M7, rule b): completed only if awake for the planned time less
+        // 60 s. Here 60 s of a 2-minute session: exactly on the line.
         let mut p = started(2 * MIN);
         tick(&mut p, 2_000, MIN);
         let mut p: LockProfile = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         assert_eq!(crate::integrity::settle_restored(&mut p, 3 * MIN), vec!["restored-expired"]);
         assert_eq!(p.pending_records[0].minutes, 1);
-        assert_eq!(p.pending_records[0].status, "aborted");
+        assert_eq!(p.pending_records[0].status, "completed");
     }
 
     #[test]

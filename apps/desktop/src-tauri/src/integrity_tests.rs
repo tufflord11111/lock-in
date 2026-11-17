@@ -190,14 +190,46 @@ fn restored(p: &LockProfile) -> LockProfile {
     serde_json::from_str(&serde_json::to_string(p).unwrap()).unwrap()
 }
 
-#[test]
-fn m7_a_session_that_ended_while_closed_is_never_restored_as_completed() {
+// Rule (b), B1 review: a session that ran out while Lock-In was closed is
+// "completed" only if Lock-In was awake and enforcing for at least the planned
+// duration minus 60 s; otherwise "aborted" with the minutes it earned.
+
+fn expired_while_closed(awake_ms: u64) -> SessionRecord {
     let mut p = armed();
-    p.session_awake_ms = 25 * MIN;
+    p.session_awake_ms = awake_ms;
     let mut r = restored(&p);
-    settle_restored(&mut r, T0 + 40 * MIN);
+    assert_eq!(settle_restored(&mut r, T0 + 40 * MIN), vec!["restored-expired"]);
     assert!(!r.focus_active);
-    assert_eq!(r.pending_records[0].status, "aborted");
+    assert_eq!(r.pending_records.len(), 1);
+    r.pending_records[0].clone()
+}
+
+#[test]
+fn m7_expired_while_closed_with_the_full_planned_time_is_completed() {
+    let r = expired_while_closed(25 * MIN);
+    assert_eq!((r.status.as_str(), r.minutes), ("completed", 25));
+}
+
+#[test]
+fn m7_expired_while_closed_at_exactly_planned_minus_60_s_is_completed() {
+    let r = expired_while_closed(25 * MIN - 60_000);
+    assert_eq!((r.status.as_str(), r.minutes), ("completed", 24));
+}
+
+#[test]
+fn m7_expired_while_closed_just_under_planned_minus_60_s_is_aborted_with_its_minutes() {
+    let r = expired_while_closed(25 * MIN - 60_000 - 1);
+    assert_eq!((r.status.as_str(), r.minutes), ("aborted", 24));
+    let r = expired_while_closed(10 * MIN);
+    assert_eq!((r.status.as_str(), r.minutes), ("aborted", 10));
+}
+
+#[test]
+fn m7_expired_while_closed_claiming_more_than_the_session_is_capped_not_completed() {
+    let r = expired_while_closed(600 * MIN);
+    assert_eq!((r.status.as_str(), r.minutes), ("aborted", 25));
+    let r = expired_while_closed(25 * MIN + 1);
+    assert_eq!((r.status.as_str(), r.minutes), ("aborted", 25));
 }
 
 #[test]

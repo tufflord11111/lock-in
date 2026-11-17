@@ -330,17 +330,31 @@ fn session_ok(p: &LockProfile, now: u64) -> bool {
     end > start
         && end - start <= MAX_SESSION_MINUTES * MIN_MS
         && start <= now + FUTURE_SLACK_MS
-        && p.session_awake_ms <= end - start
+}
+
+/// How far short of the planned duration a session that ran out while the app
+/// was closed may be and still count as completed (rule b, B1 review).
+pub(crate) const COMPLETION_GRACE_MS: u64 = 60_000;
+
+/// The file claims more enforced time than the session lasted.
+fn awake_over_claimed(p: &LockProfile) -> bool {
+    match (p.session_started_at, p.session_end_time) {
+        (Some(start), Some(end)) => p.session_awake_ms > end.saturating_sub(start),
+        _ => false,
+    }
 }
 
 /// Settle a profile just read from enforcer_state.json. Every field is checked;
 /// none is trusted. Returns the stand-down reasons to emit, in order.
 ///
-/// A restore never produces a "completed" record: whatever ends here ended
-/// while the app was not running, so it is recorded aborted (or bailed-out). A
-/// file that fails the checks stands the session down with nothing credited;
-/// if the session is in fact still running, the webview re-arms it from
-/// Firebase on sign-in (rearm_from_server).
+/// A session that ran out while the app was closed is "completed" only if the
+/// app was awake and enforcing it for at least its planned duration (end -
+/// start) less COMPLETION_GRACE_MS; otherwise "aborted" with the minutes it
+/// earned. Awake time is capped at end - start, and a file claiming more than
+/// that is never completed. A file that fails the structural checks, or claims
+/// more awake time than a still-running session could have, stands the session
+/// down with nothing credited; if the session is in fact still running, the
+/// webview re-arms it from Firebase on sign-in (rearm_from_server).
 pub(crate) fn settle_restored(p: &mut LockProfile, now: u64) -> Vec<&'static str> {
     let mut reasons = Vec::new();
     p.pending_records.retain(|r| record_ok(r, now));
@@ -366,7 +380,9 @@ pub(crate) fn settle_restored(p: &mut LockProfile, now: u64) -> Vec<&'static str
         p.bailout_deadline = None;
     }
 
-    if p.focus_active && !session_ok(p, now) {
+    let live = p.session_end_time.is_some_and(|end| now < end);
+    let over_claimed = p.focus_active && awake_over_claimed(p);
+    if p.focus_active && (!session_ok(p, now) || (over_claimed && live)) {
         p.session_awake_ms = 0;
         p.bailout_deadline = None;
         p.end_session_as(now, true);
@@ -392,7 +408,12 @@ pub(crate) fn settle_restored(p: &mut LockProfile, now: u64) -> Vec<&'static str
     if p.focus_active {
         if let Some(end) = p.session_end_time {
             if now >= end {
-                p.end_session_as(end, true);
+                let planned = end.saturating_sub(p.session_started_at.unwrap_or(end));
+                if over_claimed {
+                    p.session_awake_ms = planned;
+                }
+                let completed = !over_claimed && p.session_awake_ms + COMPLETION_GRACE_MS >= planned;
+                p.end_session_as(end, !completed);
                 reasons.push("restored-expired");
             }
         }
