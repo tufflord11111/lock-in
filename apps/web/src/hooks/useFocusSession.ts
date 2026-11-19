@@ -1,4 +1,5 @@
 import { db } from "@lock-in/firebase";
+import { markProDue } from "../proWaitlist";
 import { ref, update, increment, onValue, get } from "firebase/database";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -362,6 +363,8 @@ export function useFocusSession(
           );
           await write;
           logUiEvent("session-recorded", userId);
+          // The Pro waitlist card may show after the first completed session.
+          if (record.status === "completed") markProDue();
           if (record.minutes > 0) setTotalMinutesFocused((prev) => prev + record.minutes);
         }
         await invoke("ack_session_record", { endedAt: record.ended_at });

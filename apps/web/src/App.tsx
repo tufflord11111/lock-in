@@ -33,6 +33,8 @@ import { useExtensionPresence } from "./hooks/useExtensionPresence";
 import { useSessionSites } from "./hooks/useSessionSites";
 import { bootSnapshot } from "./snapshot";
 import { BaselineQuestion, hasBeenAsked } from "./components/BaselineQuestion";
+import { ProWaitlist } from "./components/ProWaitlist";
+import { PRO_DUE_EVENT, proAsked, proDue, showProCard } from "./proWaitlist";
 import { DemoOverlay } from "./components/DemoOverlay";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
@@ -240,6 +242,14 @@ function AppInner() {
    * for new operators, on the next launch for everyone already here.
    */
   const [baselineDone, setBaselineDone] = useState(() => hasBeenAsked());
+  // Pro waitlist card: after the first completed session, once per machine.
+  const [proDueNow, setProDueNow] = useState(() => proDue());
+  const [proAskedNow, setProAskedNow] = useState(() => proAsked());
+  useEffect(() => {
+    const due = () => setProDueNow(true);
+    window.addEventListener(PRO_DUE_EVENT, due);
+    return () => window.removeEventListener(PRO_DUE_EVENT, due);
+  }, []);
   /**
    * Read from DB once after email verification.
    * If true, the operator has already completed onboarding — skip WelcomeSequence.
@@ -686,6 +696,13 @@ function AppInner() {
           !baselineDone &&
           !isActive && (
             <BaselineQuestion userId={user.uid} onDone={() => setBaselineDone(true)} />
+          )}
+
+        {/* Same slot and conditions as the baseline question, never during a session. */}
+        {onboardingComplete === true &&
+          profile.usernameSet !== false &&
+          showProCard({ due: proDueNow, asked: proAskedNow, isActive, baselineShowing: !baselineDone }) && (
+            <ProWaitlist userId={user.uid} onDone={() => setProAskedNow(true)} />
           )}
 
         {onboardingComplete === true && profile.status === "ready" && profile.usernameSet === false && (
