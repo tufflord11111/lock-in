@@ -26,6 +26,7 @@
     "allow-reject-pending-permanent",
     "allow-confirm-pending-exe",
     "allow-reject-pending-exe",
+    "allow-note-local-exe",
     "allow-append-ui-event",
     "allow-is-dev-mode",
     "allow-arm-bailout",

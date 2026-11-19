@@ -62,6 +62,17 @@ struct LockProfile {
     /// NOT been approved on this machine. Not enforced until approved.
     #[serde(default)]
     exe_pending: HashSet<String>,
+    /// Session app names the local user just added on THIS PC (note_local_exe),
+    /// not yet echoed back by Firebase. The only "added here" vouch (M4):
+    /// nothing read from Firebase, such as blockedApps_meta, can approve a name.
+    /// Used up when the name arrives in a sync.
+    #[serde(default)]
+    exe_added_here: HashSet<String>,
+    /// False only on a new install (no state file): its first blocklist sync is
+    /// approved as a whole, as the webview's old per-PC flag did. A state file
+    /// from before this field has its own approvals, so it reads as true.
+    #[serde(default = "default_true")]
+    exe_migrated: bool,
     #[serde(default)]
     web_blacklist: HashSet<String>,
     #[serde(default)]
@@ -909,6 +920,7 @@ fn wipe_all_blocks(profile: &mut LockProfile) -> (usize, usize) {
     profile.exe_blacklist.clear();
     profile.exe_approved.clear();
     profile.exe_pending.clear();
+    profile.exe_added_here.clear();
     profile.permanent_exe.clear();
     profile.permanent_pending.clear();
     profile.session_held_permanent.clear();
@@ -1364,13 +1376,14 @@ fn update_enforcement(
 #[tauri::command]
 fn sync_blocklist(
     blocked_list: Vec<String>,
-    approved_list: Vec<String>,
-    from_remote: Option<bool>,
     uid: Option<String>,
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
-    let remote = from_remote.unwrap_or(false);
+    // Every list the webview sends came from Firebase, so it is always remote:
+    // the webview no longer says which names this PC added, nor that a sync is
+    // local (M4). Those approvals are Rust's own (note_local_exe).
+    let remote = true;
     let mut profile = app_state.profile.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
     // Disarm latch: a reconnect must not refill anything that a clear just
     // wiped, until a deliberate local session start lifts it.
@@ -1378,10 +1391,9 @@ fn sync_blocklist(
         println!("[Enforcer] disarm latch ACTIVE — refusing blocklist sync");
         return Ok("Blocklist sync skipped — disarm latch active".to_string());
     }
-    // `blocked_list` is every entry in blockedApps; `approved_list` the subset
-    // the frontend vouches for as this-device origin. The rules (G1, the
+    // `blocked_list` is every entry in blockedApps. The rules (G1, M4, the
     // session freeze, the account check) are in integrity::apply_session_sync.
-    let pending = integrity::apply_session_sync(&mut profile, &blocked_list, &approved_list, remote, uid.as_deref())?;
+    let pending = integrity::apply_session_sync(&mut profile, &blocked_list, remote, uid.as_deref())?;
     println!(
         "📋 BLOCKLIST SYNCED (remote={}) — {} approved, {} pending approval",
         remote,
@@ -1531,12 +1543,13 @@ fn get_running_apps() -> Result<Vec<String>, String> {
 #[tauri::command]
 fn sync_permanent_exe(
     blocked_list: Vec<String>,
-    from_remote: Option<bool>,
     uid: Option<String>,
     app: tauri::AppHandle,
     app_state: State<AppState>,
 ) -> Result<String, String> {
-    let remote = from_remote.unwrap_or(false);
+    // From Firebase, so always remote: a new permanent block waits for the
+    // banner (F4) whatever the webview says (M4).
+    let remote = true;
     let mut profile = app_state.profile.lock().map_err(|e| format!("Lock failed: {}", e))?;
     // Post-wipe: refuse to refill or stage until a deliberate local session
     // start lifts the latch, so a reconnect cannot undo a clear.
@@ -2042,15 +2055,14 @@ fn forget_account(app_state: State<AppState>, uid: String) -> Result<(), String>
 }
 
 // ─── IPC Command: confirm_pending_permanent ──────────────────────────────────
-// F4: promote locally-approved pending permanent blocks into the enforced set.
+// F4: promote locally-approved pending permanent blocks into the enforced set:
+// exactly the names the banner showed (L1). One staged after it rendered stays
+// pending for the next banner.
 #[tauri::command]
-fn confirm_pending_permanent(app_state: State<AppState>) -> Result<String, String> {
+fn confirm_pending_permanent(names: Vec<String>, app_state: State<AppState>) -> Result<String, String> {
     match app_state.profile.lock() {
         Ok(mut profile) => {
-            let promoted: Vec<String> = profile.permanent_pending.drain().collect();
-            for name in &promoted {
-                profile.permanent_exe.insert(name.clone());
-            }
+            let promoted = integrity::confirm_pending_permanent(&mut profile, &names);
             persist_profile(&profile, &app_state.state_path);
             println!("[Permanent] approved {} pending block(s): {:?}", promoted.len(), promoted);
             Ok(format!("Approved {} permanent block(s)", promoted.len()))
@@ -2063,11 +2075,10 @@ fn confirm_pending_permanent(app_state: State<AppState>) -> Result<String, Strin
 // F4: discard pending permanent blocks. The frontend also removes them from
 // Firebase so they cannot re-stage on the next sync.
 #[tauri::command]
-fn reject_pending_permanent(app_state: State<AppState>) -> Result<String, String> {
+fn reject_pending_permanent(names: Vec<String>, app_state: State<AppState>) -> Result<String, String> {
     match app_state.profile.lock() {
         Ok(mut profile) => {
-            let n = profile.permanent_pending.len();
-            profile.permanent_pending.clear();
+            let n = integrity::reject_pending_permanent(&mut profile, &names);
             persist_profile(&profile, &app_state.state_path);
             println!("[Permanent] rejected {} pending block(s)", n);
             Ok(format!("Rejected {} pending permanent block(s)", n))
@@ -2077,19 +2088,14 @@ fn reject_pending_permanent(app_state: State<AppState>) -> Result<String, String
 }
 
 // ─── IPC Command: confirm_pending_exe ────────────────────────────────────────
-// G1: promote locally-approved session apps into the approved set. If a session
-// is live, arm them immediately so approval takes effect without a restart.
+// G1: promote locally-approved session apps into the approved set: exactly the
+// names the banner showed (L1). If a session is live, arm them immediately so
+// approval takes effect without a restart.
 #[tauri::command]
-fn confirm_pending_exe(app_state: State<AppState>) -> Result<String, String> {
+fn confirm_pending_exe(names: Vec<String>, app_state: State<AppState>) -> Result<String, String> {
     match app_state.profile.lock() {
         Ok(mut profile) => {
-            let promoted: Vec<String> = profile.exe_pending.drain().collect();
-            for name in &promoted {
-                profile.exe_approved.insert(name.clone());
-            }
-            if profile.focus_active {
-                profile.exe_blacklist = profile.exe_approved.clone();
-            }
+            let promoted = integrity::confirm_pending_exe(&mut profile, &names);
             persist_profile(&profile, &app_state.state_path);
             println!("[Blocklist] approved {} pending app(s): {:?}", promoted.len(), promoted);
             Ok(format!("Approved {} session app(s)", promoted.len()))
@@ -2102,17 +2108,28 @@ fn confirm_pending_exe(app_state: State<AppState>) -> Result<String, String> {
 // G1: discard pending session apps. The frontend also removes them from
 // Firebase (blockedApps) so they cannot re-stage on the next sync.
 #[tauri::command]
-fn reject_pending_exe(app_state: State<AppState>) -> Result<String, String> {
+fn reject_pending_exe(names: Vec<String>, app_state: State<AppState>) -> Result<String, String> {
     match app_state.profile.lock() {
         Ok(mut profile) => {
-            let n = profile.exe_pending.len();
-            profile.exe_pending.clear();
+            let n = integrity::reject_pending_exe(&mut profile, &names);
             persist_profile(&profile, &app_state.state_path);
             println!("[Blocklist] rejected {} pending app(s)", n);
             Ok(format!("Rejected {} pending session app(s)", n))
         }
         Err(e) => Err(format!("Mutex lock failed: {}", e)),
     }
+}
+
+// ─── IPC Command: note_local_exe ─────────────────────────────────────────────
+// M4: the Blocks tab on THIS PC is adding a session app. Called before the
+// Firebase write, so the echo arms without the approval banner. The only way a
+// name is approved as this PC's own.
+#[tauri::command]
+fn note_local_exe(name: String, app_state: State<AppState>) -> Result<String, String> {
+    let mut profile = app_state.profile.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
+    let noted = integrity::note_added_here(&mut profile, &name).ok_or_else(|| format!("Not a block name: {}", name))?;
+    persist_profile(&profile, &app_state.state_path);
+    Ok(noted)
 }
 
 /// ShellExecuteW reports success as any value above 32.
@@ -2336,6 +2353,8 @@ pub fn run() {
         exe_blacklist: HashSet::new(),
         exe_approved: HashSet::new(),
         exe_pending: HashSet::new(),
+        exe_added_here: HashSet::new(),
+        exe_migrated: false,
         web_blacklist: HashSet::new(),
         permanent_exe: HashSet::new(),
         permanent_pending: HashSet::new(),
@@ -2401,7 +2420,7 @@ pub fn run() {
         })
         // Every one is also listed in app_commands.in, and only a window whose
         // capability grants it can call it: "main" alone (see build.rs).
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, rearm_from_server, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, forget_account, is_store_build, companion_set_enabled, companion_show_main, companion_ready, companion_set_hitbox, companion_set_dragging, companion_interaction_ended, companion_state, #[cfg(debug_assertions)] companion_log_menu, #[cfg(debug_assertions)] companion_debug_log])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, note_local_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, rearm_from_server, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, forget_account, is_store_build, companion_set_enabled, companion_show_main, companion_ready, companion_set_hitbox, companion_set_dragging, companion_interaction_ended, companion_state, #[cfg(debug_assertions)] companion_log_menu, #[cfg(debug_assertions)] companion_debug_log])
         .setup(move |app| {
             let handle = app.handle().clone();
 

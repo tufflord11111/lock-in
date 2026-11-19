@@ -430,14 +430,16 @@ export function BlockRegistry({
     );
   };
 
-  const makeExeSession = (exe: string) => {
+  const makeExeSession = async (exe: string) => {
     const safeKey = exe.replace(/\./g, '_');
+    // This PC is adding it, as handleAddExe does: Rust approves it here instead
+    // of staging it for approval (M4). Outside the desktop app there's no enforcer.
+    await invoke("note_local_exe", { name: exe }).catch(() => {});
     guardWrite(
       update(ref(db), {
         [`users/${userId}/permanentExe/${safeKey}`]: null,
         [`users/${userId}/blockedApps/${safeKey}`]: exe,
-        // This device vouches for it, as handleAddExe does, so the enforcer
-        // auto-approves it here instead of staging it for approval (H1).
+        // For desktop 1.3.0 on other PCs; this build doesn't read it.
         [`users/${userId}/blockedApps_meta/${safeKey}`]: getDeviceId(),
       }),
       `Couldn't move ${exe} back to session blocks. It's still permanent.`

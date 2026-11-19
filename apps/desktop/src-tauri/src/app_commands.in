@@ -18,6 +18,7 @@
     "reject_pending_permanent",
     "confirm_pending_exe",
     "reject_pending_exe",
+    "note_local_exe",
     "append_ui_event",
     "is_dev_mode",
     "arm_bailout",

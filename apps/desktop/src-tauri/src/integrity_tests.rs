@@ -38,13 +38,13 @@ fn armed() -> LockProfile {
 fn h1_an_app_removed_mid_session_is_still_killed_until_the_session_ends() {
     let mut p = armed();
     // The Blocks tab removed discord: blockedApps now holds only steam.
-    apply_session_sync(&mut p, &s(&["steam"]), &[], true, Some("uid1")).unwrap();
+    apply_session_sync(&mut p, &s(&["steam"]), true, Some("uid1")).unwrap();
     assert!(kill_terms(&p).contains(&"discord".to_string()), "removal applied mid-session");
     assert_eq!(p.exe_approved, set(&["steam"]), "the removal is still recorded for after");
     assert_eq!(held_removals(&p), s(&["discord"]));
     // Same through the local path.
     let mut q = armed();
-    apply_session_sync(&mut q, &s(&["steam"]), &s(&["steam"]), false, Some("uid1")).unwrap();
+    apply_session_sync(&mut q, &s(&["steam"]), false, Some("uid1")).unwrap();
     assert!(kill_terms(&q).contains(&"discord".to_string()));
     // After the session the removal applies.
     p.end_session(T0 + 25 * MIN);
@@ -55,7 +55,8 @@ fn h1_an_app_removed_mid_session_is_still_killed_until_the_session_ends() {
 #[test]
 fn h1_an_app_added_mid_session_is_killed_at_once() {
     let mut p = armed();
-    apply_session_sync(&mut p, &s(&["discord", "steam", "roblox"]), &s(&["roblox"]), true, Some("uid1")).unwrap();
+    note_added_here(&mut p, "roblox");
+    apply_session_sync(&mut p, &s(&["discord", "steam", "roblox"]), true, Some("uid1")).unwrap();
     assert!(kill_terms(&p).contains(&"roblox".to_string()));
 }
 
@@ -73,14 +74,14 @@ fn h1_a_permanent_block_removed_mid_session_is_still_killed_until_the_session_en
 #[test]
 fn h1_a_sync_from_another_account_is_refused_while_armed() {
     let mut p = armed();
-    assert!(apply_session_sync(&mut p, &[], &[], true, Some("uid2")).is_err());
-    assert!(apply_session_sync(&mut p, &[], &[], true, None).is_err());
+    assert!(apply_session_sync(&mut p, &[], true, Some("uid2")).is_err());
+    assert!(apply_session_sync(&mut p, &[], true, None).is_err());
     assert!(apply_permanent_sync(&mut p, &[], true, Some("uid2")).is_err());
     assert_eq!(p.exe_approved, set(&["discord", "steam"]), "nothing changed");
     assert_eq!(p.permanent_exe, set(&["fortnite"]));
     // With no session, the signed-in account's list is taken as before.
     let mut q = idle();
-    assert!(apply_session_sync(&mut q, &s(&["steam"]), &s(&["steam"]), true, Some("uid2")).is_ok());
+    assert!(apply_session_sync(&mut q, &s(&["steam"]), true, Some("uid2")).is_ok());
 }
 
 // ── H2: Rust enforces the commitment, not the webview ───────────────────────
@@ -375,4 +376,104 @@ fn m6_forget_account_is_refused_while_a_session_runs() {
     let mut q = armed();
     q.bailout_deadline = Some(T0 + 6 * MIN);
     assert!(forget_account(&mut q, "uid1", T0 + 2 * MIN).is_err());
+}
+
+// ── M4 / L1: "this device" approval lives in Rust ────────────────────────────
+
+#[test]
+fn m4_firebase_cannot_vouch_for_a_block_as_this_devices() {
+    // Another device writes blockedApps/evil and blockedApps_meta/evil = this
+    // PC's device id (readable in sessionState.originDeviceId). Nothing from
+    // Firebase approves it: it is staged.
+    let mut p = idle();
+    p.exe_approved = set(&["steam"]);
+    let pending = apply_session_sync(&mut p, &s(&["steam", "evil"]), true, Some("uid1")).unwrap();
+    assert_eq!(pending, set(&["evil"]));
+    assert_eq!(p.exe_approved, set(&["steam"]));
+    assert_eq!(p.exe_pending, set(&["evil"]));
+}
+
+#[test]
+fn m4_a_block_added_here_is_approved_by_rust_once() {
+    let mut p = idle();
+    assert_eq!(note_added_here(&mut p, "Roblox.exe"), Some("roblox".to_string()));
+    assert_eq!(note_added_here(&mut p, "x"), None, "too short to be a block");
+    let pending = apply_session_sync(&mut p, &s(&["roblox"]), true, Some("uid1")).unwrap();
+    assert!(pending.is_empty());
+    assert_eq!(p.exe_approved, set(&["roblox"]));
+    assert!(p.exe_added_here.is_empty(), "the note is used up when Firebase echoes it");
+    // Removed, then added again from another device: staged.
+    apply_session_sync(&mut p, &[], true, Some("uid1")).unwrap();
+    let again = apply_session_sync(&mut p, &s(&["roblox"]), true, Some("uid1")).unwrap();
+    assert_eq!(again, set(&["roblox"]));
+}
+
+#[test]
+fn m4_a_block_added_here_mid_session_is_killed_at_once() {
+    let mut p = armed();
+    note_added_here(&mut p, "roblox");
+    apply_session_sync(&mut p, &s(&["discord", "steam", "roblox"]), true, Some("uid1")).unwrap();
+    assert!(kill_terms(&p).contains(&"roblox".to_string()));
+}
+
+#[test]
+fn m4_only_a_new_install_trusts_its_first_list() {
+    // run() starts with exe_migrated false when there is no state file.
+    let mut fresh = idle();
+    fresh.exe_migrated = false;
+    assert!(apply_session_sync(&mut fresh, &s(&["steam"]), true, Some("uid1")).unwrap().is_empty());
+    assert!(fresh.exe_migrated);
+    assert_eq!(apply_session_sync(&mut fresh, &s(&["steam", "evil"]), true, Some("uid1")).unwrap(), set(&["evil"]));
+    // A state file from before has no field: already migrated, its approvals stand.
+    let mut old = idle();
+    assert!(old.exe_migrated);
+    old.exe_approved = set(&["steam"]);
+    assert_eq!(apply_session_sync(&mut old, &s(&["steam", "evil"]), true, Some("uid1")).unwrap(), set(&["evil"]));
+}
+
+#[test]
+fn m4_delete_account_forgets_what_was_added_here() {
+    let mut p = idle();
+    note_added_here(&mut p, "roblox");
+    forget_account(&mut p, "uid1", T0).unwrap();
+    assert!(p.exe_added_here.is_empty());
+}
+
+#[test]
+fn l1_approve_takes_only_the_names_shown() {
+    // The banner showed steam; evil arrived from another device before the click.
+    let mut p = idle();
+    p.exe_pending = set(&["steam", "evil"]);
+    p.permanent_pending = set(&["roblox", "evil2"]);
+    assert_eq!(confirm_pending_exe(&mut p, &s(&["steam"])), s(&["steam"]));
+    assert_eq!(p.exe_approved, set(&["steam"]));
+    assert_eq!(p.exe_pending, set(&["evil"]), "still waiting, still not enforced");
+    assert!(confirm_pending_exe(&mut p, &s(&["discord"])).is_empty(), "a name that isn't pending approves nothing");
+    assert!(!p.exe_approved.contains("discord"));
+    assert_eq!(confirm_pending_permanent(&mut p, &s(&["roblox"])), s(&["roblox"]));
+    assert_eq!(p.permanent_exe, set(&["roblox"]));
+    assert_eq!(p.permanent_pending, set(&["evil2"]));
+}
+
+#[test]
+fn l1_an_approval_mid_session_arms_only_the_names_shown_and_keeps_held_removals() {
+    let mut p = armed();
+    apply_session_sync(&mut p, &s(&["steam"]), true, Some("uid1")).unwrap(); // discord removed: held
+    p.exe_pending = set(&["roblox", "evil"]);
+    confirm_pending_exe(&mut p, &s(&["roblox"]));
+    let kills = kill_terms(&p);
+    assert!(kills.contains(&"roblox".to_string()));
+    assert!(!kills.contains(&"evil".to_string()));
+    assert!(kills.contains(&"discord".to_string()), "a removal held for this session was dropped");
+}
+
+#[test]
+fn l1_reject_drops_only_the_names_shown() {
+    let mut p = idle();
+    p.exe_pending = set(&["steam", "evil"]);
+    p.permanent_pending = set(&["roblox", "evil2"]);
+    assert_eq!(reject_pending_exe(&mut p, &s(&["steam"])), 1);
+    assert_eq!(p.exe_pending, set(&["evil"]));
+    assert_eq!(reject_pending_permanent(&mut p, &s(&["roblox"])), 1);
+    assert_eq!(p.permanent_pending, set(&["evil2"]));
 }

@@ -44,11 +44,13 @@ export function PendingPermanentBanner({ userId }: { userId: string }) {
   const total = exePending.length + permPending.length;
   if (total === 0) return null;
 
+  // Approve and reject name exactly what this banner shows (L1): a block that
+  // arrives after it rendered stays pending for the next banner.
   const approve = async () => {
     setBusy(true);
     try {
-      if (exePending.length) await invoke("confirm_pending_exe");
-      if (permPending.length) await invoke("confirm_pending_permanent");
+      if (exePending.length) await invoke("confirm_pending_exe", { names: exePending });
+      if (permPending.length) await invoke("confirm_pending_permanent", { names: permPending });
     } catch (err) {
       // try/finally alone let this reject uncaught, with nothing on screen.
       reportWriteFailure(
@@ -85,8 +87,8 @@ export function PendingPermanentBanner({ userId }: { userId: string }) {
     try {
       await cleanNode("blockedApps", new Set(exePending));
       await cleanNode("permanentExe", new Set(permPending));
-      if (exePending.length) await invoke("reject_pending_exe");
-      if (permPending.length) await invoke("reject_pending_permanent");
+      if (exePending.length) await invoke("reject_pending_exe", { names: exePending });
+      if (permPending.length) await invoke("reject_pending_permanent", { names: permPending });
     } catch (err) {
       // The banner re-reads Rust below, so whatever wasn't rejected stays
       // listed for another try; they are still not enforced either way.

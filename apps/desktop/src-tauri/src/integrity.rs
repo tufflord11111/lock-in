@@ -45,9 +45,18 @@ fn account_check(p: &LockProfile, uid: Option<&str>) -> Result<(), String> {
     }
 }
 
-/// sync_blocklist's rule. `blocked` is every entry in blockedApps, `approved` the
-/// subset the webview vouches for as this device's own. Returns the names newly
-/// staged for local approval.
+/// The local user added `name` in the Blocks tab on this PC (M4). Recorded here,
+/// before the Firebase write, so the echo arms without the approval banner.
+/// This call is the only "added here" vouch: Firebase data (blockedApps_meta,
+/// a device id) approves nothing. Returns the name as it will be matched.
+pub(crate) fn note_added_here(p: &mut LockProfile, name: &str) -> Option<String> {
+    let n = sanitize_block_entry(name)?;
+    p.exe_added_here.insert(n.clone());
+    Some(n)
+}
+
+/// sync_blocklist's rule. `blocked` is every entry in blockedApps. Returns the
+/// names newly staged for local approval.
 ///
 /// While a session is armed its kill list only grows: an app removed in the
 /// Blocks tab leaves exe_approved now (so the next session won't block it) but
@@ -55,21 +64,23 @@ fn account_check(p: &LockProfile, uid: Option<&str>) -> Result<(), String> {
 pub(crate) fn apply_session_sync(
     p: &mut LockProfile,
     blocked: &[String],
-    approved: &[String],
     remote: bool,
     uid: Option<&str>,
 ) -> Result<HashSet<String>, String> {
     account_check(p, uid)?;
     let all = sanitized(blocked);
-    let mine = sanitized(approved);
     let pending = if remote {
-        // Approved = anything already approved OR vouched as this-device origin,
-        // that still exists in blockedApps. A NEW entry with a different or
-        // absent origin is STAGED for local approval (G1), never armed.
+        // Approved = anything already approved here, or added on this PC
+        // (note_added_here), that still exists in blockedApps. Anything else is
+        // STAGED for local approval (G1), never armed. A new install approves
+        // its first list once (exe_migrated).
+        let vouched: HashSet<String> = if p.exe_migrated { p.exe_added_here.clone() } else { all.clone() };
+        p.exe_migrated = true;
         let approved_kept: HashSet<String> = p
             .exe_approved
-            .union(&mine).filter(|&n| all.contains(n)).cloned()
+            .union(&vouched).filter(|&n| all.contains(n)).cloned()
             .collect();
+        p.exe_added_here.retain(|n| !all.contains(n));
         let pending: HashSet<String> = all.difference(&approved_kept).cloned().collect();
         p.exe_approved = approved_kept;
         p.exe_pending = pending.clone();
@@ -117,6 +128,45 @@ pub(crate) fn apply_permanent_sync(
         }
     }
     Ok(pending)
+}
+
+/// The names in `shown` that are still pending, removed from `pending` (L1). A
+/// name staged after the banner rendered is not in `shown` and stays pending.
+fn take_shown(pending: &mut HashSet<String>, shown: &[String]) -> Vec<String> {
+    let mut taken: Vec<String> = shown.iter().filter(|n| pending.remove(n.as_str())).cloned().collect();
+    taken.sort();
+    taken.dedup();
+    taken
+}
+
+/// Approve exactly the session apps the banner showed (L1). Mid-session they
+/// arm at once, added to the kill list (removals held for this session stay).
+pub(crate) fn confirm_pending_exe(p: &mut LockProfile, shown: &[String]) -> Vec<String> {
+    let taken = take_shown(&mut p.exe_pending, shown);
+    for n in &taken {
+        p.exe_approved.insert(n.clone());
+        if p.focus_active {
+            p.exe_blacklist.insert(n.clone());
+        }
+    }
+    taken
+}
+
+/// Approve exactly the permanent blocks the banner showed (L1).
+pub(crate) fn confirm_pending_permanent(p: &mut LockProfile, shown: &[String]) -> Vec<String> {
+    let taken = take_shown(&mut p.permanent_pending, shown);
+    p.permanent_exe.extend(taken.iter().cloned());
+    taken
+}
+
+/// Drop exactly the session apps the banner showed. Returns how many.
+pub(crate) fn reject_pending_exe(p: &mut LockProfile, shown: &[String]) -> usize {
+    take_shown(&mut p.exe_pending, shown).len()
+}
+
+/// Drop exactly the permanent blocks the banner showed. Returns how many.
+pub(crate) fn reject_pending_permanent(p: &mut LockProfile, shown: &[String]) -> usize {
+    take_shown(&mut p.permanent_pending, shown).len()
 }
 
 /// Every term the enforcer kills this tick: permanent blocks always; session

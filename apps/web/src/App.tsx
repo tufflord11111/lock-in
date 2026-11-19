@@ -315,9 +315,9 @@ function AppInner() {
     );
   }, [profile.userName, profile.handle, user?.uid]);
 
-  // Stable per-install id — same one sessionState uses. Stamped onto every
-  // blockedApps entry this device creates, so the enforcer can auto-approve
-  // our own blocks (H1) and only stage entries added elsewhere.
+  // Stable per-install id — same one sessionState uses. Still stamped onto the
+  // blockedApps entries this device creates, for desktop 1.3.0 on other PCs;
+  // this build approves its own blocks through Rust instead (M4).
   const deviceId = useMemo(getDeviceId, []);
 
   // Sync blockedApps for Rust process killer.
@@ -325,10 +325,8 @@ function AppInner() {
   useSnapshotWriter(user?.uid);
   const { reachable, checking: reachabilityChecking, retry: retryReachable } = useReachable();
   const [blockedApps, setBlockedApps] = useState<string[]>(() => bootSnapshot()?.blockedApps ?? []);
-  // Raw {key: exe} and the parallel {key: originDeviceId} map, needed to tell
-  // Rust which entries this device vouches for.
+  // Raw {key: exe}, as Rust is sent it.
   const [blockedAppsRaw, setBlockedAppsRaw] = useState<Record<string, string>>(() => bootSnapshot()?.blockedAppsRaw ?? {});
-  const [blockedAppsMeta, setBlockedAppsMeta] = useState<Record<string, string>>(() => bootSnapshot()?.blockedAppsMeta ?? {});
   // False until the blockedApps listener has fired at least once. An empty
   // blockedApps array is ambiguous — "no blocks configured" or "Firebase hasn't
   // answered yet" — so this distinguishes them for the start-button advisory.
@@ -352,55 +350,19 @@ function AppInner() {
       },
       (err) => console.error('[LOCK-IN] blockedApps listener error:', err)
     );
-    const unsubMeta = onValue(
-      ref(db, `users/${user.uid}/blockedApps_meta`),
-      (snap) => setBlockedAppsMeta((snap.val() as Record<string, string>) || {}),
-      (err) => console.error('[LOCK-IN] blockedApps_meta listener error:', err)
-    );
-    return () => {
-      unsubApps();
-      unsubMeta();
-    };
+    return () => unsubApps();
   }, [user?.uid]);
 
-  // H1/H2: push blockedApps to the enforcer with an approved subset.
-  //   H1 — entries stamped with THIS device's origin auto-approve.
-  //   H2 — on the first run after upgrade (per-device localStorage flag) the
-  //        whole existing set is approved, so nobody's blocks stage as pending.
-  // Everything else (added from another device, or absent origin post-upgrade)
-  // is left for Rust to stage behind the approval banner.
-  const exeMigratedRef = useRef<boolean>(
-    (() => {
-      try {
-        return localStorage.getItem("lockin_exe_migrated_v1") === "1";
-      } catch {
-        return false;
-      }
-    })()
-  );
+  // Push blockedApps to the enforcer. Rust alone decides what is approved (M4):
+  // what it approved before, what this PC's Blocks tab told it about
+  // (note_local_exe), and on a new install its first list. Anything else, such
+  // as an entry added from another device, waits behind the approval banner.
+  // blockedApps_meta is still written for desktop 1.3.0 on other PCs, but no
+  // longer read here: anyone with the account can write a device id.
   useEffect(() => {
     if (!user?.uid || !blocklistHydrated) return;
-    const entries = Object.entries(blockedAppsRaw);
-    const allValues = entries.map(([, v]) => v);
-    let approved: string[];
-    if (!exeMigratedRef.current) {
-      // First hydrated sync after upgrade — trust the current set as-is.
-      approved = allValues;
-      exeMigratedRef.current = true;
-      try {
-        localStorage.setItem("lockin_exe_migrated_v1", "1");
-      } catch {
-        /* private mode — falls back to origin-only next run, one approval */
-      }
-    } else {
-      approved = entries
-        .filter(([key]) => blockedAppsMeta[key] === deviceId)
-        .map(([, v]) => v);
-    }
     invoke("sync_blocklist", {
-      blockedList: allValues,
-      approvedList: approved,
-      fromRemote: true,
+      blockedList: Object.values(blockedAppsRaw),
       // While a session runs, Rust takes lists only from its account (1.3.1 H1).
       uid: user.uid,
     }).catch((err) =>
@@ -410,7 +372,7 @@ function AppInner() {
         err
       )
     );
-  }, [user?.uid, blocklistHydrated, blockedAppsRaw, blockedAppsMeta, deviceId, rearmNonce]);
+  }, [user?.uid, blocklistHydrated, blockedAppsRaw, rearmNonce]);
 
   // Sync permanentExe from Firebase to Rust enforcer
   useEffect(() => {
@@ -423,9 +385,9 @@ function AppInner() {
         const list: string[] = data
           ? (Object.values(data) as string[]).filter(v => typeof v === 'string')
           : [];
-        // fromRemote: this is a Firebase-driven sync, so Rust stages any NEW
-        // permanent block for local approval (F4) instead of enforcing it.
-        invoke('sync_permanent_exe', { blockedList: list, fromRemote: true, uid: user.uid }).catch((err) =>
+        // From Firebase, so Rust stages any NEW permanent block for local
+        // approval (F4) instead of enforcing it.
+        invoke('sync_permanent_exe', { blockedList: list, uid: user.uid }).catch((err) =>
           reportEngineFailure(
             "sync_permanent_exe",
             "Your permanent blocks didn't reach the enforcer, so recent changes may not apply. Restart Lock-In.",
@@ -441,7 +403,11 @@ function AppInner() {
   const handleAddExe = async (exe: string) => {
     if (!user?.uid) return;
     const key = exe.replace(/\./g, "_");
-    // Stamp this device as the origin so the enforcer auto-approves it (H1).
+    // Tell Rust first that this PC is adding it, so the echo from Firebase arms
+    // without the approval banner (M4). The device id is still stamped for
+    // desktop 1.3.0 on other PCs; this one doesn't read it. Outside the desktop
+    // app there is no enforcer to tell.
+    await invoke("note_local_exe", { name: exe }).catch(() => {});
     // Raced: offline, the confirm dialog that awaits this used to stay busy
     // forever. It now closes after 5 s and the write stays queued.
     await awaitWriteOrQueue(
