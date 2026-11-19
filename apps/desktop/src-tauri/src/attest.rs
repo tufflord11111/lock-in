@@ -113,51 +113,98 @@ pub fn instances(sys: &System) -> HashMap<&'static str, Vec<u32>> {
     out
 }
 
-/// Browser windows per process: visible, titled, top-level windows that
-/// nothing owns, of the class every Chromium browser window has. Left out:
-/// tool windows, always-on-top ones (picture in picture) and cloaked ones
-/// (another virtual desktop). Leaving one out can only miss a window, never
-/// close a browser that Web Guard fully covers.
-pub fn chromium_windows_by_pid() -> HashMap<u32, u32> {
+/// What Lock-In knows about one top-level window, read from Windows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowFacts {
+    pub visible: bool,
+    pub title_len: i32,
+    /// Has an owner window: bubbles, menus, dialogs, extension popups.
+    pub owned: bool,
+    pub style: u32,
+    pub ex_style: u32,
+    /// DWM cloaked: on another virtual desktop, or hidden by the shell.
+    pub cloaked: bool,
+    pub class: String,
+}
+
+/// Window styles (winuser.h).
+pub const WS_POPUP: u32 = 0x8000_0000;
+pub const WS_CAPTION: u32 = 0x00C0_0000;
+pub const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
+pub const WS_EX_TOPMOST: u32 = 0x0000_0008;
+
+/// Does this window count as one browser window, the way Web Guard counts?
+///
+/// Web Guard counts chrome.windows.getAll({windowTypes: ["normal", "popup",
+/// "app", "devtools"]}) in its profile (plus Incognito when it's allowed
+/// there): tabbed windows, window.open popups, installed web apps (PWAs) and
+/// undocked DevTools, minimized or not. Each of those is a Chromium frame
+/// window here: class Chrome_WidgetWin_1, unowned, titled, a captioned frame
+/// (fullscreen drops the caption but isn't a popup). Everything else Chromium
+/// draws is a WS_POPUP widget with no caption and/or an owner or always on
+/// top: extension popups, the downloads and Cast bubbles, menus, the omnibox
+/// list, picture in picture, the tab being dragged. System dialogs (print,
+/// Save as) are class #32770. None of those count, so none can push this
+/// count above a covered browser's check-ins. Leaving a real window out can
+/// only miss a window, never close a covered browser.
+pub fn counts_as_browser_window(w: &WindowFacts) -> bool {
+    w.visible
+        && w.title_len > 0
+        && !w.owned
+        && !w.cloaked
+        && w.class == "Chrome_WidgetWin_1"
+        && w.ex_style & (WS_EX_TOOLWINDOW | WS_EX_TOPMOST) == 0
+        // A popup widget without a caption is a bubble, menu or overlay.
+        && !(w.style & WS_POPUP != 0 && w.style & WS_CAPTION == 0)
+}
+
+/// Every top-level window with its owning process, read from Windows.
+fn top_level_windows() -> Vec<(u32, WindowFacts)> {
     use windows::core::BOOL;
     use windows::Win32::Foundation::{HWND, LPARAM};
     use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
     use windows::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetClassNameW, GetWindow, GetWindowLongW, GetWindowTextLengthW, GetWindowThreadProcessId,
-        IsWindowVisible, GWL_EXSTYLE, GW_OWNER, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, GW_OWNER,
     };
     unsafe extern "system" fn add(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        let counts = unsafe { &mut *(lparam.0 as *mut HashMap<u32, u32>) };
+        let out = unsafe { &mut *(lparam.0 as *mut Vec<(u32, WindowFacts)>) };
         unsafe {
-            if !IsWindowVisible(hwnd).as_bool() || GetWindowTextLengthW(hwnd) == 0 {
-                return BOOL(1);
-            }
-            if GetWindow(hwnd, GW_OWNER).is_ok_and(|o| !o.is_invalid()) {
-                return BOOL(1);
-            }
-            let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-            if ex & (WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0) != 0 {
-                return BOOL(1);
-            }
             let mut cloaked = 0u32;
             let _ = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, (&mut cloaked as *mut u32).cast(), 4);
-            if cloaked != 0 {
-                return BOOL(1);
-            }
             let mut class = [0u16; 64];
             let n = GetClassNameW(hwnd, &mut class) as usize;
-            if String::from_utf16_lossy(&class[..n]) != "Chrome_WidgetWin_1" {
-                return BOOL(1);
-            }
             let mut pid = 0u32;
             GetWindowThreadProcessId(hwnd, Some(&mut pid));
-            *counts.entry(pid).or_default() += 1;
+            out.push((
+                pid,
+                WindowFacts {
+                    visible: IsWindowVisible(hwnd).as_bool(),
+                    title_len: GetWindowTextLengthW(hwnd),
+                    owned: GetWindow(hwnd, GW_OWNER).is_ok_and(|o| !o.is_invalid()),
+                    style: GetWindowLongW(hwnd, GWL_STYLE) as u32,
+                    ex_style: GetWindowLongW(hwnd, GWL_EXSTYLE) as u32,
+                    cloaked: cloaked != 0,
+                    class: String::from_utf16_lossy(&class[..n]),
+                },
+            ));
         }
         BOOL(1)
     }
-    let mut counts = HashMap::new();
+    let mut out = Vec::new();
     unsafe {
-        let _ = EnumWindows(Some(add), LPARAM(&mut counts as *mut HashMap<u32, u32> as isize));
+        let _ = EnumWindows(Some(add), LPARAM(&mut out as *mut Vec<(u32, WindowFacts)> as isize));
+    }
+    out
+}
+
+/// Browser windows per process (counts_as_browser_window).
+pub fn chromium_windows_by_pid() -> HashMap<u32, u32> {
+    let mut counts = HashMap::new();
+    for (pid, w) in top_level_windows() {
+        if counts_as_browser_window(&w) {
+            *counts.entry(pid).or_default() += 1;
+        }
     }
     counts
 }
@@ -197,5 +244,99 @@ mod tests {
         assert_eq!(peer, client.local_addr().unwrap());
         assert_eq!(owning_pid(peer, server), Some(std::process::id()));
         assert_eq!(who(peer, server), None, "the test runner isn't a browser");
+    }
+
+    // Styles below follow Chromium's HWNDMessageHandler: a browser frame is
+    // WS_OVERLAPPEDWINDOW-like (caption + thick frame + system menu), a widget
+    // that isn't a frame is WS_POPUP with no caption. Only the laptop proves
+    // the live values (docs/1.3.1/LAPTOP_CHECKLIST.md).
+    const FRAME: u32 = 0x00CF_0000 | 0x1000_0000; // WS_OVERLAPPEDWINDOW | WS_VISIBLE
+    const MINIMIZED: u32 = FRAME | 0x2000_0000; // + WS_MINIMIZE
+    const FULLSCREEN: u32 = 0x1000_0000; // caption and thick frame removed, not a popup
+    const POPUP: u32 = WS_POPUP | 0x1000_0000;
+
+    fn win(title: &str, style: u32, ex: u32, owned: bool, class: &str) -> WindowFacts {
+        WindowFacts { visible: true, title_len: title.len() as i32, owned, style, ex_style: ex, cloaked: false, class: class.into() }
+    }
+    const CW: &str = "Chrome_WidgetWin_1";
+
+    #[test]
+    fn windows_web_guard_counts_are_counted_here_too() {
+        // getAll's normal, popup, app and devtools windows: all Chromium frames.
+        for (what, w) in [
+            ("tabbed window", win("YouTube - Google Chrome", FRAME, 0, false, CW)),
+            ("minimized window", win("Docs - Google Chrome", MINIMIZED, 0, false, CW)),
+            ("fullscreen window", win("Video - Google Chrome", FULLSCREEN, 0, false, CW)),
+            ("window.open popup", win("Sign in", FRAME, 0, false, CW)),
+            ("installed web app (PWA), Chrome or Edge", win("Spotify", FRAME, 0, false, CW)),
+            ("undocked DevTools", win("DevTools - example.com", FRAME, 0, false, CW)),
+        ] {
+            assert!(counts_as_browser_window(&w), "{what}");
+        }
+    }
+
+    #[test]
+    fn nothing_web_guard_leaves_out_is_counted_here() {
+        for (what, w) in [
+            ("extension popup (owned bubble)", win("Lock-In Web Guard", POPUP, 0, true, CW)),
+            ("downloads bubble", win("Downloads", POPUP, 0, true, CW)),
+            ("Cast dialog (bubble)", win("Cast", POPUP, 0, true, CW)),
+            ("picture in picture", win("Picture in picture", POPUP, WS_EX_TOPMOST, false, CW)),
+            ("document picture in picture", win("Meet", FRAME, WS_EX_TOPMOST, false, CW)),
+            ("tab being dragged", win("New Tab", POPUP, WS_EX_TOPMOST | WS_EX_TOOLWINDOW, false, CW)),
+            ("unowned popup widget, no caption (menu, overlay)", win("menu", POPUP, 0, false, CW)),
+            ("system print dialog", win("Print", POPUP | WS_CAPTION, 0, true, "#32770")),
+            ("Save as dialog", win("Save As", POPUP | WS_CAPTION, 0, true, "#32770")),
+            ("Edge sidebar as a tool window", win("Copilot", FRAME, WS_EX_TOOLWINDOW, false, CW)),
+            ("hidden window (startup boost)", WindowFacts { visible: false, ..win("Edge", FRAME, 0, false, CW) }),
+            ("untitled helper", win("", FRAME, 0, false, CW)),
+            ("another virtual desktop", WindowFacts { cloaked: true, ..win("Chrome", FRAME, 0, false, CW) }),
+            ("not a Chromium window", win("Notepad", FRAME, 0, false, "Notepad")),
+        ] {
+            assert!(!counts_as_browser_window(&w), "{what}");
+        }
+    }
+
+    #[test]
+    fn a_covered_browser_with_every_extra_surface_open_is_still_covered() {
+        // One tabbed window, a PWA and undocked DevTools: Web Guard counts 3.
+        // Add every surface it doesn't count: the total here stays 3.
+        let all = [
+            win("Tab - Google Chrome", FRAME, 0, false, CW),
+            win("Spotify", FRAME, 0, false, CW),
+            win("DevTools - x", FRAME, 0, false, CW),
+            win("Lock-In Web Guard", POPUP, 0, true, CW),
+            win("Picture in picture", POPUP, WS_EX_TOPMOST, false, CW),
+            win("Cast", POPUP, 0, true, CW),
+            win("Print", POPUP | WS_CAPTION, 0, true, "#32770"),
+            win("Save As", POPUP | WS_CAPTION, 0, true, "#32770"),
+            win("Downloads", POPUP, 0, true, CW),
+        ];
+        let counted = all.iter().filter(|w| counts_as_browser_window(w)).count() as u32;
+        assert_eq!(counted, 3);
+        let beat = crate::heartbeat::Beat {
+            at: 1_000, incognito_allowed: true, uid: Some("u1".into()), root: 10, profile: Some("p1".into()),
+            windows: Some(3), locked: Some(true), host_access: Some(true), told_active: true, replied_active: true,
+        };
+        let v = crate::coverage::brand(&[crate::coverage::Instance { root: 10, windows: counted }], &[beat], Some("u1"), 2_000, 35_000);
+        assert_eq!(v.gap, None);
+    }
+}
+
+/// Diagnostic for the laptop checklist: `cargo test --lib -- --ignored
+/// window_counts_on_this_pc --nocapture` prints, per running browser
+/// instance, how many windows Lock-In counts. Counts only, no titles.
+#[cfg(test)]
+mod diagnostics {
+    #[test]
+    #[ignore]
+    fn window_counts_on_this_pc() {
+        let sys = super::refreshed();
+        let counts = super::chromium_windows_by_pid();
+        for (brand, roots) in super::instances(&sys) {
+            for root in roots {
+                println!("{brand} instance {root}: {} window(s) counted", counts.get(&root).copied().unwrap_or(0));
+            }
+        }
     }
 }

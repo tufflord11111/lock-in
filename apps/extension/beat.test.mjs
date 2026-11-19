@@ -33,6 +33,9 @@ test("the beat carries this profile's id and how many windows Web Guard sees", (
   assert.equal(bad.hostAccess, false, "unknown site access is reported as none");
 });
 
-test("Web Guard counts every window type it can see", () => {
-  for (const t of ["normal", "popup", "app", "devtools"]) assert.ok(WINDOW_TYPES.includes(t), t);
+test("Web Guard counts exactly the window types Lock-In counts (attest.rs counts_as_browser_window)", () => {
+  // normal: tabbed windows; popup: window.open popups; app: installed web apps
+  // (PWAs); devtools: undocked DevTools. Extension popups, bubbles, picture in
+  // picture and system dialogs aren't chrome.windows at all.
+  assert.deepEqual(WINDOW_TYPES, ["normal", "popup", "app", "devtools"]);
 });
