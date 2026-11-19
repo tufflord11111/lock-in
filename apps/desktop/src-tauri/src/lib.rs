@@ -3711,12 +3711,21 @@ mod tests {
     }
 
     #[test]
-    fn m10_the_csp_names_the_exact_database_and_no_eval() {
+    fn m10_the_csp_names_the_database_its_region_and_no_eval() {
         const DB: &str = "synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app";
+        // The RTDB handshake moves the connection to a shard host in the same
+        // region (s-gke-….asia-southeast1.firebasedatabase.app), so connect-src
+        // allows the region. Only connect-src: script-src and frame-src (the
+        // long-polling fallback) keep the database's own host.
+        const REGION: [&str; 2] = ["https://*.asia-southeast1.firebasedatabase.app", "wss://*.asia-southeast1.firebasedatabase.app"];
         let d = csp_directives();
         let all: Vec<&String> = d.values().flatten().collect();
         assert!(!all.iter().any(|s| s.as_str() == "'unsafe-eval'"), "unsafe-eval");
-        assert!(!all.iter().any(|s| s.contains('*')), "a wildcard host: {:?}", all.iter().filter(|s| s.contains('*')).collect::<Vec<_>>());
+        let wild: Vec<&&String> = all.iter().filter(|s| s.contains('*')).collect();
+        assert!(wild.iter().all(|s| REGION.contains(&s.as_str())), "a wildcard other than the region: {wild:?}");
+        for name in ["script-src", "frame-src", "default-src"] {
+            assert!(!d[name].iter().any(|s| s.contains('*')), "{name} has a wildcard");
+        }
         for bare in ["https:", "wss:", "http:", "ws:", "*"] {
             for name in ["connect-src", "script-src", "frame-src", "default-src"] {
                 assert!(!d[name].iter().any(|s| s == bare), "{name} allows any {bare} host");
@@ -3727,7 +3736,7 @@ mod tests {
             d["connect-src"],
             want(&[
                 "'self'", "ipc:", "http://ipc.localhost",
-                &format!("https://{DB}"), &format!("wss://{DB}"),
+                REGION[0], REGION[1],
                 "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com",
             ])
         );

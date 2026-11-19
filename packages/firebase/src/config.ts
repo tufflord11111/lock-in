@@ -7,7 +7,6 @@ import {
   inMemoryPersistence,
 } from "firebase/auth";
 import { getDatabase } from "firebase/database";
-import { pinDatabaseHost } from "./pinDatabaseHost";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAmN21K_oWOUX2XZKkYJEFsDs1pmb7o17k",
@@ -42,6 +41,3 @@ try {
 export { auth };
 
 export const db = getDatabase(app);
-// The desktop CSP allows only this database's host: keep the SDK on it
-// rather than the shard host its handshake names (1.3.1 M10).
-if (!pinDatabaseHost(db)) console.warn("[LOCK-IN] couldn't pin the database host; the SDK's shape changed");
