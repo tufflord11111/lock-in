@@ -38,3 +38,29 @@ export function nextHold(prev, data, now) {
     typeof kept.seenNoFuseAt === "number" ? Math.max(fuse, kept.seenNoFuseAt + FUSE_MIN_MS) : fuse;
   return { endTime, bailoutEnd, seenNoFuseAt: null };
 }
+
+/**
+ * The hold after the desktop app's reply to a beat (1.3.1). The app on this PC
+ * says whether its own session is live, so a Web Guard that never heard of it
+ * from Firebase (blocked, offline, or the account's token writing focusActive
+ * false) blocks anyway. Same rules as nextHold: never shorter, a moved fuse is
+ * ignored. A reply saying "no session" lifts nothing early.
+ */
+export function nextDesktopHold(prev, reply, now) {
+  const s = reply?.session;
+  if (!s || s.active !== true || typeof s.endTime !== "number") {
+    return holdUntil(prev) !== null && now < holdUntil(prev) ? prev : null;
+  }
+  const sessionState = { guard: 2, isActive: true, endTime: s.endTime };
+  if (typeof s.bailoutEnd === "number") sessionState.bailoutEnd = s.bailoutEnd;
+  return nextHold(prev, { sessionState }, now);
+}
+
+/** The later of two holds' ends, or null if neither holds. */
+export function laterHoldUntil(a, b) {
+  const ua = holdUntil(a);
+  const ub = holdUntil(b);
+  if (ua === null) return ub;
+  if (ub === null) return ua;
+  return Math.max(ua, ub);
+}

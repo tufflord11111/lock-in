@@ -24,8 +24,12 @@ export const WINDOW_TYPES = ["normal", "popup", "app", "devtools"];
  * can see, so the app can tell when the browser shows one it can't: a Guest
  * window, another profile without Web Guard, or Incognito when it isn't allowed.
  */
-export function beatBody({ browser, version, incognitoAllowed, uid, profileId, windows }) {
+export function beatBody({ browser, version, incognitoAllowed, uid, profileId, windows, locked, hostAccess }) {
   return {
+    // Whether it is blocking session sites now, and can reach every site: the
+    // app closes a browser whose Web Guard can't (1.3.1).
+    locked: locked === true,
+    hostAccess: hostAccess === true,
     browser,
     version,
     incognitoAllowed: incognitoAllowed === true,

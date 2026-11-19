@@ -676,8 +676,22 @@ const WRONG_ACCOUNT: &str = "Web Guard is installed but signed in to a different
 fn lockdown_warning(browser: &str, lost_web_guard: bool, wrong_account: bool, gap: Option<coverage::Gap>) -> String {
     let name = browsers::name_of(browser);
     let after = if lost_web_guard { " Once closed, it stays closed until the session ends." } else { "" };
-    if gap == Some(coverage::Gap::UnseenWindows) && !wrong_account {
-        return format!("{name} has a window Web Guard can't see: a Guest window, another profile, or an Incognito window. Closing {name} in 10 seconds. Save anything you've typed.{after}");
+    if !wrong_account {
+        match gap {
+            Some(coverage::Gap::UnseenWindows) => {
+                return format!("{name} has a window Web Guard can't see: a Guest window, another profile, or an Incognito window. Closing {name} in 10 seconds. Save anything you've typed.{after}");
+            }
+            Some(coverage::Gap::Incognito) => {
+                return format!("Web Guard isn't allowed in {name}'s Incognito windows, so they aren't blocked. Closing {name} in 10 seconds. Save anything you've typed. To keep it open, turn on \"Allow in Incognito\" for Lock-In Web Guard in {name}'s extension settings.{after}");
+            }
+            Some(coverage::Gap::SiteAccess) => {
+                return format!("Web Guard can't reach every site in {name}: its site access is limited. Closing {name} in 10 seconds. Save anything you've typed. To keep it open, set Lock-In Web Guard's site access to \"On all sites\" in {name}'s extension settings.{after}");
+            }
+            Some(coverage::Gap::NotLocked) => {
+                return format!("Web Guard in {name} isn't blocking this session. Closing {name} in 10 seconds. Save anything you've typed.{after}");
+            }
+            _ => {}
+        }
     }
     if wrong_account {
         let after = if lost_web_guard { " Once closed, it stays closed until the session ends." } else { "" };
@@ -755,7 +769,6 @@ fn lockdown_runner(
             covered.insert(id, grace.last_beat(id, v, now));
         }
         let last_beat = |b: &str| covered.get(b).copied().flatten();
-        let incognito_off = |b: &str| beats.latest(b, uid.as_deref()).is_some_and(|beat| !beat.incognito_allowed);
         let tick = lockdown::Tick {
             now,
             lockdown: in_lockdown,
@@ -763,7 +776,6 @@ fn lockdown_runner(
             online: online.load(Ordering::Relaxed),
             running: &ids,
             last_beat: &last_beat,
-            incognito_off: &incognito_off,
             fresh_ms: heartbeat::FRESH_MS,
         };
         for action in tracker.tick(&tick) {
@@ -780,14 +792,6 @@ fn lockdown_runner(
                     let gap = verdicts.get(browser).and_then(|v| v.gap);
                     log_ui_event(&app, "lockdown-warned");
                     deliver_warning(&app, "Lock-In is closing a browser", lockdown_warning(browser, lost_web_guard, wrong_account, gap));
-                }
-                lockdown::Action::IncognitoGap { browser } => {
-                    let name = browsers::name_of(browser);
-                    let message = format!(
-                        "{name} can stay open, but its Incognito windows aren't blocked. To cover them, turn on \"Allow in Incognito\" for Lock-In Web Guard in {name}'s extension settings."
-                    );
-                    log_ui_event(&app, "lockdown-incognito-gap");
-                    deliver_warning(&app, "Incognito isn't covered", message);
                 }
                 lockdown::Action::SoftClose { browser } => {
                     if let Some(pids) = running.get(browser) {
@@ -806,6 +810,21 @@ fn lockdown_runner(
             }
         }
     }
+}
+
+/// What Web Guard is told about this PC's session in reply to a beat. Only a
+/// session that blocks sites, only to Web Guard signed in to its account.
+fn session_reply(p: &LockProfile, uid: Option<&str>, now: u64) -> heartbeat::SessionReply {
+    let same_account = match (&p.session_uid, uid) {
+        (Some(a), Some(b)) => a == b,
+        (None, Some(_)) => true,
+        _ => false,
+    };
+    let live = p.focus_active && p.session_blocks_sites && p.session_end_time.is_some_and(|e| e > now);
+    if !(live && same_account) {
+        return heartbeat::SessionReply::default();
+    }
+    heartbeat::SessionReply { active: true, end_time: p.session_end_time, bailout_end: p.bailout_deadline }
 }
 
 /// Epoch milliseconds, monotonic enough for a wall-clock session deadline.
@@ -1859,7 +1878,9 @@ async fn lockdown_status(uid: Option<String>, app_state: State<'_, AppState>) ->
             .collect();
         let now = now_millis();
         let uid = uid.as_deref();
-        let is_fresh = |b: &str| beats.is_fresh(b, uid, now);
+        // Web Guard not allowed in Incognito or with limited site access doesn't
+        // keep a browser open (1.3.1), so the dialog names those browsers too.
+        let is_fresh = |b: &str| beats.protects(b, uid, now);
         let closable = lockdown::closable(&open, &is_fresh);
         LockdownStatus {
             listening,
@@ -1876,7 +1897,7 @@ async fn lockdown_status(uid: Option<String>, app_state: State<'_, AppState>) ->
                 .collect(),
             incognito_gaps: open
                 .iter()
-                .filter(|id| is_fresh(id) && beats.latest(id, uid).is_some_and(|b| !b.incognito_allowed))
+                .filter(|id| beats.is_fresh(id, uid, now) && beats.latest(id, uid).is_some_and(|b| !b.incognito_allowed))
                 .map(|id| browsers::name_of(id).to_string())
                 .collect(),
         }
@@ -2369,6 +2390,12 @@ pub fn run() {
                 let served = Arc::clone(&beats);
                 let listening = Arc::clone(&heartbeat_listening);
                 let app_for_log = handle.clone();
+                // Web Guard's reply: this PC's own session, for the account it runs.
+                let session_profile = Arc::clone(&profile_for_setup);
+                let session_for: heartbeat::SessionFor = Arc::new(move |uid: Option<&str>| {
+                    let Ok(p) = session_profile.lock() else { return heartbeat::SessionReply::default() };
+                    session_reply(&p, uid, now_millis())
+                });
                 thread::spawn(move || {
                     let listener = match first {
                         Ok(listener) => listener,
@@ -2385,7 +2412,7 @@ pub fn run() {
                         ),
                     };
                     println!("[Heartbeat] listening on 127.0.0.1:{}", heartbeat::PORT);
-                    heartbeat::serve(listener, allowed, served, now_millis, attest::who);
+                    heartbeat::serve(listener, allowed, served, now_millis, attest::who, session_for);
                 });
             }
 
@@ -2948,6 +2975,34 @@ mod tests {
             assert!(m.contains("can't block sites in it"), "{m}");
         }
         assert!(lockdown_warning("edge", true, false, None).starts_with("Web Guard stopped answering in Edge"));
+    }
+
+    #[test]
+    fn web_guard_is_told_only_its_own_accounts_site_session() {
+        let mut p: LockProfile = serde_json::from_str("{}").unwrap();
+        p.focus_active = true;
+        p.session_blocks_sites = true;
+        p.session_end_time = Some(10_000);
+        p.session_uid = Some("u1".into());
+        p.bailout_deadline = Some(8_000);
+        let r = super::session_reply(&p, Some("u1"), 1_000);
+        assert_eq!((r.active, r.end_time, r.bailout_end), (true, Some(10_000), Some(8_000)));
+        assert!(!super::session_reply(&p, Some("u2"), 1_000).active, "another account");
+        assert!(!super::session_reply(&p, None, 1_000).active, "signed out");
+        assert!(!super::session_reply(&p, Some("u1"), 10_000).active, "over");
+        p.session_blocks_sites = false;
+        assert!(!super::session_reply(&p, Some("u1"), 1_000).active, "apps only");
+    }
+
+    #[test]
+    fn incognito_and_site_access_gaps_say_how_to_fix_them() {
+        use crate::coverage::Gap;
+        let m = lockdown_warning("edge", false, false, Some(Gap::Incognito));
+        assert!(m.contains("isn't allowed in Edge's Incognito windows") && m.contains("Allow in Incognito"), "{m}");
+        let m = lockdown_warning("chrome", false, false, Some(Gap::SiteAccess));
+        assert!(m.contains("site access is limited") && m.contains("On all sites"), "{m}");
+        let m = lockdown_warning("brave", false, false, Some(Gap::NotLocked));
+        assert!(m.starts_with("Web Guard in Brave isn't blocking this session."), "{m}");
     }
 
     #[test]

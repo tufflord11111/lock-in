@@ -4,7 +4,7 @@ import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extensio
 import { buildRules, sameRules } from "./dnrRules.js";
 import { browserFromBrands, BEAT_URL, beatBody, WINDOW_TYPES } from "./beat.js";
 import { isLocked, signOutClears } from "./lockState.js";
-import { nextHold, holdUntil } from "./sessionHold.js";
+import { nextHold, holdUntil, nextDesktopHold, laterHoldUntil } from "./sessionHold.js";
 import { sessionSiteList, permanentSiteList, freezeSessionSites, effectiveSites } from "./sessionSites.js";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
@@ -67,6 +67,13 @@ let unlockExpiry = null;
 // A guarded (1.3.1) session seen earlier: blocks until it ends, whatever the
 // flags say later (sessionHold.js). { endTime, bailoutEnd, seenNoFuseAt } or null.
 let sessionHold = null;
+// The desktop app's own session, from its reply to a beat (1.3.1): blocks
+// until it ends even if Firebase never says so. Same shape as sessionHold.
+let desktopHold = null;
+/** When the later of the two holds lifts, or null. */
+function heldUntil() {
+  return laterHoldUntil(sessionHold, desktopHold);
+}
 let activeDynamicBlacklist = [...STATIC_BLACKLIST];
 // The running session's lists as they were at its start plus anything added,
 // { endTime, sites, permanent }, or null. Removals wait for the session's end.
@@ -104,6 +111,7 @@ const hydrating = (async () => {
       }
       if (g.signOutPending === true) signOutPending = true;
       if (holdUntil(g.sessionHold) !== null) sessionHold = g.sessionHold;
+      if (holdUntil(g.desktopHold) !== null) desktopHold = g.desktopHold;
       console.log("[Lock-In] hydrated guard state from storage", {
         sites: activeDynamicBlacklist.length,
         permanent: permanentBlocklist.length,
@@ -134,8 +142,9 @@ function persistGuardState() {
     frozenSession,
     signOutPending,
     sessionHold,
+    desktopHold,
     // The popup decides from this copy too (isLocked reads holdUntil).
-    holdUntil: holdUntil(sessionHold),
+    holdUntil: heldUntil(),
     savedAt: Date.now(),
   };
   chrome.storage.local.set({ [PERSIST_KEY]: payload }).catch((err) =>
@@ -301,19 +310,22 @@ function stopLockInSession() {
   signOutPending = false;
   sessionHold = null;
   storedUid = null;
-  chrome.storage.local.remove(PERSIST_KEY).catch(() => {});
+  // This PC's own session isn't the account's to clear: it holds until it ends.
+  if (holdUntil(desktopHold) === null || Date.now() >= holdUntil(desktopHold)) desktopHold = null;
+  if (desktopHold) persistGuardState();
+  else chrome.storage.local.remove(PERSIST_KEY).catch(() => {});
   updateBadge();
   return applyRules();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function lockInputs() {
-  return { manualLock, focusActive, sessionEndTime, unlockExpiry, holdUntil: holdUntil(sessionHold) };
+  return { manualLock, focusActive, sessionEndTime, unlockExpiry, holdUntil: heldUntil() };
 }
 
 /** The session the lists are frozen for: the held one while it lasts, else the flags. */
 function heldSession() {
-  const until = holdUntil(sessionHold);
+  const until = heldUntil();
   if (until !== null && Date.now() < until) {
     const end = focusActive && typeof sessionEndTime === "number" ? Math.max(until, sessionEndTime) : until;
     return { focusActive: true, endTime: end };
@@ -356,18 +368,40 @@ async function beatToDesktop() {
   // browser: one Web Guard can't see is a Guest window, another profile, or
   // Incognito without access.
   const windows = await chrome.windows.getAll({ windowTypes: WINDOW_TYPES }).then((w) => w.length, () => null);
-  fetch(BEAT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(beatBody({
-      browser,
-      version: chrome.runtime.getManifest().version,
-      incognitoAllowed,
-      uid,
-      profileId: await profileId(),
-      windows,
-    })),
-  }).catch(() => {});
+  // Site access cut to "on click" or a few sites in the browser's settings
+  // means some sites can't be blocked: the app treats that as no Web Guard.
+  const hostAccess = await chrome.permissions.contains({ origins: ["<all_urls>"] }).catch(() => false);
+  let reply = null;
+  try {
+    const res = await fetch(BEAT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(beatBody({
+        browser,
+        version: chrome.runtime.getManifest().version,
+        incognitoAllowed,
+        uid,
+        profileId: await profileId(),
+        windows,
+        locked: isLockedNow(),
+        hostAccess,
+      })),
+    });
+    if (res.status === 200) reply = await res.json().catch(() => null);
+  } catch {
+    return; // no app on this PC, or it isn't listening
+  }
+  // The app's own session: block for it even if Firebase never says so.
+  const wasLocked = isLockedNow();
+  desktopHold = nextDesktopHold(desktopHold, reply, Date.now());
+  persistGuardState();
+  if (isLockedNow() !== wasLocked) {
+    console.log("[Lock-In] the desktop app says a session is running — blocking");
+    updateBadge();
+    await applyRules();
+    // Tell the app at once that it's blocking now.
+    beatShortly();
+  }
 }
 
 // A random id for this profile, kept in its own storage, so the app can tell

@@ -21,6 +21,12 @@ pub const WINDOW_GRACE_MS: u64 = 5_000;
 pub enum Gap {
     /// An instance with no fresh beat for this account.
     NoBeat,
+    /// Web Guard's site access is cut to some sites or "on click".
+    SiteAccess,
+    /// Web Guard isn't allowed in Incognito, so those windows are unblocked.
+    Incognito,
+    /// Web Guard was told this session is live and still says it isn't blocking.
+    NotLocked,
     /// More windows than Web Guard can see.
     UnseenWindows,
 }
@@ -54,15 +60,33 @@ pub fn brand(instances: &[Instance], beats: &[Beat], uid: Option<&str>, now: u64
             return Verdict { at: None, gap: Some(Gap::NoBeat) };
         };
         oldest = Some(oldest.map_or(newest, |o: u64| o.min(newest)));
+        if fresh.iter().any(|b| b.host_access == Some(false)) {
+            return_first(&mut gap, Gap::SiteAccess);
+        }
+        if fresh.iter().any(|b| !b.incognito_allowed) {
+            return_first(&mut gap, Gap::Incognito);
+        }
+        // Told about the session by the reply to its last beat, and still not
+        // blocking: it can't be relied on (1.2.7 locks as soon as it's told).
+        if fresh.iter().any(|b| b.told_active && b.locked == Some(false)) {
+            return_first(&mut gap, Gap::NotLocked);
+        }
         // Web Guard before 1.2.7 doesn't count windows: the check needs every beat to.
         if fresh.iter().all(|b| b.windows.is_some()) {
             let seen: u32 = fresh.iter().map(|b| b.windows.unwrap_or(0)).sum();
             if inst.windows > seen {
-                gap = Some(Gap::UnseenWindows);
+                return_first(&mut gap, Gap::UnseenWindows);
             }
         }
     }
     Verdict { at: oldest, gap }
+}
+
+/// Keeps the first gap found: the one that says most about what to fix.
+fn return_first(gap: &mut Option<Gap>, g: Gap) {
+    if gap.is_none() {
+        *gap = Some(g);
+    }
 }
 
 /// Holds an unseen-window gap back for WINDOW_GRACE_MS before it counts.
@@ -110,6 +134,10 @@ mod tests {
             root,
             profile: profile.map(str::to_string),
             windows,
+            locked: Some(true),
+            host_access: Some(true),
+            told_active: true,
+            replied_active: true,
         }
     }
 
@@ -158,6 +186,36 @@ mod tests {
     fn a_stale_beat_counts_for_nothing() {
         let v = brand(&[Instance { root: 10, windows: 1 }], &[beat(10, 1_000, "u1", Some("p1"), Some(1))], Some("u1"), 1_000 + FRESH, FRESH);
         assert_eq!(v.gap, Some(Gap::NoBeat));
+    }
+
+    #[test]
+    fn web_guard_not_allowed_in_incognito_leaves_the_browser_uncovered() {
+        let mut b = beat(10, 1_000, "u1", Some("p1"), Some(1));
+        b.incognito_allowed = false;
+        let v = brand(&[Instance { root: 10, windows: 1 }], &[b], Some("u1"), 2_000, FRESH);
+        assert_eq!(v.gap, Some(Gap::Incognito));
+        // And there is no grace for it.
+        assert_eq!(Grace::default().last_beat("chrome", v, 2_000), None);
+    }
+
+    #[test]
+    fn web_guard_with_site_access_cut_leaves_the_browser_uncovered() {
+        let mut b = beat(10, 1_000, "u1", Some("p1"), Some(1));
+        b.host_access = Some(false);
+        let v = brand(&[Instance { root: 10, windows: 1 }], &[b], Some("u1"), 2_000, FRESH);
+        assert_eq!(v.gap, Some(Gap::SiteAccess));
+    }
+
+    #[test]
+    fn web_guard_told_of_the_session_but_not_blocking_leaves_it_uncovered() {
+        let mut b = beat(10, 1_000, "u1", Some("p1"), Some(1));
+        b.locked = Some(false);
+        let v = brand(&[Instance { root: 10, windows: 1 }], &[b.clone()], Some("u1"), 2_000, FRESH);
+        assert_eq!(v.gap, Some(Gap::NotLocked));
+        // The first beat of a session, sent before Web Guard was told: fine.
+        b.told_active = false;
+        let v = brand(&[Instance { root: 10, windows: 1 }], &[b], Some("u1"), 2_000, FRESH);
+        assert_eq!(v.gap, None);
     }
 
     #[test]

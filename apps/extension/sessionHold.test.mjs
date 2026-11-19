@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { nextHold, holdUntil, FUSE_MIN_MS } from "./sessionHold.js";
+import { nextHold, holdUntil, FUSE_MIN_MS, nextDesktopHold, laterHoldUntil } from "./sessionHold.js";
 import { isLocked } from "./lockState.js";
 
 const MIN = 60_000;
@@ -109,8 +109,45 @@ test("the worker decides with the hold, keeps it across eviction and account swi
   const { readFileSync } = await import("node:fs");
   const bg = readFileSync(new URL("./background.js", import.meta.url), "utf8");
   assert.match(bg, /sessionHold = nextHold\(sessionHold, data, Date\.now\(\)\);/);
-  assert.match(bg, /unlockExpiry, holdUntil: holdUntil\(sessionHold\) \};/);
+  assert.match(bg, /unlockExpiry, holdUntil: heldUntil\(\) \};/);
+  // heldUntil is the later of the Firebase hold and the desktop's reply (1.3.1).
+  assert.match(bg, /return laterHoldUntil\(sessionHold, desktopHold\);/);
   assert.match(bg, /if \(holdUntil\(g\.sessionHold\) !== null\) sessionHold = g\.sessionHold;/);
-  assert.match(bg, /holdUntil: holdUntil\(sessionHold\),/);
+  assert.match(bg, /holdUntil: heldUntil\(\),/);
+  assert.match(bg, /if \(holdUntil\(g\.desktopHold\) !== null\) desktopHold = g\.desktopHold;/);
   assert.match(bg, /if \(held\) \{\s+sessionHold = held;/);
+});
+
+test("the desktop's reply locks a Web Guard that never heard of the session from Firebase", () => {
+  const reply = { session: { active: true, endTime: 30 * MIN, bailoutEnd: null } };
+  const hold = nextDesktopHold(null, reply, 1 * MIN);
+  // Firebase still says nothing is running.
+  assert.equal(locked(off, hold, 2 * MIN), true);
+  assert.equal(locked(off, hold, 30 * MIN), false, "lifts at the desktop session's end");
+});
+
+test("a reply saying no session doesn't lift the desktop hold early", () => {
+  let hold = nextDesktopHold(null, { session: { active: true, endTime: 30 * MIN } }, 1 * MIN);
+  hold = nextDesktopHold(hold, { session: { active: false, endTime: null } }, 5 * MIN);
+  assert.equal(holdUntil(hold), 30 * MIN);
+  hold = nextDesktopHold(hold, null, 6 * MIN);
+  assert.equal(holdUntil(hold), 30 * MIN, "no reply at all (app closed) changes nothing");
+});
+
+test("the desktop's Bail out fuse lifts the hold when it burns down, not sooner", () => {
+  let hold = nextDesktopHold(null, { session: { active: true, endTime: 30 * MIN } }, 1 * MIN);
+  hold = nextDesktopHold(hold, { session: { active: true, endTime: 30 * MIN, bailoutEnd: 10 * MIN } }, 5 * MIN);
+  assert.equal(holdUntil(hold), 10 * MIN);
+  // A fuse claiming to be shorter than 4.5 min from when none was seen is stretched.
+  let h2 = nextDesktopHold(null, { session: { active: true, endTime: 30 * MIN } }, 1 * MIN);
+  h2 = nextDesktopHold(h2, { session: { active: true, endTime: 30 * MIN, bailoutEnd: 2 * MIN } }, 1.5 * MIN);
+  assert.equal(holdUntil(h2), 1 * MIN + FUSE_MIN_MS);
+});
+
+test("either hold keeps the block: the later end wins", () => {
+  const a = { endTime: 10 * MIN, bailoutEnd: null };
+  const b = { endTime: 20 * MIN, bailoutEnd: null };
+  assert.equal(laterHoldUntil(a, b), 20 * MIN);
+  assert.equal(laterHoldUntil(null, a), 10 * MIN);
+  assert.equal(laterHoldUntil(null, null), null);
 });

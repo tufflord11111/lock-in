@@ -47,7 +47,28 @@ pub struct BeatBody {
     /// plus Incognito's when it's allowed there.
     #[serde(default)]
     pub windows: Option<u32>,
+    /// Web Guard is blocking session sites right now (1.2.7+).
+    #[serde(default)]
+    pub locked: Option<bool>,
+    /// Web Guard can act on every site (1.2.7+). False when its site access was
+    /// cut to "on click" or a few sites in the browser's extension settings.
+    #[serde(default)]
+    pub host_access: Option<bool>,
 }
+
+/// What the desktop tells Web Guard in reply to a beat: its own session, so a
+/// Web Guard that never heard of it from Firebase (blocked, offline, or an
+/// account token writing focusActive false) blocks anyway.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionReply {
+    pub active: bool,
+    pub end_time: Option<u64>,
+    pub bailout_end: Option<u64>,
+}
+
+/// The desktop's session for a beat from this account.
+pub type SessionFor = Arc<dyn Fn(Option<&str>) -> SessionReply + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Beat {
@@ -60,6 +81,13 @@ pub struct Beat {
     pub root: u32,
     pub profile: Option<String>,
     pub windows: Option<u32>,
+    pub locked: Option<bool>,
+    pub host_access: Option<bool>,
+    /// The reply to this copy's previous beat said a session is live, so this
+    /// beat was sent knowing about it.
+    pub told_active: bool,
+    /// What the reply to this beat said.
+    pub replied_active: bool,
 }
 
 impl Beat {
@@ -98,12 +126,14 @@ pub struct BeatStore {
 }
 
 impl BeatStore {
-    pub fn record(&self, body: BeatBody, root: u32, now: u64) {
+    /// `replied_active`: what the reply to this beat says.
+    pub fn record(&self, body: BeatBody, root: u32, now: u64, replied_active: bool) {
         if let Ok(mut beats) = self.beats.lock() {
             beats.retain(|_, b| now.saturating_sub(b.at) < FORGET_MS);
-            let profile = body.profile_id.clone().unwrap_or_default();
+            let key = (body.browser.clone(), root, body.profile_id.clone().unwrap_or_default());
+            let told_active = beats.get(&key).is_some_and(|prev| prev.replied_active);
             beats.insert(
-                (body.browser, root, profile),
+                key,
                 Beat {
                     at: now,
                     incognito_allowed: body.incognito_allowed,
@@ -111,9 +141,25 @@ impl BeatStore {
                     root,
                     profile: body.profile_id,
                     windows: body.windows,
+                    locked: body.locked,
+                    host_access: body.host_access,
+                    told_active,
+                    replied_active,
                 },
             );
         }
+    }
+
+    /// A fresh beat for this account from a Web Guard that can block in every
+    /// window: allowed in Incognito, and with access to every site. What the
+    /// Start dialog asks; lockdown asks coverage.rs, per instance.
+    pub fn protects(&self, browser: &str, uid: Option<&str>, now: u64) -> bool {
+        self.all(browser).iter().any(|b| {
+            b.counts_for(uid)
+                && now.saturating_sub(b.at) < FRESH_MS
+                && b.incognito_allowed
+                && b.host_access != Some(false)
+        })
     }
 
     /// Every beat from this browser, any instance.
@@ -239,9 +285,10 @@ pub fn attested_for(body: &BeatBody, who: Option<Attested>) -> Result<u32, Rejec
     }
 }
 
-fn handle(mut stream: TcpStream, port: u16, allowed: &[String], store: &BeatStore, now: u64, attest: Attest) {
+fn handle(mut stream: TcpStream, port: u16, allowed: &[String], store: &BeatStore, now: u64, attest: Attest, session: &SessionFor) {
     let peer = stream.peer_addr().ok();
     let local = stream.local_addr().ok();
+    let mut reply_body = String::new();
     let status = match read_request(&mut stream) {
         None => "400 Bad Request",
         Some(request) => match accept_beat(&request, port, allowed) {
@@ -252,8 +299,10 @@ fn handle(mut stream: TcpStream, port: u16, allowed: &[String], store: &BeatStor
                 };
                 match attested_for(&beat, who) {
                     Ok(root) => {
-                        store.record(beat, root, now);
-                        "204 No Content"
+                        let reply = session(beat.uid.as_deref());
+                        reply_body = serde_json::json!({ "session": reply }).to_string();
+                        store.record(beat, root, now, reply.active);
+                        "200 OK"
                     }
                     Err(_) => {
                         println!("[Heartbeat] refused a beat that didn't come from {}", beat.browser);
@@ -266,15 +315,23 @@ fn handle(mut stream: TcpStream, port: u16, allowed: &[String], store: &BeatStor
             Err(Rejected::BadBody) | Err(Rejected::UnidentifiedBrowser) => "422 Unprocessable Entity",
         },
     };
-    let _ = write!(stream, "HTTP/1.1 {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", status);
+    let content_type = if reply_body.is_empty() { "" } else { "Content-Type: application/json\r\n" };
+    let _ = write!(
+        stream,
+        "HTTP/1.1 {}\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status,
+        content_type,
+        reply_body.len(),
+        reply_body
+    );
 }
 
 /// Serve on this listener until the process ends. One at a time, each bounded by
 /// the read timeout, so a stuck client costs at most a beat or two.
-pub fn serve(listener: TcpListener, allowed: Vec<String>, store: Arc<BeatStore>, clock: fn() -> u64, attest: Attest) {
+pub fn serve(listener: TcpListener, allowed: Vec<String>, store: Arc<BeatStore>, clock: fn() -> u64, attest: Attest, session: SessionFor) {
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(PORT);
     for stream in listener.incoming().flatten() {
-        handle(stream, port, &allowed, &store, clock(), attest);
+        handle(stream, port, &allowed, &store, clock(), attest, &session);
     }
 }
 
@@ -395,6 +452,8 @@ mod tests {
             uid: uid.map(str::to_string),
             profile_id: None,
             windows: None,
+            locked: None,
+            host_access: None,
         }
     }
 
@@ -404,13 +463,13 @@ mod tests {
         // No beat: can't tell.
         assert!(!store.wrong_account("edge", Some("u1"), 1_000));
         // Signed out.
-        store.record(body("edge", None), 1, 1_000);
+        store.record(body("edge", None), 1, 1_000, false);
         assert!(store.wrong_account("edge", Some("u1"), 2_000));
         // Another account.
-        store.record(body("chrome", Some("u2")), 1, 1_000);
+        store.record(body("chrome", Some("u2")), 1, 1_000, false);
         assert!(store.wrong_account("chrome", Some("u1"), 2_000));
         // This account: counts, so not wrong.
-        store.record(body("brave", Some("u1")), 1, 1_000);
+        store.record(body("brave", Some("u1")), 1, 1_000, false);
         assert!(!store.wrong_account("brave", Some("u1"), 2_000));
         // A stale beat says nothing either way.
         assert!(!store.wrong_account("edge", Some("u1"), 1_000 + FRESH_MS));
@@ -420,7 +479,7 @@ mod tests {
     fn freshness_reads_the_clock_and_goes_stale_at_60_s() {
         let store = BeatStore::default();
         assert!(!store.is_fresh("chrome", Some("u1"), 1_000));
-        store.record(body("chrome", Some("u1")), 1, 1_000);
+        store.record(body("chrome", Some("u1")), 1, 1_000, false);
         assert!(store.is_fresh("chrome", Some("u1"), 60_999));
         assert!(!store.is_fresh("chrome", Some("u1"), 61_000));
         assert!(!store.is_fresh("edge", Some("u1"), 1_000));
@@ -429,11 +488,11 @@ mod tests {
     #[test]
     fn a_beat_only_counts_for_the_account_web_guard_is_signed_in_to() {
         let store = BeatStore::default();
-        store.record(body("chrome", Some("u1")), 1, 1_000);
+        store.record(body("chrome", Some("u1")), 1, 1_000, false);
         assert!(!store.is_fresh("chrome", Some("u2"), 1_000));
         assert!(store.is_fresh("chrome", None, 1_000));
         // Signed out, it blocks nothing, so it never counts.
-        store.record(body("chrome", None), 1, 2_000);
+        store.record(body("chrome", None), 1, 2_000, false);
         assert!(!store.is_fresh("chrome", Some("u1"), 2_000));
         assert!(!store.is_fresh("chrome", None, 2_000));
     }
@@ -449,7 +508,12 @@ mod tests {
         fn edge(_: SocketAddr, _: SocketAddr) -> Option<Attested> {
             Some(Attested { browser: "edge", root: 42 })
         }
-        std::thread::spawn(move || serve(listener, ids(), served, || 5_000, edge));
+        let session: SessionFor = Arc::new(|uid: Option<&str>| SessionReply {
+            active: uid == Some("u1"),
+            end_time: Some(9_000),
+            bailout_end: None,
+        });
+        std::thread::spawn(move || serve(listener, ids(), served, || 5_000, edge, session));
 
         let host = format!("127.0.0.1:{}", addr.port());
         let send = |text: String| {
@@ -461,9 +525,21 @@ mod tests {
         };
         assert!(send(request(&host, Some("https://evil.example"), OK_BODY)).contains("403"));
         assert!(!store.is_fresh("edge", Some("u1"), 5_000));
-        assert!(send(request(&host, Some(ORIGIN), OK_BODY)).contains("204"));
+        let reply = send(request(&host, Some(ORIGIN), OK_BODY));
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        // The reply carries the desktop's own session.
+        let json: serde_json::Value = serde_json::from_str(reply.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(json, serde_json::json!({ "session": { "active": true, "endTime": 9000, "bailoutEnd": null } }));
         assert!(store.is_fresh("edge", Some("u1"), 5_000));
-        assert_eq!(store.latest("edge", Some("u1")).unwrap().root, 42);
+        let first = store.latest("edge", Some("u1")).unwrap();
+        assert_eq!(first.root, 42);
+        assert!(!first.told_active && first.replied_active);
+        // The next beat was sent knowing about the session.
+        send(request(&host, Some(ORIGIN), OK_BODY));
+        assert!(store.latest("edge", Some("u1")).unwrap().told_active);
+        // Another account's Web Guard isn't told about this session.
+        let other = send(request(&host, Some(ORIGIN), &OK_BODY.replace("u1", "u2")));
+        assert!(other.contains(r#""active":false"#), "{other}");
         // Claiming to be Chrome from a connection Windows says is Edge's.
         let chrome = OK_BODY.replace("\"edge\"", "\"chrome\"");
         assert!(send(request(&host, Some(ORIGIN), &chrome)).contains("403"));
@@ -488,7 +564,8 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let store = Arc::new(BeatStore::default());
         let served = Arc::clone(&store);
-        std::thread::spawn(move || serve(listener, ids(), served, || 5_000, crate::attest::who));
+        let session: SessionFor = Arc::new(|_: Option<&str>| SessionReply { active: true, end_time: Some(9_000), bailout_end: None });
+        std::thread::spawn(move || serve(listener, ids(), served, || 5_000, crate::attest::who, session));
         let out = std::process::Command::new(curl)
             .args([
                 "-s", "-o", "NUL", "-w", "%{http_code}", "-X", "POST",
@@ -537,18 +614,33 @@ mod tests {
     }
 
     #[test]
+    fn the_start_dialog_counts_only_web_guard_that_can_block_everywhere() {
+        let store = BeatStore::default();
+        store.record(body("chrome", Some("u1")), 1, 1_000, false);
+        assert!(store.protects("chrome", Some("u1"), 2_000));
+        let mut no_incognito = body("edge", Some("u1"));
+        no_incognito.incognito_allowed = false;
+        store.record(no_incognito, 2, 1_000, false);
+        assert!(!store.protects("edge", Some("u1"), 2_000));
+        let mut few_sites = body("brave", Some("u1"));
+        few_sites.host_access = Some(false);
+        store.record(few_sites, 3, 1_000, false);
+        assert!(!store.protects("brave", Some("u1"), 2_000));
+    }
+
+    #[test]
     fn beats_are_kept_per_instance_and_profile() {
         let store = BeatStore::default();
         let mut a = body("chrome", Some("u1"));
         a.profile_id = Some("p1".into());
         let mut b = a.clone();
         b.profile_id = Some("p2".into());
-        store.record(a.clone(), 10, 1_000);
-        store.record(b, 10, 1_000);
-        store.record(a, 20, 1_000);
+        store.record(a.clone(), 10, 1_000, false);
+        store.record(b, 10, 1_000, false);
+        store.record(a, 20, 1_000, false);
         assert_eq!(store.all("chrome").len(), 3);
         // Forgotten after ten minutes.
-        store.record(body("edge", Some("u1")), 1, 1_000 + FORGET_MS);
+        store.record(body("edge", Some("u1")), 1, 1_000 + FORGET_MS, false);
         assert_eq!(store.all("chrome").len(), 0);
     }
 }

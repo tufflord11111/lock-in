@@ -28,8 +28,6 @@ pub enum Action {
     },
     SoftClose { browser: &'static str },
     ForceClose { browser: &'static str },
-    /// Allowed, but Web Guard can't see this browser's private windows. Once.
-    IncognitoGap { browser: &'static str },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,7 +45,6 @@ enum Phase {
 #[derive(Debug, Clone)]
 struct Entry {
     phase: Phase,
-    incognito_warned: bool,
     /// Has had a fresh beat at some point this session.
     had_beat: bool,
     /// Lost Web Guard mid-session and was closed: stays closed until it ends,
@@ -94,10 +91,9 @@ pub struct Tick<'a> {
     pub online: bool,
     /// Ids of the known browsers running right now.
     pub running: &'a [&'static str],
-    /// The browser's latest beat counting for this session's account, if any.
+    /// The browser's latest beat counting for this session's account, if any:
+    /// None when coverage.rs finds it isn't fully covered.
     pub last_beat: &'a dyn Fn(&str) -> Option<u64>,
-    /// Its latest beat said Web Guard isn't allowed in Incognito.
-    pub incognito_off: &'a dyn Fn(&str) -> bool,
     pub fresh_ms: u64,
 }
 
@@ -126,7 +122,7 @@ impl Tracker {
         }
         let mut actions = Vec::new();
         for browser in KNOWN {
-            let entry = self.entries.entry(browser.id).or_insert(Entry { phase: Phase::Clear, incognito_warned: false, had_beat: false, banned: false, was_running: false });
+            let entry = self.entries.entry(browser.id).or_insert(Entry { phase: Phase::Clear, had_beat: false, banned: false, was_running: false });
             // Nobody read a warning that ran out while the PC was asleep.
             if woke {
                 if let Phase::Warned { .. } = entry.phase {
@@ -151,10 +147,6 @@ impl Tracker {
                     _ => Phase::Clear,
                 };
                 continue;
-            }
-            if t.lockdown && fresh && !entry.incognito_warned && (t.incognito_off)(browser.id) {
-                entry.incognito_warned = true;
-                actions.push(Action::IncognitoGap { browser: browser.id });
             }
             match entry.phase {
                 Phase::Clear => {
@@ -230,7 +222,6 @@ mod tests {
                 online: true,
                 running,
                 last_beat: beats,
-                incognito_off: &|_| false,
                 fresh_ms: 60_000,
             };
             for a in tracker.tick(&t) {
@@ -281,7 +272,6 @@ mod tests {
                 online: true,
                 running,
                 last_beat: &no_beats,
-                incognito_off: &|_| false,
                 fresh_ms: 60_000,
             };
             got.extend(t.tick(&tick).into_iter().map(|a| (now, a)));
@@ -307,7 +297,6 @@ mod tests {
                 online: true,
                 running: &["edge", "opera_gx"],
                 last_beat: &no_beats,
-                incognito_off: &|_| false,
                 fresh_ms: 60_000,
             };
             got.extend(t.tick(&tick));
@@ -435,7 +424,6 @@ mod tests {
                 online,
                 running: &["chrome"],
                 last_beat: beats,
-                incognito_off: &|_| false,
                 fresh_ms: 60_000,
             };
             for a in tracker.tick(&t) {
@@ -504,28 +492,6 @@ mod tests {
         run(&mut t, 0, 2_000, &[], &no_beats);
         let got = run(&mut t, 3_000, 9_000, &["firefox"], &no_beats);
         assert_eq!(got, vec![(8_000, Action::Warn { browser: "firefox", lost_web_guard: false })]);
-    }
-
-    #[test]
-    fn web_guard_without_incognito_stays_open_with_one_warning() {
-        let mut t = Tracker::default();
-        let beats = |_: &str| Some(0);
-        let off = |b: &str| b == "chrome";
-        let mut got = Vec::new();
-        for now in [1_000u64, 2_000, 30_000] {
-            let tick = Tick {
-                now,
-                lockdown: true,
-                blocks_sites: true,
-                online: true,
-                running: &["chrome", "edge"],
-                last_beat: &beats,
-                incognito_off: &off,
-                fresh_ms: 60_000,
-            };
-            got.extend(t.tick(&tick));
-        }
-        assert_eq!(got, vec![Action::IncognitoGap { browser: "chrome" }]);
     }
 
     #[test]
