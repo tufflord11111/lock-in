@@ -1505,14 +1505,42 @@ fn shortcut_target(path: String) -> Result<String, String> {
     .map_err(|_| "shortcut reader stopped".to_string())?
 }
 
+const NOT_LOCAL_SHORTCUT: &str = "Only a shortcut on this PC's own drives can be read";
+
+/// L6: a path on one of this PC's own drives, `X:\…` with X a fixed, removable,
+/// CD or RAM disk. Not a UNC or device path (`\\server\share`, `\\?\`, `\\.\`),
+/// nor a mapped network drive: reading one makes Windows connect to that
+/// server, offering the user's sign-in to it.
+fn local_drive_path(p: &str) -> bool {
+    use windows::core::HSTRING;
+    use windows::Win32::Storage::FileSystem::GetDriveTypeW;
+    const DRIVE_REMOVABLE: u32 = 2;
+    const DRIVE_FIXED: u32 = 3;
+    const DRIVE_CDROM: u32 = 5;
+    const DRIVE_RAMDISK: u32 = 6;
+    let b = p.as_bytes();
+    if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' || !(b[2] == b'\\' || b[2] == b'/') {
+        return false;
+    }
+    let root = HSTRING::from(format!("{}:\\", b[0] as char));
+    // SAFETY: GetDriveTypeW only reads the root path string it is given.
+    let kind = unsafe { GetDriveTypeW(&root) };
+    matches!(kind, DRIVE_REMOVABLE | DRIVE_FIXED | DRIVE_CDROM | DRIVE_RAMDISK)
+}
+
 #[tauri::command]
 fn resolve_shortcut(shortcut_path: String) -> Result<String, String> {
     // Verify it ends in .lnk or .exe
     if !shortcut_path.ends_with(".lnk") && !shortcut_path.ends_with(".exe") {
         return Err("Invalid shortcut path".to_string());
     }
+    // Checked before the shortcut is opened: opening it is what reaches out.
+    if !local_drive_path(&shortcut_path) {
+        return Err(NOT_LOCAL_SHORTCUT.to_string());
+    }
     match shortcut_target(shortcut_path) {
-        Ok(target) if !target.is_empty() => Ok(target),
+        // Only a local target, too: the name blocked is the program's on this PC.
+        Ok(target) if !target.is_empty() && local_drive_path(&target) => Ok(target),
         _ => Err("Could not resolve shortcut".to_string()),
     }
 }
@@ -2797,7 +2825,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, store_browser_candidates, lockdown_warning, WEB_GUARD_STORE_URL, WRONG_ACCOUNT, close_hides, may_kill, own_process_tree, is_webview2_image, ImagePaths, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, local_drive_path, NOT_LOCAL_SHORTCUT, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, store_browser_candidates, lockdown_warning, WEB_GUARD_STORE_URL, WRONG_ACCOUNT, close_hides, may_kill, own_process_tree, is_webview2_image, ImagePaths, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -3070,6 +3098,32 @@ mod tests {
             assert_eq!(got.to_lowercase(), notepad.to_lowercase(), "{}", name);
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn l6_only_shortcuts_on_this_pcs_drives_are_read() {
+        for p in [
+            r"\\server\share\game.lnk",
+            r"\\?\UNC\server\share\game.lnk",
+            r"\\?\C:\Users\u\game.lnk",
+            r"\\.\C:\Users\u\game.lnk",
+            "//server/share/game.lnk",
+            r"C:game.lnk",
+            r"\Users\u\game.lnk",
+            "game.lnk",
+        ] {
+            assert_eq!(resolve_shortcut(p.to_string()).unwrap_err(), NOT_LOCAL_SHORTCUT, "{p}");
+        }
+    }
+
+    #[test]
+    fn l6_a_local_drive_is_a_drive_letter_on_a_disk_here() {
+        let system_drive = std::env::var("SystemDrive").unwrap(); // "C:"
+        assert!(local_drive_path(&format!(r"{system_drive}\Users\u\game.lnk")));
+        assert!(local_drive_path(&format!("{system_drive}/Users/u/game.exe")));
+        for p in [r"\\server\share\game.exe", r"\\?\C:\game.exe", r"\\.\pipe\x", "C:game.exe", "", "C:", r"1:\game.exe"] {
+            assert!(!local_drive_path(p), "{p}");
+        }
     }
 
     #[test]
