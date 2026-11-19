@@ -3596,6 +3596,56 @@ mod tests {
         assert_eq!(conf["app"]["windows"][0]["focus"], false);
     }
 
+    /// The webview's CSP, directive by directive (1.3.1 M10).
+    fn csp_directives() -> std::collections::HashMap<String, Vec<String>> {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let store: serde_json::Value = serde_json::from_str(include_str!("../tauri.store.conf.json")).unwrap();
+        assert!(store["app"]["security"].get("csp").is_none(), "the Store build must use the same CSP");
+        let csp = conf["app"]["security"]["csp"].as_str().unwrap();
+        csp.split(';')
+            .filter_map(|d| {
+                let mut parts = d.split_whitespace();
+                Some((parts.next()?.to_string(), parts.map(str::to_string).collect()))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn m10_the_csp_names_the_exact_database_and_no_eval() {
+        const DB: &str = "synchrofocus-ac0f2-default-rtdb.asia-southeast1.firebasedatabase.app";
+        let d = csp_directives();
+        let all: Vec<&String> = d.values().flatten().collect();
+        assert!(!all.iter().any(|s| s.as_str() == "'unsafe-eval'"), "unsafe-eval");
+        assert!(!all.iter().any(|s| s.contains('*')), "a wildcard host: {:?}", all.iter().filter(|s| s.contains('*')).collect::<Vec<_>>());
+        for bare in ["https:", "wss:", "http:", "ws:", "*"] {
+            for name in ["connect-src", "script-src", "frame-src", "default-src"] {
+                assert!(!d[name].iter().any(|s| s == bare), "{name} allows any {bare} host");
+            }
+        }
+        let want = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            d["connect-src"],
+            want(&[
+                "'self'", "ipc:", "http://ipc.localhost",
+                &format!("https://{DB}"), &format!("wss://{DB}"),
+                "https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com",
+            ])
+        );
+        assert_eq!(d["script-src"], want(&["'self'", "'unsafe-inline'", &format!("https://{DB}")]));
+        assert_eq!(d["frame-src"], want(&["https://calendar.google.com", &format!("https://{DB}")]));
+        assert_eq!(d["default-src"], want(&["'self'", "tauri:"]));
+    }
+
+    #[test]
+    fn m10_the_updater_is_not_the_webviews_business() {
+        // The updater fetches from Rust (tauri-plugin-updater), so the CSP doesn't
+        // need GitHub; the endpoint stays HTTPS on github.com.
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let endpoints = conf["plugins"]["updater"]["endpoints"].as_array().unwrap();
+        assert!(endpoints.iter().all(|e| e.as_str().unwrap().starts_with("https://github.com/")));
+        assert!(!csp_directives()["connect-src"].iter().any(|s| s.contains("github")));
+    }
+
     #[test]
     fn silent_launch_is_only_the_exact_flag() {
         assert!(is_silent_launch(&["app.exe", "--silently"]));
