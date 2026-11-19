@@ -342,7 +342,7 @@ const PROTECTED_PROCESSES: &[&str] = &[
 ];
 
 /// This binary's own process name: app.exe in the dev and direct-download builds,
-/// Lock-In.exe in the Store build.
+/// Lock-In.exe in the Store build. Terms that would match it are refused.
 fn own_process_stem() -> Option<String> {
     let exe = std::env::current_exe().ok()?;
     let safe: String = exe
@@ -360,12 +360,75 @@ fn own_process_stem() -> Option<String> {
 /// must stay blockable: it closes Edge and now passes over this.
 const WEBVIEW_PROCESS: &str = "msedgewebview2";
 
-/// PROTECTED_PROCESSES, the webview, and this binary's own process name.
-fn protected_process_names() -> Vec<String> {
-    let mut list: Vec<String> = PROTECTED_PROCESSES.iter().map(|s| s.to_string()).collect();
-    list.push(WEBVIEW_PROCESS.to_string());
-    list.extend(own_process_stem());
-    list
+/// Where the images the kill pass never ends live on this PC (M8, M9). A
+/// process is protected by its image path, not its name: a game copied to
+/// svchost.exe, msedgewebview2.exe or app.exe in Downloads isn't.
+/// Every path is lower case with `\` separators.
+struct ImagePaths {
+    /// %SystemRoot%, e.g. c:\windows.
+    windir: String,
+    /// This binary (current_exe).
+    own_exe: Option<String>,
+    /// The WebView2 runtime folders: …\Microsoft\EdgeWebView\Application\ under
+    /// Program Files (x86), Program Files, and the per-user install.
+    webview_dirs: Vec<String>,
+}
+
+fn norm_path(p: &str) -> String {
+    p.replace('/', "\\").to_lowercase()
+}
+
+impl ImagePaths {
+    fn of_this_pc() -> Self {
+        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+        let windir = norm_path(var("SystemRoot").as_deref().unwrap_or(r"C:\Windows")).trim_end_matches('\\').to_string();
+        let own_exe = std::env::current_exe().ok().map(|p| norm_path(&p.to_string_lossy()));
+        let webview_dirs = ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
+            .iter()
+            .filter_map(|k| var(k))
+            .map(|root| format!(r"{}\microsoft\edgewebview\application\", norm_path(&root).trim_end_matches('\\')))
+            .collect();
+        ImagePaths { windir, own_exe, webview_dirs }
+    }
+}
+
+/// A path with `.` or `..` parts isn't trusted as being where it starts. Windows
+/// reports images by their full canonical path, so a real one never has them.
+fn plain_path(p: &str) -> bool {
+    !p.split('\\').any(|part| part == "." || part == "..")
+}
+
+/// True for a file directly in `dir` or below it.
+fn under(p: &str, dir: &str) -> bool {
+    p.strip_prefix(dir).is_some_and(|rest| rest.starts_with('\\'))
+}
+
+/// M8: one of PROTECTED_PROCESSES running from where Windows keeps it
+/// (System32, SysWOW64, or explorer.exe in %SystemRoot%). An image Windows
+/// won't name to us at all (System, csrss under protection) is never killed.
+fn is_windows_image(stem: &str, path: Option<&str>, paths: &ImagePaths) -> bool {
+    if !PROTECTED_PROCESSES.contains(&stem) {
+        return false;
+    }
+    let Some(p) = path.map(norm_path) else { return true };
+    plain_path(&p)
+        && (under(&p, &format!(r"{}\system32", paths.windir))
+            || under(&p, &format!(r"{}\syswow64", paths.windir))
+            || p == format!(r"{}\explorer.exe", paths.windir))
+}
+
+/// M9: WebView2, known by its image: msedgewebview2.exe inside a WebView2
+/// runtime folder. Lock-In's window, and Teams' and Outlook's.
+fn is_webview2_image(path: Option<&str>, paths: &ImagePaths) -> bool {
+    let Some(p) = path.map(norm_path) else { return false };
+    plain_path(&p)
+        && p.ends_with(r"\msedgewebview2.exe")
+        && paths.webview_dirs.iter().any(|d| p.starts_with(d.as_str()))
+}
+
+/// This binary, by its full path.
+fn is_own_image(path: Option<&str>, paths: &ImagePaths) -> bool {
+    matches!((path.map(norm_path), &paths.own_exe), (Some(p), Some(own)) if &p == own)
 }
 
 /// True when the only thing a term could match is the webview ("webview", "view2"),
@@ -374,15 +437,16 @@ fn targets_only_webview(term: &str) -> bool {
     WEBVIEW_PROCESS.contains(term) && !"msedge".contains(term)
 }
 
-/// Every process Lock-In started, directly or not, from (pid, parent, is a browser).
-/// A browser ends the walk: "Install Web Guard" starts Chrome, and that Chrome is
-/// the user's, so it must not become unblockable.
+/// Lock-In and its own webview, from (pid, parent, image is WebView2): the root
+/// and the WebView2 processes descended from it through WebView2 processes (M9).
+/// Anything else Lock-In starts (a browser from "Install Web Guard", an app
+/// opened from a shortcut) is the user's and stays blockable.
 fn own_process_tree(processes: &[(u32, Option<u32>, bool)], root: u32) -> HashSet<u32> {
     let mut tree = HashSet::from([root]);
     loop {
         let before = tree.len();
-        for (pid, parent, is_browser) in processes {
-            if !is_browser && parent.is_some_and(|p| tree.contains(&p)) {
+        for (pid, parent, is_webview2) in processes {
+            if *is_webview2 && parent.is_some_and(|p| tree.contains(&p)) {
                 tree.insert(*pid);
             }
         }
@@ -392,14 +456,13 @@ fn own_process_tree(processes: &[(u32, Option<u32>, bool)], root: u32) -> HashSe
     }
 }
 
-fn own_tree_of(sys: &System) -> HashSet<u32> {
+fn own_tree_of(sys: &System, paths: &ImagePaths) -> HashSet<u32> {
     let processes: Vec<(u32, Option<u32>, bool)> = sys
         .processes()
         .iter()
         .map(|(pid, p)| {
-            let name = p.name().to_lowercase();
-            let stem = name.strip_suffix(".exe").unwrap_or(&name);
-            (pid.as_u32(), p.parent().map(|x| x.as_u32()), browsers::identify(stem, None).is_some())
+            let exe = p.exe().map(|e| e.to_string_lossy());
+            (pid.as_u32(), p.parent().map(|x| x.as_u32()), is_webview2_image(exe.as_deref(), paths))
         })
         .collect();
     own_process_tree(&processes, std::process::id())
@@ -421,9 +484,14 @@ fn terminate_process(pid: u32) -> bool {
     }
 }
 
-/// The kill pass's whole decision for one process.
-fn may_kill(stem: &str, pid: u32, term: &str, protected: &[String], own_tree: &HashSet<u32>) -> bool {
-    stem.contains(term) && !protected.iter().any(|p| p == stem) && !own_tree.contains(&pid)
+/// The kill pass's whole decision for one process, from its name stem and its
+/// image path (None when Windows won't give it).
+fn may_kill(stem: &str, pid: u32, image: Option<&str>, term: &str, paths: &ImagePaths, own_tree: &HashSet<u32>) -> bool {
+    stem.contains(term)
+        && !is_windows_image(stem, image, paths)
+        && !is_webview2_image(image, paths)
+        && !is_own_image(image, paths)
+        && !own_tree.contains(&pid)
 }
 
 /// True when a block term would match this binary's own process.
@@ -562,18 +630,20 @@ fn classify_block_entry(raw: String) -> BlockEntryVerdict {
 ///     not used — it would silently stop matching `Spotify.exe`;
 ///   * matched against the name without its `.exe` suffix, which is what
 ///     PowerShell's `$_.Name` exposed;
-///   * the protected list is re-applied here by exact name, mirroring the old
-///     `$protected -notcontains $_.Name.ToLower()` clause, so this stays a
-///     second boundary behind sanitize_block_entry rather than replacing it.
+///   * protected processes are re-checked here, by image path (may_kill: M8,
+///     M9), so this stays a second boundary behind sanitize_block_entry
+///     rather than replacing it.
 ///
-/// Caller must refresh `sys` first. Returns the names actually terminated.
-fn kill_processes_matching(sys: &System, term: &str, protected: &[String]) -> Vec<String> {
+/// Caller must refresh `sys` first, with exe paths. Returns the names actually
+/// terminated.
+fn kill_processes_matching(sys: &System, term: &str, paths: &ImagePaths) -> Vec<String> {
     let mut killed = Vec::new();
-    let own_tree = own_tree_of(sys);
+    let own_tree = own_tree_of(sys, paths);
     for (pid, process) in sys.processes() {
         let lowered = process.name().to_lowercase();
         let stem = lowered.strip_suffix(".exe").unwrap_or(&lowered);
-        if !may_kill(stem, pid.as_u32(), term, protected, &own_tree) {
+        let image = process.exe().map(|e| e.to_string_lossy());
+        if !may_kill(stem, pid.as_u32(), image.as_deref(), term, paths, &own_tree) {
             continue;
         }
         if terminate_process(pid.as_u32()) {
@@ -2612,9 +2682,8 @@ pub fn run() {
                     println!("[Enforcer] Loop tick — focus_active: {}, is_locked: {}, terms: {:?}",
                              focus_active, is_locked, terms);
 
-                    // Protected-process list, rebuilt per tick so the kill pass
-                    // below always carries the current binary name.
-                    let protected = protected_process_names();
+                    // Where the protected images live, read per tick (M8, M9).
+                    let image_paths = ImagePaths::of_this_pc();
 
                     // NOTE: is_locked is currently UNREACHABLE — permanently false.
                     // sync_lock_state is its only writer, and its only caller
@@ -2629,11 +2698,11 @@ pub fn run() {
 
                     if !terms.is_empty() {
                         // One cheap refresh per tick, not one process spawn per
-                        // term. ProcessRefreshKind::new() collects names and pids
-                        // only — no CPU, memory, disk or user lookups.
-                        sys.refresh_processes_specifics(ProcessRefreshKind::new());
+                        // term: names, pids and image paths (read once per
+                        // process) — no CPU, memory, disk or user lookups.
+                        sys.refresh_processes_specifics(ProcessRefreshKind::new().with_exe(UpdateKind::OnlyIfNotSet));
                         for term in &terms {
-                            let killed = kill_processes_matching(&sys, term, &protected);
+                            let killed = kill_processes_matching(&sys, term, &image_paths);
                             if killed.is_empty() {
                                 println!("[Enforcer] no match for '*{}*'", term);
                             } else {
@@ -2728,7 +2797,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, store_browser_candidates, lockdown_warning, WEB_GUARD_STORE_URL, WRONG_ACCOUNT, close_hides, may_kill, own_process_tree, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
+    use super::{boot_show, BootShow, quit_allowed, terminate_process, picker_names, pids_with_titled_main_window, TopWindow, resolve_shortcut, process_table_readable, sniper_status, shell_execute_succeeded, arm_refusal, awake_in_gap, store_browser_candidates, lockdown_warning, WEB_GUARD_STORE_URL, WRONG_ACCOUNT, close_hides, may_kill, own_process_tree, is_webview2_image, ImagePaths, targets_only_webview, other_install_present, targets_own_process, targets_protected, PROTECTED_PROCESSES, enforcement_decision, is_silent_launch, iso8601_utc, wipe_all_blocks, EnforcementDecision, LockProfile};
 
     fn profile_with_fuse() -> LockProfile {
         let mut p: LockProfile = serde_json::from_str("{}").unwrap();
@@ -2784,16 +2853,61 @@ mod tests {
         }
     }
 
+    fn this_pc() -> ImagePaths {
+        ImagePaths {
+            windir: r"c:\windows".to_string(),
+            own_exe: Some(r"c:\program files\lock-in\app.exe".to_string()),
+            webview_dirs: vec![r"c:\program files (x86)\microsoft\edgewebview\application\".to_string()],
+        }
+    }
+    const WEBVIEW: &str = r"c:\program files (x86)\microsoft\edgewebview\application\131.0.2903.70\msedgewebview2.exe";
+
     #[test]
     fn a_term_never_kills_the_webview_but_still_kills_edge() {
-        let protected = vec!["msedgewebview2".to_string(), "app".to_string()];
+        let paths = this_pc();
         let none = std::collections::HashSet::new();
-        assert!(may_kill("msedge", 10, "msedge", &protected, &none));
-        assert!(!may_kill("msedgewebview2", 11, "msedge", &protected, &none));
-        assert!(!may_kill("msedgewebview2", 11, "edge", &protected, &none));
-        assert!(!may_kill("app", 12, "app", &protected, &none));
-        assert!(may_kill("whatsapp", 13, "whatsapp", &protected, &none));
-        assert!(!may_kill("notepad", 14, "discord", &protected, &none));
+        let edge = Some(r"c:\program files (x86)\microsoft\edge\application\msedge.exe");
+        assert!(may_kill("msedge", 10, edge, "msedge", &paths, &none));
+        assert!(!may_kill("msedgewebview2", 11, Some(WEBVIEW), "msedge", &paths, &none));
+        assert!(!may_kill("msedgewebview2", 11, Some(WEBVIEW), "edge", &paths, &none));
+        assert!(!may_kill("app", 12, Some(r"c:\program files\lock-in\app.exe"), "app", &paths, &none));
+        assert!(may_kill("whatsapp", 13, Some(r"c:\users\u\whatsapp.exe"), "whatsapp", &paths, &none));
+        assert!(!may_kill("notepad", 14, Some(r"c:\windows\system32\notepad.exe"), "discord", &paths, &none));
+    }
+
+    #[test]
+    fn m8_windows_processes_are_protected_where_windows_keeps_them() {
+        let paths = this_pc();
+        let none = std::collections::HashSet::new();
+        assert!(!may_kill("svchost", 1, Some(r"c:\windows\system32\svchost.exe"), "svchost", &paths, &none));
+        assert!(!may_kill("svchost", 1, Some(r"c:\windows\syswow64\svchost.exe"), "svchost", &paths, &none));
+        assert!(!may_kill("explorer", 2, Some(r"c:\windows\explorer.exe"), "explorer", &paths, &none));
+        assert!(!may_kill("taskmgr", 3, Some(r"c:\windows\system32\taskmgr.exe"), "taskmgr", &paths, &none));
+        // An image Windows won't name to us (csrss, System): never killed.
+        assert!(!may_kill("csrss", 4, None, "csrss", &paths, &none));
+        assert!(!may_kill("system", 5, None, "system", &paths, &none));
+    }
+
+    #[test]
+    fn m8_a_protected_name_anywhere_else_is_not_protected() {
+        let paths = this_pc();
+        let none = std::collections::HashSet::new();
+        // A game copied to these names keeps no protection from the name.
+        assert!(may_kill("svchost", 20, Some(r"c:\users\u\downloads\svchost.exe"), "svchost", &paths, &none));
+        assert!(may_kill("explorer", 21, Some(r"c:\windows\system32\..\..\users\u\explorer.exe"), "explorer", &paths, &none));
+        assert!(may_kill("explorer", 22, Some(r"c:\games\explorer.exe"), "explorer", &paths, &none));
+        assert!(may_kill("msedgewebview2", 23, Some(r"c:\users\u\desktop\msedgewebview2.exe"), "msedge", &paths, &none));
+        assert!(may_kill("app", 24, Some(r"c:\users\u\app.exe"), "app", &paths, &none));
+        // A Windows folder name used as a prefix of another folder is not it.
+        assert!(may_kill("svchost", 25, Some(r"c:\windows\system32x\svchost.exe"), "svchost", &paths, &none));
+    }
+
+    #[test]
+    fn m8_paths_compare_without_case_or_slash_differences() {
+        let paths = this_pc();
+        let none = std::collections::HashSet::new();
+        assert!(!may_kill("svchost", 1, Some(r"C:\Windows\System32\SVCHOST.EXE"), "svchost", &paths, &none));
+        assert!(!may_kill("app", 2, Some("C:/Program Files/Lock-In/App.exe"), "app", &paths, &none));
     }
 
     #[test]
@@ -2807,27 +2921,43 @@ mod tests {
     }
 
     #[test]
-    fn nothing_in_lock_ins_own_tree_is_killed() {
+    fn nothing_in_lock_ins_own_webview_tree_is_killed() {
+        // (pid, parent, image is WebView2)
         let processes = [
             (100, Some(1), false),   // app.exe, us
-            (101, Some(100), false), // a webview
-            (102, Some(101), false), // its helper
-            (200, Some(1), false),   // someone else's
-            (201, Some(200), false),
+            (101, Some(100), true),  // our webview
+            (102, Some(101), true),  // its renderer
+            (200, Some(1), true),    // Teams' webview
+            (201, Some(200), true),
         ];
         let tree = own_process_tree(&processes, 100);
         assert_eq!(tree, std::collections::HashSet::from([100, 101, 102]));
-        let protected = vec![];
-        assert!(!may_kill("somehelper", 102, "helper", &protected, &tree));
-        assert!(may_kill("somehelper", 201, "helper", &protected, &tree));
     }
 
     #[test]
-    fn a_browser_we_opened_is_not_in_our_tree() {
-        // "Install Web Guard" starts Chrome: blocking it must still work.
-        let processes = [(100, Some(1), false), (300, Some(100), true), (301, Some(300), true)];
+    fn m9_only_webview2_images_join_our_tree() {
+        // Anything else Lock-In happens to start is the user's, and blockable.
+        let processes = [
+            (100, Some(1), false),   // us
+            (101, Some(100), true),  // our webview
+            (300, Some(100), false), // a browser, an app opened from a shortcut, a game
+            (301, Some(300), false),
+            (302, Some(101), false), // even under the webview: not WebView2, not ours
+        ];
         let tree = own_process_tree(&processes, 100);
-        assert_eq!(tree, std::collections::HashSet::from([100]));
+        assert_eq!(tree, std::collections::HashSet::from([100, 101]));
+        let paths = this_pc();
+        assert!(may_kill("fortnite", 300, Some(r"c:\games\fortnite.exe"), "fortnite", &paths, &tree));
+        assert!(may_kill("helper", 302, Some(r"c:\users\u\helper.exe"), "helper", &paths, &tree));
+    }
+
+    #[test]
+    fn m9_webview2_is_known_by_its_image_path() {
+        let paths = this_pc();
+        assert!(is_webview2_image(Some(WEBVIEW), &paths));
+        assert!(!is_webview2_image(Some(r"c:\users\u\msedgewebview2.exe"), &paths));
+        assert!(!is_webview2_image(Some(r"c:\program files (x86)\microsoft\edgewebview\application\131.0\notwebview.exe"), &paths));
+        assert!(!is_webview2_image(None, &paths));
     }
 
     #[test]
