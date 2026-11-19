@@ -172,7 +172,49 @@ const MIN = 60_000;
     return update(ref(w1), { "users/w1": null, "usernames/w1": null });
   });
 
-  //@@ITEM9@@
+  // ══ Item 9: config/study, config/followupHoursLost, config/baselineAt ═════
+  await seedUser("s1");
+  await seedUser("s2");
+  const s1 = as("s1");
+  const consent = (consented = true) => ({ consented, consentedAt: serverTimestamp(), v: 1 });
+  await check("study: consenting (server time) passes", "pass", () => set(ref(s1, "users/s1/config/study"), consent()));
+  await check("study: a client-chosen consentedAt refused", "fail",
+    () => set(ref(s1, "users/s1/config/study"), { consented: true, consentedAt: Date.now() - 20 * 24 * 60 * MIN, v: 1 }));
+  await check("study: an extra field refused", "fail", () => set(ref(s1, "users/s1/config/study"), { ...consent(), email: "s1@example.com" }));
+  await check("study: v 2 refused", "fail", () => set(ref(s1, "users/s1/config/study"), { ...consent(), v: 2 }));
+  await check("study: consented \"yes\" refused", "fail", () => set(ref(s1, "users/s1/config/study"), { ...consent(), consented: "yes" }));
+  await check("study: missing consentedAt refused", "fail", () => set(ref(s1, "users/s1/config/study"), { consented: true, v: 1 }));
+  await check("study: another uid can't consent for you", "fail", () => set(ref(as("s2"), "users/s1/config/study"), consent()));
+  await check("study: another uid can't read it", "fail", () => get(ref(as("s2"), "users/s1/config/study")));
+  await check("study: withdrawing passes", "pass", () => set(ref(s1, "users/s1/config/study"), consent(false)));
+  await check("study: consenting again passes", "pass", () => set(ref(s1, "users/s1/config/study"), consent()));
+
+  const followup = (value = 2) => ({ value, askedAt: Date.now() - MIN, answeredAt: serverTimestamp() });
+  await check("follow-up: 25 refused", "fail", () => set(ref(s1, "users/s1/config/followupHoursLost"), followup(25)));
+  await check("follow-up: -1 refused", "fail", () => set(ref(s1, "users/s1/config/followupHoursLost"), followup(-1)));
+  await check("follow-up: a client-chosen answeredAt refused", "fail",
+    () => set(ref(s1, "users/s1/config/followupHoursLost"), { value: 2, askedAt: Date.now() - MIN, answeredAt: Date.now() - 5 * MIN }));
+  await check("follow-up: askedAt in the future refused", "fail",
+    () => set(ref(s1, "users/s1/config/followupHoursLost"), { value: 2, askedAt: Date.now() + 10 * MIN, answeredAt: serverTimestamp() }));
+  await check("follow-up: an extra field refused", "fail",
+    () => set(ref(s1, "users/s1/config/followupHoursLost"), { ...followup(), note: "x" }));
+  await check("follow-up: another uid can't answer for you", "fail",
+    () => set(ref(as("s2"), "users/s1/config/followupHoursLost"), followup()));
+  await check("follow-up: answering (0-12 slider, server time) passes", "pass",
+    () => set(ref(s1, "users/s1/config/followupHoursLost"), followup(12)));
+  await check("follow-up: a second answer refused (write-once)", "fail",
+    () => set(ref(s1, "users/s1/config/followupHoursLost"), followup(1)));
+  await check("follow-up: changing just the value refused", "fail",
+    () => set(ref(s1, "users/s1/config/followupHoursLost/value"), 0));
+
+  await check("baselineAt: server time with a new baseline passes", "pass",
+    () => update(ref(s1, "users/s1/config"), { baselineHoursLost: 4, baselineAt: serverTimestamp() }));
+  await check("baselineAt: a client-chosen time refused", "fail",
+    () => update(ref(s1, "users/s1/config"), { baselineHoursLost: 4, baselineAt: Date.now() - 30 * 24 * 60 * MIN }));
+  await check("baseline without baselineAt still passes (1.3.0)", "pass",
+    () => update(ref(s1, "users/s1/config"), { baselineHoursLost: 3 }));
+  await check("study data: Delete Account passes", "pass",
+    () => update(ref(s1), { "users/s1": null, "usernames/s1": null }));
 
   // State checks (admin read).
   let state = {};

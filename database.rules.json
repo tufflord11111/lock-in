@@ -11,6 +11,21 @@
           "theme": { ".validate": "newData.isString() && newData.val().matches(/^(operator|notebook|bento|botanical)$/)" },
           "themeAccent": { ".validate": "newData.isString() && newData.val().matches(/^(orange|sage|lavender|teal)$/)" },
           "baselineHoursLost": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" },
+          "baselineAt": { ".validate": "newData.val() === now" },
+          "study": {
+            ".validate": "newData.hasChildren(['consented','consentedAt','v'])",
+            "consented": { ".validate": "newData.isBoolean()" },
+            "consentedAt": { ".validate": "newData.val() === now" },
+            "v": { ".validate": "newData.val() === 1" },
+            "$other": { ".validate": false }
+          },
+          "followupHoursLost": {
+            ".validate": "!data.exists() && newData.hasChildren(['value','askedAt','answeredAt'])",
+            "value": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" },
+            "askedAt": { ".validate": "newData.isNumber() && newData.val() <= now" },
+            "answeredAt": { ".validate": "newData.val() === now" },
+            "$other": { ".validate": false }
+          },
           "companion": {
             "enabled": { ".validate": "newData.isBoolean()" },
             "nudgeAfterMin": { ".validate": "newData.isNumber() && newData.val() >= 30 && newData.val() <= 240" },
