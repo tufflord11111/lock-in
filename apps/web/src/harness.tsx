@@ -175,7 +175,7 @@ function pick() {
     case "lockdown-toasts":
       // The texts Rust sends as "lockdown-warning" (lib.rs lockdown_warning, APPS_ONLY_NOTICE).
       reportWriteFailure("Closing Edge in 10 seconds. Save anything you've typed. Install Web Guard in this browser to keep using it during sessions: https://chromewebstore.google.com/detail/pcmcaccnegefcjhdabjjfhaakjfeocea", undefined, "info");
-      reportWriteFailure("Lock-In can't check your browsers, so this session falls back to blocking apps only: it won't close any browser. Web Guard still blocks sites where it's installed. Restart Lock-In to check browsers again.", undefined, "info");
+      reportWriteFailure("Lock-In can't check your browsers, so this session falls back to blocking apps only: it won't close any browser. Web Guard still blocks sites where it's installed. Lock-In keeps trying and starts checking browsers again as soon as it can.", undefined, "info");
       return (
         <Shell>
           <WriteFailureToasts />

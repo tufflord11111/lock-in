@@ -10,7 +10,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -38,6 +39,14 @@ pub struct BeatBody {
     pub incognito_allowed: bool,
     /// The account Web Guard is signed in to. Signed out, it blocks nothing.
     pub uid: Option<String>,
+    /// A random id Web Guard keeps per browser profile (1.2.7+). None from older
+    /// copies, whose beats count for their whole browser instance.
+    #[serde(default)]
+    pub profile_id: Option<String>,
+    /// How many windows this copy of Web Guard can see (1.2.7+): its profile's,
+    /// plus Incognito's when it's allowed there.
+    #[serde(default)]
+    pub windows: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -45,36 +54,79 @@ pub struct Beat {
     pub at: u64,
     pub incognito_allowed: bool,
     pub uid: Option<String>,
+    /// The browser instance it came from: the top process of the browser's own
+    /// process tree. There is one per user-data-dir, so a browser started with
+    /// another --user-data-dir is another instance and needs a beat of its own.
+    pub root: u32,
+    pub profile: Option<String>,
+    pub windows: Option<u32>,
 }
 
-/// The latest beat per browser. In memory only: a beat means nothing later.
+impl Beat {
+    /// Web Guard signed in to someone else isn't enforcing this session. With no
+    /// account known (a session from before uids were stored), any signed-in
+    /// Web Guard counts.
+    pub fn counts_for(&self, uid: Option<&str>) -> bool {
+        match (&self.uid, uid) {
+            (None, _) => false,
+            (Some(_), None) => true,
+            (Some(a), Some(b)) => a == b,
+        }
+    }
+}
+
+/// Who made a connection, as Windows sees it, not as the request claims.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attested {
+    /// browsers.rs id of the process that owns the connection.
+    pub browser: &'static str,
+    /// Top process of that browser's tree (see Beat::root).
+    pub root: u32,
+}
+
+/// Finds the process behind a loopback connection: (client, server) -> who.
+pub type Attest = fn(SocketAddr, SocketAddr) -> Option<Attested>;
+
+/// A beat is forgotten this long after it arrived.
+const FORGET_MS: u64 = 10 * 60_000;
+
+/// The latest beat per browser instance and profile. In memory only: a beat
+/// means nothing later.
 #[derive(Default)]
 pub struct BeatStore {
-    beats: Mutex<HashMap<String, Beat>>,
+    beats: Mutex<HashMap<(String, u32, String), Beat>>,
 }
 
 impl BeatStore {
-    pub fn record(&self, body: BeatBody, now: u64) {
+    pub fn record(&self, body: BeatBody, root: u32, now: u64) {
         if let Ok(mut beats) = self.beats.lock() {
+            beats.retain(|_, b| now.saturating_sub(b.at) < FORGET_MS);
+            let profile = body.profile_id.clone().unwrap_or_default();
             beats.insert(
-                body.browser,
-                Beat { at: now, incognito_allowed: body.incognito_allowed, uid: body.uid },
+                (body.browser, root, profile),
+                Beat {
+                    at: now,
+                    incognito_allowed: body.incognito_allowed,
+                    uid: body.uid,
+                    root,
+                    profile: body.profile_id,
+                    windows: body.windows,
+                },
             );
         }
     }
 
-    /// The browser's latest beat, if it counts for this account. Web Guard signed
-    /// in to someone else isn't enforcing this session. With no account known
-    /// (a session from before uids were stored), any signed-in Web Guard counts.
+    /// Every beat from this browser, any instance.
+    pub fn all(&self, browser: &str) -> Vec<Beat> {
+        self.beats
+            .lock()
+            .map(|beats| beats.iter().filter(|(k, _)| k.0 == browser).map(|(_, b)| b.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// The browser's latest beat from any instance, if it counts for this account.
     pub fn latest(&self, browser: &str, uid: Option<&str>) -> Option<Beat> {
-        let beats = self.beats.lock().ok()?;
-        let beat = beats.get(browser)?;
-        let counts = match (&beat.uid, uid) {
-            (None, _) => false,
-            (Some(_), None) => true,
-            (Some(a), Some(b)) => a == b,
-        };
-        counts.then(|| beat.clone())
+        self.all(browser).into_iter().filter(|b| b.counts_for(uid)).max_by_key(|b| b.at)
     }
 
     pub fn is_fresh(&self, browser: &str, uid: Option<&str>, now: u64) -> bool {
@@ -86,13 +138,9 @@ impl BeatStore {
     /// account: signed out (no uid) or signed in to another Lock-In account. False with
     /// no fresh beat at all, when the app can't tell whether Web Guard is there.
     pub fn wrong_account(&self, browser: &str, uid: Option<&str>, now: u64) -> bool {
-        let fresh_beat = self
-            .beats
-            .lock()
-            .ok()
-            .and_then(|beats| beats.get(browser).map(|b| now.saturating_sub(b.at) < FRESH_MS))
-            .unwrap_or(false);
-        fresh_beat && self.latest(browser, uid).is_none()
+        let fresh = |b: &Beat| now.saturating_sub(b.at) < FRESH_MS;
+        let all = self.all(browser);
+        all.iter().any(fresh) && !all.iter().any(|b| fresh(b) && b.counts_for(uid))
     }
 }
 
@@ -103,6 +151,8 @@ pub enum Rejected {
     WrongOrigin,
     BadBody,
     UnidentifiedBrowser,
+    /// The connection isn't owned by the browser the beat names.
+    NotABrowser,
 }
 
 fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
@@ -179,16 +229,40 @@ fn read_request(stream: &mut TcpStream) -> Option<String> {
     String::from_utf8(data).ok()
 }
 
-fn handle(mut stream: TcpStream, port: u16, allowed: &[String], store: &BeatStore, now: u64) {
+/// A beat that passed the request checks must also come from the browser it
+/// names: Windows says which process owns the connection. curl, a script, or
+/// any other program gets 403, whatever headers it sends.
+pub fn attested_for(body: &BeatBody, who: Option<Attested>) -> Result<u32, Rejected> {
+    match who {
+        Some(a) if a.browser == body.browser => Ok(a.root),
+        _ => Err(Rejected::NotABrowser),
+    }
+}
+
+fn handle(mut stream: TcpStream, port: u16, allowed: &[String], store: &BeatStore, now: u64, attest: Attest) {
+    let peer = stream.peer_addr().ok();
+    let local = stream.local_addr().ok();
     let status = match read_request(&mut stream) {
         None => "400 Bad Request",
         Some(request) => match accept_beat(&request, port, allowed) {
             Ok(beat) => {
-                store.record(beat, now);
-                "204 No Content"
+                let who = match (peer, local) {
+                    (Some(p), Some(l)) => attest(p, l),
+                    _ => None,
+                };
+                match attested_for(&beat, who) {
+                    Ok(root) => {
+                        store.record(beat, root, now);
+                        "204 No Content"
+                    }
+                    Err(_) => {
+                        println!("[Heartbeat] refused a beat that didn't come from {}", beat.browser);
+                        "403 Forbidden"
+                    }
+                }
             }
             Err(Rejected::NotFound) => "404 Not Found",
-            Err(Rejected::WrongHost) | Err(Rejected::WrongOrigin) => "403 Forbidden",
+            Err(Rejected::WrongHost) | Err(Rejected::WrongOrigin) | Err(Rejected::NotABrowser) => "403 Forbidden",
             Err(Rejected::BadBody) | Err(Rejected::UnidentifiedBrowser) => "422 Unprocessable Entity",
         },
     };
@@ -197,15 +271,48 @@ fn handle(mut stream: TcpStream, port: u16, allowed: &[String], store: &BeatStor
 
 /// Serve on this listener until the process ends. One at a time, each bounded by
 /// the read timeout, so a stuck client costs at most a beat or two.
-pub fn serve(listener: TcpListener, allowed: Vec<String>, store: Arc<BeatStore>, clock: fn() -> u64) {
+pub fn serve(listener: TcpListener, allowed: Vec<String>, store: Arc<BeatStore>, clock: fn() -> u64, attest: Attest) {
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(PORT);
     for stream in listener.incoming().flatten() {
-        handle(stream, port, &allowed, &store, clock());
+        handle(stream, port, &allowed, &store, clock(), attest);
     }
 }
 
-pub fn bind() -> std::io::Result<TcpListener> {
-    TcpListener::bind(("127.0.0.1", PORT))
+pub fn bind_on(port: u16) -> std::io::Result<TcpListener> {
+    TcpListener::bind(("127.0.0.1", port))
+}
+
+/// The wait after the nth failed bind (from 0): 1 s, doubling, at most 60 s.
+pub fn retry_delay(failures: u32) -> Duration {
+    Duration::from_millis((1_000u64 << failures.min(6)).min(60_000))
+}
+
+/// Keep trying to open the port until it opens, then hand it to `on_open`.
+/// `listening` says which it is right now, for lockdown and the Start dialog.
+/// Every failure goes to `on_fail`, which logs it. A session that needs the
+/// port says so on screen (APPS_ONLY_NOTICE in lib.rs), so a session never
+/// runs with browsers unchecked without saying so.
+pub fn bind_with_retry(
+    port: u16,
+    listening: &AtomicBool,
+    on_fail: impl Fn(u32, &std::io::Error),
+    sleep: impl Fn(Duration),
+) -> TcpListener {
+    let mut failures = 0u32;
+    loop {
+        match bind_on(port) {
+            Ok(listener) => {
+                listening.store(true, Ordering::SeqCst);
+                return listener;
+            }
+            Err(e) => {
+                listening.store(false, Ordering::SeqCst);
+                on_fail(failures, &e);
+                sleep(retry_delay(failures));
+                failures = failures.saturating_add(1);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -286,6 +393,8 @@ mod tests {
             version: String::new(),
             incognito_allowed: true,
             uid: uid.map(str::to_string),
+            profile_id: None,
+            windows: None,
         }
     }
 
@@ -295,13 +404,13 @@ mod tests {
         // No beat: can't tell.
         assert!(!store.wrong_account("edge", Some("u1"), 1_000));
         // Signed out.
-        store.record(body("edge", None), 1_000);
+        store.record(body("edge", None), 1, 1_000);
         assert!(store.wrong_account("edge", Some("u1"), 2_000));
         // Another account.
-        store.record(body("chrome", Some("u2")), 1_000);
+        store.record(body("chrome", Some("u2")), 1, 1_000);
         assert!(store.wrong_account("chrome", Some("u1"), 2_000));
         // This account: counts, so not wrong.
-        store.record(body("brave", Some("u1")), 1_000);
+        store.record(body("brave", Some("u1")), 1, 1_000);
         assert!(!store.wrong_account("brave", Some("u1"), 2_000));
         // A stale beat says nothing either way.
         assert!(!store.wrong_account("edge", Some("u1"), 1_000 + FRESH_MS));
@@ -311,7 +420,7 @@ mod tests {
     fn freshness_reads_the_clock_and_goes_stale_at_60_s() {
         let store = BeatStore::default();
         assert!(!store.is_fresh("chrome", Some("u1"), 1_000));
-        store.record(body("chrome", Some("u1")), 1_000);
+        store.record(body("chrome", Some("u1")), 1, 1_000);
         assert!(store.is_fresh("chrome", Some("u1"), 60_999));
         assert!(!store.is_fresh("chrome", Some("u1"), 61_000));
         assert!(!store.is_fresh("edge", Some("u1"), 1_000));
@@ -320,11 +429,11 @@ mod tests {
     #[test]
     fn a_beat_only_counts_for_the_account_web_guard_is_signed_in_to() {
         let store = BeatStore::default();
-        store.record(body("chrome", Some("u1")), 1_000);
+        store.record(body("chrome", Some("u1")), 1, 1_000);
         assert!(!store.is_fresh("chrome", Some("u2"), 1_000));
         assert!(store.is_fresh("chrome", None, 1_000));
         // Signed out, it blocks nothing, so it never counts.
-        store.record(body("chrome", None), 2_000);
+        store.record(body("chrome", None), 1, 2_000);
         assert!(!store.is_fresh("chrome", Some("u1"), 2_000));
         assert!(!store.is_fresh("chrome", None, 2_000));
     }
@@ -336,7 +445,11 @@ mod tests {
         assert!(addr.ip().is_loopback());
         let store = Arc::new(BeatStore::default());
         let served = Arc::clone(&store);
-        std::thread::spawn(move || serve(listener, ids(), served, || 5_000));
+        // Stands in for Windows saying the connection belongs to Edge, instance 42.
+        fn edge(_: SocketAddr, _: SocketAddr) -> Option<Attested> {
+            Some(Attested { browser: "edge", root: 42 })
+        }
+        std::thread::spawn(move || serve(listener, ids(), served, || 5_000, edge));
 
         let host = format!("127.0.0.1:{}", addr.port());
         let send = |text: String| {
@@ -350,5 +463,92 @@ mod tests {
         assert!(!store.is_fresh("edge", Some("u1"), 5_000));
         assert!(send(request(&host, Some(ORIGIN), OK_BODY)).contains("204"));
         assert!(store.is_fresh("edge", Some("u1"), 5_000));
+        assert_eq!(store.latest("edge", Some("u1")).unwrap().root, 42);
+        // Claiming to be Chrome from a connection Windows says is Edge's.
+        let chrome = OK_BODY.replace("\"edge\"", "\"chrome\"");
+        assert!(send(request(&host, Some(ORIGIN), &chrome)).contains("403"));
+        assert!(!store.is_fresh("chrome", Some("u1"), 5_000));
+    }
+
+    #[test]
+    fn a_beat_counts_only_from_the_browser_it_names() {
+        let b = body("chrome", Some("u1"));
+        assert_eq!(attested_for(&b, None), Err(Rejected::NotABrowser));
+        assert_eq!(attested_for(&b, Some(Attested { browser: "edge", root: 7 })), Err(Rejected::NotABrowser));
+        assert_eq!(attested_for(&b, Some(Attested { browser: "chrome", root: 7 })), Ok(7));
+    }
+
+    /// The forged check-in from the Phase A red team: curl with Web Guard's
+    /// Origin and a valid body, against the real attestation.
+    #[test]
+    fn a_forged_curl_check_in_is_refused() {
+        let curl = std::path::Path::new(r"C:\Windows\System32\curl.exe");
+        assert!(curl.is_file(), "curl.exe ships with Windows 10 1803+");
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let store = Arc::new(BeatStore::default());
+        let served = Arc::clone(&store);
+        std::thread::spawn(move || serve(listener, ids(), served, || 5_000, crate::attest::who));
+        let out = std::process::Command::new(curl)
+            .args([
+                "-s", "-o", "NUL", "-w", "%{http_code}", "-X", "POST",
+                "-H", &format!("Origin: {}", ORIGIN),
+                "-H", "Content-Type: application/json",
+                "--data", OK_BODY,
+                &format!("http://127.0.0.1:{}/beat", port),
+            ])
+            .output()
+            .unwrap();
+        let code = String::from_utf8_lossy(&out.stdout).to_string();
+        println!("curl got HTTP {}", code);
+        assert_eq!(code, "403");
+        assert!(store.all("edge").is_empty(), "nothing recorded");
+    }
+
+    #[test]
+    fn a_busy_port_is_retried_with_backoff_and_reported_until_it_opens() {
+        let squatter = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = squatter.local_addr().unwrap().port();
+        let listening = Arc::new(AtomicBool::new(true));
+        let failures = Arc::new(Mutex::new(Vec::new()));
+        let squatter = Mutex::new(Some(squatter));
+        let (l, f) = (Arc::clone(&listening), Arc::clone(&failures));
+        let listener = bind_with_retry(
+            port,
+            &l,
+            |n, e| f.lock().unwrap().push((n, e.kind())),
+            |wait| {
+                // While the port is busy: not listening, so lockdown falls back and says so.
+                assert!(!listening.load(Ordering::SeqCst));
+                assert!(crate::lockdown::falls_back_to_apps_only(false, true, listening.load(Ordering::SeqCst)));
+                if failures.lock().unwrap().len() == 3 {
+                    squatter.lock().unwrap().take(); // the other program lets go
+                }
+                assert!(wait <= Duration::from_secs(60));
+            },
+        );
+        assert_eq!(listener.local_addr().unwrap().port(), port);
+        assert!(listening.load(Ordering::SeqCst));
+        let got = failures.lock().unwrap().clone();
+        assert_eq!(got.iter().map(|(n, _)| *n).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert_eq!(retry_delay(0), Duration::from_secs(1));
+        assert_eq!(retry_delay(1), Duration::from_secs(2));
+        assert_eq!(retry_delay(10), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn beats_are_kept_per_instance_and_profile() {
+        let store = BeatStore::default();
+        let mut a = body("chrome", Some("u1"));
+        a.profile_id = Some("p1".into());
+        let mut b = a.clone();
+        b.profile_id = Some("p2".into());
+        store.record(a.clone(), 10, 1_000);
+        store.record(b, 10, 1_000);
+        store.record(a, 20, 1_000);
+        assert_eq!(store.all("chrome").len(), 3);
+        // Forgotten after ten minutes.
+        store.record(body("edge", Some("u1")), 1, 1_000 + FORGET_MS);
+        assert_eq!(store.all("chrome").len(), 0);
     }
 }

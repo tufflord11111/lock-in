@@ -1,5 +1,7 @@
 mod companion;
+mod attest;
 mod browsers;
+mod coverage;
 mod heartbeat;
 mod integrity;
 pub use integrity::scrub_webview2_env;
@@ -551,8 +553,9 @@ struct AppState {
     beats: Arc<heartbeat::BeatStore>,
     /// The webview's reachability probe. False until it first reports.
     online: Arc<AtomicBool>,
-    /// False when the heartbeat port couldn't be opened, so no beat can arrive.
-    heartbeat_listening: bool,
+    /// False while the heartbeat port can't be opened, so no beat can arrive.
+    /// A thread keeps retrying (heartbeat::bind_with_retry).
+    heartbeat_listening: Arc<AtomicBool>,
 }
 
 /// An extra accepted extension id, for an unpacked test copy of Web Guard. Read
@@ -662,7 +665,7 @@ fn deliver_warning(app: &tauri::AppHandle, title: &str, message: String) {
 
 /// Said once in a session that would close browsers when the heartbeat port
 /// couldn't open, so none can prove it runs Web Guard.
-const APPS_ONLY_NOTICE: &str = "Lock-In can't check your browsers, so this session falls back to blocking apps only: it won't close any browser. Web Guard still blocks sites where it's installed. Restart Lock-In to check browsers again.";
+const APPS_ONLY_NOTICE: &str = "Lock-In can't check your browsers, so this session falls back to blocking apps only: it won't close any browser. Web Guard still blocks sites where it's installed. Lock-In keeps trying and starts checking browsers again as soon as it can.";
 
 /// Said where Web Guard is running but doesn't count for this session's account.
 const WRONG_ACCOUNT: &str = "Web Guard is installed but signed in to a different account or signed out — sign in with this account to keep this browser open.";
@@ -670,8 +673,12 @@ const WRONG_ACCOUNT: &str = "Web Guard is installed but signed in to a different
 /// What the 10-second warning says. A browser that can run Web Guard is told how
 /// to stay open next time, with the Store link (the toast can't hold a button).
 /// `wrong_account`: Web Guard beats from it, signed out or on another account.
-fn lockdown_warning(browser: &str, lost_web_guard: bool, wrong_account: bool) -> String {
+fn lockdown_warning(browser: &str, lost_web_guard: bool, wrong_account: bool, gap: Option<coverage::Gap>) -> String {
     let name = browsers::name_of(browser);
+    let after = if lost_web_guard { " Once closed, it stays closed until the session ends." } else { "" };
+    if gap == Some(coverage::Gap::UnseenWindows) && !wrong_account {
+        return format!("{name} has a window Web Guard can't see: a Guest window, another profile, or an Incognito window. Closing {name} in 10 seconds. Save anything you've typed.{after}");
+    }
     if wrong_account {
         let after = if lost_web_guard { " Once closed, it stays closed until the session ends." } else { "" };
         format!("Closing {name} in 10 seconds. Save anything you've typed. {WRONG_ACCOUNT}{after}")
@@ -691,15 +698,17 @@ fn lockdown_runner(
     profile: Arc<Mutex<LockProfile>>,
     beats: Arc<heartbeat::BeatStore>,
     online: Arc<AtomicBool>,
-    listening: bool,
+    listening: Arc<AtomicBool>,
 ) {
     let mut sys = System::new();
     let mut tracker = lockdown::Tracker::default();
+    let mut grace = coverage::Grace::default();
     let mut session_key = None;
     let mut told_apps_only = None;
     let started = std::time::Instant::now();
     loop {
         thread::sleep(std::time::Duration::from_secs(1));
+        let listening = listening.load(Ordering::SeqCst);
         let (active, in_lockdown, apps_only, blocks_sites, end, uid) = match profile.lock() {
             Ok(p) => (
                 p.focus_active && (p.browser_lockdown || p.session_blocks_sites),
@@ -714,6 +723,7 @@ fn lockdown_runner(
         };
         if session_key != end || !active {
             tracker.reset();
+            grace.reset();
             session_key = end;
         }
         if !active {
@@ -728,10 +738,26 @@ fn lockdown_runner(
         }
         let running = running_browsers(&mut sys);
         let ids: Vec<&'static str> = running.keys().copied().collect();
-        let last_beat = |b: &str| beats.latest(b, uid.as_deref()).map(|beat| beat.at);
+        // Every instance of a browser (one per user-data-dir) needs its own beat,
+        // and its beats must see every window it has (coverage.rs).
+        let instances = attest::instances(&sys);
+        let windows = attest::chromium_windows_by_pid();
+        let now = now_millis();
+        let mut verdicts: std::collections::HashMap<&'static str, coverage::Verdict> = std::collections::HashMap::new();
+        let mut covered: std::collections::HashMap<&'static str, Option<u64>> = std::collections::HashMap::new();
+        for id in &ids {
+            let inst: Vec<coverage::Instance> = instances
+                .get(id)
+                .map(|roots| roots.iter().map(|r| coverage::Instance { root: *r, windows: windows.get(r).copied().unwrap_or(0) }).collect())
+                .unwrap_or_default();
+            let v = coverage::brand(&inst, &beats.all(id), uid.as_deref(), now, heartbeat::FRESH_MS);
+            verdicts.insert(id, v);
+            covered.insert(id, grace.last_beat(id, v, now));
+        }
+        let last_beat = |b: &str| covered.get(b).copied().flatten();
         let incognito_off = |b: &str| beats.latest(b, uid.as_deref()).is_some_and(|beat| !beat.incognito_allowed);
         let tick = lockdown::Tick {
-            now: now_millis(),
+            now,
             lockdown: in_lockdown,
             blocks_sites,
             online: online.load(Ordering::Relaxed),
@@ -751,8 +777,9 @@ fn lockdown_runner(
                     }) => {}
                 lockdown::Action::Warn { browser, lost_web_guard } => {
                     let wrong_account = beats.wrong_account(browser, uid.as_deref(), now_millis());
+                    let gap = verdicts.get(browser).and_then(|v| v.gap);
                     log_ui_event(&app, "lockdown-warned");
-                    deliver_warning(&app, "Lock-In is closing a browser", lockdown_warning(browser, lost_web_guard, wrong_account));
+                    deliver_warning(&app, "Lock-In is closing a browser", lockdown_warning(browser, lost_web_guard, wrong_account, gap));
                 }
                 lockdown::Action::IncognitoGap { browser } => {
                     let name = browsers::name_of(browser);
@@ -1622,6 +1649,7 @@ const UI_EVENTS: &[&str] = &[
     "lockdown-warned",
     "lockdown-closed",
     "lockdown-incognito-gap",
+    "heartbeat-port-busy",
     "local-stop-refused",
     "session-rearmed",
     "stood-down-ignored",
@@ -1818,7 +1846,7 @@ fn pids_with_windows() -> HashSet<u32> {
 #[tauri::command]
 async fn lockdown_status(uid: Option<String>, app_state: State<'_, AppState>) -> Result<LockdownStatus, String> {
     let beats = Arc::clone(&app_state.beats);
-    let listening = app_state.heartbeat_listening;
+    let listening = app_state.heartbeat_listening.load(Ordering::SeqCst);
     // Reading every process takes a moment; not on the UI thread.
     tauri::async_runtime::spawn_blocking(move || {
         let mut sys = System::new();
@@ -2331,18 +2359,35 @@ pub fn run() {
             // ── Web Guard heartbeat ────────────────────────────────────────
             let beats = Arc::new(heartbeat::BeatStore::default());
             let online = Arc::new(AtomicBool::new(false));
-            let heartbeat_listening = match heartbeat::bind() {
-                Ok(listener) => {
-                    let allowed = heartbeat::allowed_extension_ids(dev_extension_id(&handle));
-                    let served = Arc::clone(&beats);
-                    thread::spawn(move || heartbeat::serve(listener, allowed, served, now_millis));
-                    true
-                }
-                Err(e) => {
-                    println!("[Heartbeat] could not listen on 127.0.0.1:{}: {}", heartbeat::PORT, e);
-                    false
-                }
-            };
+            // The first try is here, so a session restored at boot sees the
+            // port's real state; after a failure a thread keeps retrying.
+            let heartbeat_listening = Arc::new(AtomicBool::new(false));
+            {
+                let first = heartbeat::bind_on(heartbeat::PORT);
+                heartbeat_listening.store(first.is_ok(), Ordering::SeqCst);
+                let allowed = heartbeat::allowed_extension_ids(dev_extension_id(&handle));
+                let served = Arc::clone(&beats);
+                let listening = Arc::clone(&heartbeat_listening);
+                let app_for_log = handle.clone();
+                thread::spawn(move || {
+                    let listener = match first {
+                        Ok(listener) => listener,
+                        Err(_) => heartbeat::bind_with_retry(
+                            heartbeat::PORT,
+                            &listening,
+                            |n, e| {
+                                println!("[Heartbeat] could not listen on 127.0.0.1:{} (try {}): {}", heartbeat::PORT, n + 1, e);
+                                if n == 0 {
+                                    log_ui_event(&app_for_log, "heartbeat-port-busy");
+                                }
+                            },
+                            thread::sleep,
+                        ),
+                    };
+                    println!("[Heartbeat] listening on 127.0.0.1:{}", heartbeat::PORT);
+                    heartbeat::serve(listener, allowed, served, now_millis, attest::who);
+                });
+            }
 
             app.manage(AppState {
                 profile: Arc::clone(&profile_for_setup),
@@ -2351,7 +2396,7 @@ pub fn run() {
                 other_install: detect_other_install(),
                 beats: Arc::clone(&beats),
                 online: Arc::clone(&online),
-                heartbeat_listening,
+                heartbeat_listening: Arc::clone(&heartbeat_listening),
             });
 
             app.manage(CompanionState::default());
@@ -2891,27 +2936,36 @@ mod tests {
     #[test]
     fn the_warning_says_how_to_keep_a_web_guard_browser_open() {
         for id in ["chrome", "edge", "brave"] {
-            let m = lockdown_warning(id, false, false);
+            let m = lockdown_warning(id, false, false, None);
             assert!(m.contains("Install Web Guard in this browser to keep using it during sessions"), "{m}");
             // It can't tell more, so one general line on the account.
             assert!(m.contains("signed in to this Lock-In account"), "{m}");
             assert!(m.contains(WEB_GUARD_STORE_URL), "{m}");
         }
         for id in ["opera_gx", "firefox", "vivaldi"] {
-            let m = lockdown_warning(id, false, false);
+            let m = lockdown_warning(id, false, false, None);
             assert!(!m.contains("Install Web Guard"), "{m}");
             assert!(m.contains("can't block sites in it"), "{m}");
         }
-        assert!(lockdown_warning("edge", true, false).starts_with("Web Guard stopped answering in Edge"));
+        assert!(lockdown_warning("edge", true, false, None).starts_with("Web Guard stopped answering in Edge"));
+    }
+
+    #[test]
+    fn a_window_web_guard_cant_see_is_named_as_such() {
+        let m = lockdown_warning("chrome", false, false, Some(crate::coverage::Gap::UnseenWindows));
+        assert!(m.starts_with("Chrome has a window Web Guard can't see: a Guest window, another profile, or an Incognito window."), "{m}");
+        assert!(m.contains("Closing Chrome in 10 seconds"), "{m}");
+        let lost = lockdown_warning("chrome", true, false, Some(crate::coverage::Gap::UnseenWindows));
+        assert!(lost.ends_with("Once closed, it stays closed until the session ends."), "{lost}");
     }
 
     #[test]
     fn web_guard_on_the_wrong_account_is_told_to_sign_in_with_this_one() {
-        let m = lockdown_warning("edge", false, true);
+        let m = lockdown_warning("edge", false, true, None);
         assert!(m.contains("Web Guard is installed but signed in to a different account or signed out — sign in with this account to keep this browser open."), "{m}");
         assert!(!m.contains("Install Web Guard"), "{m}");
         // Signed out mid-session: the same line, and that a close then lasts the session.
-        let lost = lockdown_warning("chrome", true, true);
+        let lost = lockdown_warning("chrome", true, true, None);
         assert!(lost.contains(WRONG_ACCOUNT) && lost.contains("stays closed until the session ends"), "{lost}");
     }
 

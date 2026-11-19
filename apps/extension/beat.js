@@ -14,3 +14,23 @@ export function browserFromBrands(brands, hasBraveApi = false) {
   if (names.includes("Google Chrome")) return "chrome";
   return "chromium";
 }
+
+/** Every kind of window Web Guard can see, so its count is never short of Windows'. */
+export const WINDOW_TYPES = ["normal", "popup", "app", "devtools"];
+
+/**
+ * The beat's body. profileId tells the app which profile this copy runs in
+ * (a random id kept in this profile's storage); windows is how many windows it
+ * can see, so the app can tell when the browser shows one it can't: a Guest
+ * window, another profile without Web Guard, or Incognito when it isn't allowed.
+ */
+export function beatBody({ browser, version, incognitoAllowed, uid, profileId, windows }) {
+  return {
+    browser,
+    version,
+    incognitoAllowed: incognitoAllowed === true,
+    uid: uid ?? null,
+    profileId: typeof profileId === "string" ? profileId : null,
+    windows: Number.isInteger(windows) && windows >= 0 ? windows : null,
+  };
+}

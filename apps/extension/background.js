@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, update, set, forceWebSockets } from "firebase/database";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extension";
 import { buildRules, sameRules } from "./dnrRules.js";
-import { browserFromBrands, BEAT_URL } from "./beat.js";
+import { browserFromBrands, BEAT_URL, beatBody, WINDOW_TYPES } from "./beat.js";
 import { isLocked, signOutClears } from "./lockState.js";
 import { nextHold, holdUntil } from "./sessionHold.js";
 import { sessionSiteList, permanentSiteList, freezeSessionSites, effectiveSites } from "./sessionSites.js";
@@ -352,12 +352,52 @@ async function beatToDesktop() {
   const uid = activeUid || storedUid || null;
   const incognitoAllowed = await chrome.extension.isAllowedIncognitoAccess();
   const browser = browserFromBrands(navigator.userAgentData?.brands, typeof navigator.brave !== "undefined");
+  // The app checks this count against the windows Windows shows for this
+  // browser: one Web Guard can't see is a Guest window, another profile, or
+  // Incognito without access.
+  const windows = await chrome.windows.getAll({ windowTypes: WINDOW_TYPES }).then((w) => w.length, () => null);
   fetch(BEAT_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ browser, version: chrome.runtime.getManifest().version, incognitoAllowed, uid }),
+    body: JSON.stringify(beatBody({
+      browser,
+      version: chrome.runtime.getManifest().version,
+      incognitoAllowed,
+      uid,
+      profileId: await profileId(),
+      windows,
+    })),
   }).catch(() => {});
 }
+
+// A random id for this profile, kept in its own storage, so the app can tell
+// two profiles of one browser apart. Not tied to the account or the PC.
+const PROFILE_KEY = "lockin_profile_id";
+let profileIdRead = null;
+function profileId() {
+  if (!profileIdRead) {
+    profileIdRead = (async () => {
+      const got = await chrome.storage.local.get(PROFILE_KEY);
+      let id = got?.[PROFILE_KEY];
+      if (typeof id !== "string" || !id) {
+        id = crypto.randomUUID();
+        await chrome.storage.local.set({ [PROFILE_KEY]: id });
+      }
+      return id;
+    })().catch(() => null);
+  }
+  return profileIdRead;
+}
+
+// A new window is counted at once, so the app doesn't take it for one Web
+// Guard can't see. Bursts (a session restore) send one beat.
+let beatSoon = null;
+function beatShortly() {
+  clearTimeout(beatSoon);
+  beatSoon = setTimeout(beatToDesktop, 300);
+}
+chrome.windows.onCreated.addListener(beatShortly);
+chrome.windows.onRemoved.addListener(beatShortly);
 
 // Open-tab upload (F5) has been removed entirely: nothing enumerates tabs or
 // writes users/{uid}/openTabs, the desktop no longer asks for it, and the
