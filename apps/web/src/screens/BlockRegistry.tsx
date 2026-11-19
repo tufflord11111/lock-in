@@ -14,6 +14,7 @@ import { getDeviceId } from "../deviceId";
 import { DeleteAccountButton } from "../components/DeleteAccountButton";
 import { CompanionSettings } from "../components/CompanionSettings";
 import { ProWaitlistRow } from "../components/ProWaitlist";
+import { StudyConsentRow } from "../components/Study";
 import { AppearancePicker } from "../theme/AppearancePicker";
 import { useCopy } from "../theme/copy";
 import { HELD_LABEL, heldSites, heldToast } from "./heldBlocks";
@@ -674,6 +675,9 @@ export function BlockRegistry({
         </section>
 
         <CompanionSettings userId={userId} />
+
+        {/* OPTIONAL STUDY (1.3.1): off unless turned on */}
+        <StudyConsentRow userId={userId} />
 
         {/* PRO WAITLIST (1.3.1): not built, nothing sold */}
         <ProWaitlistRow userId={userId} />

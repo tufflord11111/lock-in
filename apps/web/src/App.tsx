@@ -34,6 +34,7 @@ import { useSessionSites } from "./hooks/useSessionSites";
 import { bootSnapshot } from "./snapshot";
 import { BaselineQuestion, hasBeenAsked } from "./components/BaselineQuestion";
 import { ProWaitlist } from "./components/ProWaitlist";
+import { StudyFollowup } from "./components/Study";
 import { PRO_DUE_EVENT, proAsked, proDue, showProCard } from "./proWaitlist";
 import { DemoOverlay } from "./components/DemoOverlay";
 import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
@@ -704,6 +705,15 @@ function AppInner() {
           showProCard({ due: proDueNow, asked: proAskedNow, isActive, baselineShowing: !baselineDone }) && (
             <ProWaitlist userId={user.uid} onDone={() => setProAskedNow(true)} />
           )}
+
+        {/* The day-14 question, if the study is on. Same slot, never during a session. */}
+        {onboardingComplete === true && profile.usernameSet !== false && (
+          <StudyFollowup
+            userId={user.uid}
+            isActive={isActive}
+            otherCard={!baselineDone || showProCard({ due: proDueNow, asked: proAskedNow, isActive, baselineShowing: !baselineDone })}
+          />
+        )}
 
         {onboardingComplete === true && profile.status === "ready" && profile.usernameSet === false && (
           <motion.div

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ref, update } from "firebase/database";
+import { ref, serverTimestamp, update } from "firebase/database";
+import { STUDY_INVITE } from "../study";
 import { db } from "@lock-in/firebase";
 import { guardWrite } from "../writeFailures";
 import { useCopy } from "../theme/copy";
@@ -39,7 +40,8 @@ export function BaselineQuestion({ userId, onDone }: { userId: string; onDone: (
     markAsked();
     if (save) {
       guardWrite(
-        update(ref(db, `users/${userId}/config`), { baselineHoursLost: hours }),
+        // baselineAt: when it was answered, in server time (1.3.1).
+        update(ref(db, `users/${userId}/config`), { baselineHoursLost: hours, baselineAt: serverTimestamp() }),
         "Couldn't save your answer. Your sessions still count — only the comparison is missing."
       );
     }
@@ -89,6 +91,7 @@ export function BaselineQuestion({ userId, onDone }: { userId: string; onDone: (
             {t("baseline.skip")}
           </button>
         </div>
+        <p className="text-[10px] font-bold text-ink-muted leading-relaxed">{STUDY_INVITE}</p>
       </div>
     </div>
   );

@@ -20,6 +20,8 @@ import { BlockRegistry } from "./screens/BlockRegistry";
 import { VerificationGate } from "./components/VerificationGate";
 import WelcomeSequence from "./components/WelcomeSequence";
 import { DeleteAccountButton } from "./components/DeleteAccountButton";
+import { ProWaitlist } from "./components/ProWaitlist";
+import { BaselineQuestion } from "./components/BaselineQuestion";
 import { WriteFailureToasts } from "./components/WriteFailureToasts";
 import { WebGuardGate } from "./components/WebGuardGate";
 import { AppearancePicker } from "./theme/AppearancePicker";
@@ -111,6 +113,18 @@ function pick() {
       return (
         <Shell>
           <ThePack userId={UID} />
+        </Shell>
+      );
+    case "pro":
+      return (
+        <Shell>
+          <ProWaitlist userId={UID} onDone={noop} />
+        </Shell>
+      );
+    case "baseline":
+      return (
+        <Shell>
+          <BaselineQuestion userId={UID} onDone={noop} />
         </Shell>
       );
     case "blocks":
