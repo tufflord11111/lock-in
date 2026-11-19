@@ -4,7 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "test": "firebase emulators:exec --only database \"node rules.test.cjs && node b2.test.cjs\""
+    "test": "firebase emulators:exec --only database \"node rules.test.cjs && node b2.test.cjs && node phaseb.test.cjs\""
   },
   "dependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
