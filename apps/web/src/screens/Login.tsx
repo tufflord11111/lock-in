@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Sticker } from "../theme/stickers";
 import { motion, AnimatePresence } from "framer-motion";
 import { Shield, Zap, User, Mail, Key, RotateCcw, ArrowLeft, CheckCircle } from "lucide-react";
-import { LockMark, LockWordmark } from "../components/LockMark";
+import { LockWordmark } from "../components/LockMark";
 import { parseAuthError } from "../hooks/useAuth";
 import { EnforcerDisarmPanel } from "../components/EnforcerDisarmPanel";
 import { useCopy } from "../theme/copy";
@@ -174,14 +174,12 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
 
       {/* HEADER BADGE */}
       <div
-        className="w-full max-w-[400px] bg-surface border-2 border-ink rounded-auth-card p-8 shadow-[shadow:var(--shadow-4)] mb-8"
+        className="relative isolate w-full max-w-[400px] bg-surface border-2 border-ink rounded-auth-card p-8 shadow-[shadow:var(--shadow-4)] mb-8"
         style={{ transform: "rotate(var(--rotate-logo))" }}
       >
+        <Sticker slot="login" />
         <div className="flex items-center gap-4 mb-4">
-          <div className="relative isolate w-12 h-12 bg-ink rounded-auth-field flex items-center justify-center">
-            <Sticker slot="login" />
-            <LockMark state="idle" tone="cream" size={30} />
-          </div>
+          {/* The [•] lock in wordmark alone; the theme's sticker sits on the card. */}
           <h1 className="leading-none" aria-label="lock in">
             <LockWordmark state="idle" height={34} />
           </h1>
