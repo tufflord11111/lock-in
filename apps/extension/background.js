@@ -446,7 +446,7 @@ function getBlockUrl() {
   return chrome.runtime.getURL("block.html");
 }
 
-// [•] toolbar icon: red dot (the manifest set) while locked, grey dot idle.
+// [•] toolbar icon: red dot while locked, grey dot (the manifest default) idle.
 const ICON_LOCKED = { 16: "icon16.png", 32: "icon32.png", 48: "icon48.png", 128: "icon128.png" };
 const ICON_IDLE = { 16: "icon16-idle.png", 32: "icon32-idle.png", 48: "icon48-idle.png", 128: "icon128-idle.png" };
 
@@ -516,10 +516,16 @@ function applyRules() {
 chrome.runtime.onStartup.addListener(() => {
   applyRules();
   beatToDesktop();
+  // Chrome resets the action icon to the manifest's idle set here; put the
+  // real state back once the stored state is read.
+  hydrating.then(updateBadge);
 });
 chrome.runtime.onInstalled.addListener(() => {
   applyRules();
   beatToDesktop();
+  // Chrome resets the action icon to the manifest's idle set here; put the
+  // real state back once the stored state is read.
+  hydrating.then(updateBadge);
 });
 
 /** The same decision as the rules: a site, one of its mirrors, or its archived pages. */
