@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lock-In loader</title>
+<style>
+  /* Lock-In loading screen. Theme: add class "li-light" or "li-dark" to #li-loader. */
+  :root { --li-red:#D9372B; --li-grey:#8E8E96; }
+  html,body{margin:0;height:100%}
+  #li-loader{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:9999;
+    font-family:Inter,"Segoe UI",system-ui,sans-serif}
+  .li-light{background:#F6F1E7;--ink:#2B2033}
+  .li-dark{background:#1F1B24;--ink:#F6F1E7}
+  .li-inner{display:flex;flex-direction:column;align-items:center;gap:20px}
+  .li-logo{width:96px;height:96px;overflow:visible}
+  .li-c{fill:none;stroke:var(--ink);stroke-width:8;transform-box:view-box;animation:li-snap 2.4s infinite}
+  .li-tl{--x:-16px;--y:-16px}.li-tr{--x:16px;--y:-16px}.li-br{--x:16px;--y:16px}.li-bl{--x:-16px;--y:16px}
+  .li-dot{transform-box:fill-box;transform-origin:center;animation:li-dot 2.4s infinite}
+  .li-ring{fill:none;stroke:var(--li-red);stroke-width:2;vector-effect:non-scaling-stroke;
+    transform-box:fill-box;transform-origin:center;opacity:0;animation:li-ring 2.4s infinite}
+  .li-word{font-size:22px;font-weight:500;letter-spacing:.02em;color:var(--ink)}
+  .li-word span{color:var(--li-red)}
+
+  /* Loop while loading: brackets snap in, dot locks red, ring pulses, brackets release */
+  @keyframes li-snap{
+    0%{transform:translate(var(--x),var(--y));opacity:.35;animation-timing-function:cubic-bezier(.3,1.6,.5,1)}
+    28%{transform:translate(0,0);opacity:1}
+    78%{transform:translate(0,0);opacity:1;animation-timing-function:cubic-bezier(.5,0,.8,.4)}
+    100%{transform:translate(var(--x),var(--y));opacity:.35}}
+  @keyframes li-dot{
+    0%,26%{fill:var(--li-grey);transform:scale(.6)}
+    34%{fill:var(--li-red);transform:scale(1.25)}
+    42%,78%{fill:var(--li-red);transform:scale(1)}
+    100%{fill:var(--li-grey);transform:scale(.6)}}
+  @keyframes li-ring{0%,34%{transform:scale(1);opacity:0}36%{opacity:.6}70%,100%{transform:scale(2.6);opacity:0}}
+
+  /* Finish: one final snap-in, pulse, then fade out */
+  .li-done .li-c{animation:li-in .4s cubic-bezier(.3,1.6,.5,1) forwards}
+  .li-done .li-dot{animation:li-dotin .4s forwards}
+  .li-done .li-ring{animation:li-ring1 .7s .25s forwards}
+  .li-done{animation:li-fade .4s 1.1s forwards}
+  @keyframes li-in{from{transform:translate(var(--x),var(--y));opacity:.35}to{transform:translate(0,0);opacity:1}}
+  @keyframes li-dotin{0%{fill:var(--li-grey);transform:scale(.6)}60%{fill:var(--li-red);transform:scale(1.25)}100%{fill:var(--li-red);transform:scale(1)}}
+  @keyframes li-ring1{0%{transform:scale(1);opacity:.6}100%{transform:scale(2.6);opacity:0}}
+  @keyframes li-fade{to{opacity:0;visibility:hidden}}
+
+  @media (prefers-reduced-motion:reduce){
+    .li-c,.li-dot,.li-ring{animation:none!important}
+    .li-dot{fill:var(--li-red)}
+  }
+</style>
+</head>
+<body>
+<div id="li-loader" class="li-dark" role="status" aria-label="Loading Lock-In">
+  <div class="li-inner">
+    <svg class="li-logo" viewBox="-50 -50 100 100" aria-hidden="true">
+      <path class="li-c li-tl" d="M-35 -17V-35H-17"/>
+      <path class="li-c li-tr" d="M17 -35H35V-17"/>
+      <path class="li-c li-br" d="M35 17V35H17"/>
+      <path class="li-c li-bl" d="M-17 35H-35V17"/>
+      <circle class="li-ring" r="10"/>
+      <circle class="li-dot" r="10"/>
+    </svg>
+    <div class="li-word">[<span>•</span>] lock in</div>
+  </div>
+</div>
+<script>
+  // Call window.lockInLoaderFinish() when the app is ready (e.g. after the Firebase snapshot boots).
+  window.lockInLoaderFinish = function () {
+    const el = document.getElementById('li-loader');
+    if (!el || el.classList.contains('li-done')) return;
+    el.classList.add('li-done');
+    el.addEventListener('animationend', function (e) {
+      if (e.animationName === 'li-fade') el.remove();
+    });
+  };
+  // Demo only: finish after 5 s. Delete this line in the app.
+  setTimeout(window.lockInLoaderFinish, 5000);
+</script>
+</body>
+</html>
