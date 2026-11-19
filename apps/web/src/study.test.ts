@@ -72,3 +72,13 @@ describe("optional study UI (1.3.1 item 10)", () => {
     }
   });
 });
+
+describe("item 4 follow-up: the countdown follows a deadline Rust moved", () => {
+  it("re-reads Rust's deadline when a stop is refused, instead of asking every second", () => {
+    const hook = src("./hooks/useFocusSession.ts");
+    const branch = hook.slice(hook.indexOf("if (isSessionRunningRefusal(err)) {"));
+    expect(branch).toMatch(/const rust = await invoke<EnforcerState>\("get_enforcer_state"\)/);
+    expect(branch).toMatch(/endTimeRef\.current = rust\.session_end_time;/);
+    expect(branch.indexOf("endTimeRef.current = rust.session_end_time")).toBeLessThan(branch.indexOf("startCountdownRef.current()"));
+  });
+});

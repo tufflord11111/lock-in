@@ -406,7 +406,15 @@ export function useFocusSession(
       if (isSessionRunningRefusal(err)) {
         console.warn("[Enforcer] stand-down refused — the session is still running:", err);
         sessionLiveRef.current = true;
-        reportWriteFailure(err instanceof Error ? err.message : String(err), undefined, "info");
+        // If the PC's clock was moved, Rust moved the deadline with it
+        // (clock.rs): follow Rust's, quietly. Without this the countdown sat
+        // at zero and asked to stop every second until the real end.
+        const rust = await invoke<EnforcerState>("get_enforcer_state").catch(() => null);
+        if (rust?.focus_active && rust.session_end_time != null && rust.session_end_time > Date.now()) {
+          endTimeRef.current = rust.session_end_time;
+        } else {
+          reportWriteFailure(err instanceof Error ? err.message : String(err), undefined, "info");
+        }
         // The countdown may have stopped itself at zero a moment early.
         if (intervalRef.current === null) queueMicrotask(() => startCountdownRef.current());
         return;
