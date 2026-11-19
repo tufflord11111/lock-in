@@ -446,10 +446,15 @@ function getBlockUrl() {
   return chrome.runtime.getURL("block.html");
 }
 
+// [•] toolbar icon: red dot (the manifest set) while locked, grey dot idle.
+const ICON_LOCKED = { 16: "icon16.png", 32: "icon32.png", 48: "icon48.png", 128: "icon128.png" };
+const ICON_IDLE = { 16: "icon16-idle.png", 32: "icon32-idle.png", 48: "icon48-idle.png", 128: "icon128-idle.png" };
+
 function updateBadge() {
   const locked = isLockedNow();
   chrome.action.setBadgeText({ text: locked ? "LOCK" : "" });
   chrome.action.setBadgeBackgroundColor({ color: locked ? "#FF0000" : "#002855" });
+  chrome.action.setIcon({ path: locked ? ICON_LOCKED : ICON_IDLE }).catch(() => {});
 }
 
 // ─── Blocking Rules ───────────────────────────────────────────────────────────
