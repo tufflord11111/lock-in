@@ -135,7 +135,42 @@ const MIN = 60_000;
   await check("idle: Android Delete Account passes", "pass",
     () => update(ref(as("f8")), { "users/f8": null, "usernames/f8": null }));
 
-  //@@ITEM7@@
+  // ══ Item 7: proInterest (the Pro waitlist) ════════════════════════════════
+  await seedUser("w1");
+  await seedUser("w2");
+  const w1 = as("w1");
+  const desktopPro = (over = {}) => ({
+    at: Date.now(), source: "desktop", notify: true, price: "S$3", features: ["deeper stats", "scheduled sessions"], version: 1, ...over,
+  });
+  await check("pro: the desktop record passes", "pass", () => set(ref(w1, "users/w1/proInterest"), desktopPro()));
+  await check("pro: the desktop record without optional answers passes", "pass",
+    () => set(ref(w1, "users/w1/proInterest"), { at: Date.now(), source: "desktop", notify: true, version: 1 }));
+  // Android's record, exactly as android-v01 rules.test.cjs writes it (a fixed `at`).
+  await check("pro: Android's record, verbatim, passes", "pass",
+    () => set(ref(w1, "users/w1/proInterest"), { at: 1794300000000, source: "android", features: ["day plan", "deeper stats"], price: "S$3", version: 1 }));
+  await check("pro: Android's record with a live `at` passes", "pass", () => set(ref(w1, "users/w1/proInterest"), androidPro()));
+  await check("pro: \"I wouldn't pay\" passes", "pass", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ price: "I wouldn't pay" })));
+  await check("pro: all five features pass", "pass", () => set(ref(w1, "users/w1/proInterest"),
+    desktopPro({ features: ["parrot outfits and perches", "day plan", "the pack pro", "deeper stats", "scheduled sessions"] })));
+  await check("pro: another uid can't write it", "fail", () => set(ref(as("w2"), "users/w1/proInterest"), desktopPro()));
+  await check("pro: signed out can't write it", "fail",
+    () => set(ref(env.unauthenticatedContext().database(), "users/w1/proInterest"), desktopPro()));
+  await check("pro: another uid can't read it", "fail", () => get(ref(as("w2"), "users/w1/proInterest")));
+  await check("pro: source \"web\" refused", "fail", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ source: "web" })));
+  await check("pro: price \"S$9\" refused", "fail", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ price: "S$9" })));
+  await check("pro: an unknown feature refused", "fail", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ features: ["cheaper bail-outs"] })));
+  await check("pro: a sixth feature slot refused", "fail", () => set(ref(w1, "users/w1/proInterest"),
+    desktopPro({ features: { 0: "day plan", 5: "deeper stats" } })));
+  await check("pro: an extra field refused", "fail", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ email: "w1@example.com" })));
+  await check("pro: version 2 refused", "fail", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ version: 2 })));
+  await check("pro: an `at` far in the future refused", "fail", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ at: Date.now() + 10 * MIN })));
+  await check("pro: notify \"yes\" refused", "fail", () => set(ref(w1, "users/w1/proInterest"), desktopPro({ notify: "yes" })));
+  await check("pro: without `source` refused", "fail", () => set(ref(w1, "users/w1/proInterest"), { at: Date.now(), version: 1 }));
+  await check("pro: deleting your own passes", "pass", () => remove(ref(w1, "users/w1/proInterest")));
+  await check("pro: Delete Account with an answer stored passes", "pass", async () => {
+    await set(ref(w1, "users/w1/proInterest"), desktopPro());
+    return update(ref(w1), { "users/w1": null, "usernames/w1": null });
+  });
 
   //@@ITEM9@@
 

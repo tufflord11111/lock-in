@@ -26,6 +26,17 @@
           "bailoutEnd": { ".validate": "newData.isNumber()" }
         },
 
+        "proInterest": {
+          ".validate": "newData.hasChildren(['at','source','version'])",
+          "at": { ".validate": "newData.isNumber() && newData.val() <= now + 60000" },
+          "source": { ".validate": "newData.val() === 'desktop' || newData.val() === 'android'" },
+          "notify": { ".validate": "newData.isBoolean()" },
+          "price": { ".validate": "newData.isString() && newData.val().matches(/^(S\\$2|S\\$3|S\\$5|I wouldn't pay)$/)" },
+          "features": { "$i": { ".validate": "$i.matches(/^[0-4]$/) && newData.isString() && newData.val().matches(/^(parrot outfits and perches|day plan|the pack pro|deeper stats|scheduled sessions)$/)" } },
+          "version": { ".validate": "newData.val() === 1" },
+          "$other": { ".validate": false }
+        },
+
         "sessionHistory": {
           "$entry": {
             "minutes": { ".validate": "newData.isNumber() && newData.val() >= 0" },
