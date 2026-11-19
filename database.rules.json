@@ -6,8 +6,7 @@
     "users": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid && (!newData.exists() || newData.child('emergencyUnlock/expiry').val() === data.child('emergencyUnlock/expiry').val())",
-
+        ".write": "auth != null && auth.uid === $uid && (!newData.exists() || newData.child('emergencyUnlock/expiry').val() === data.child('emergencyUnlock/expiry').val()) && (!(data.child('sessionState/guard').val() === 2 && data.child('sessionState/isActive').val() === true && data.child('sessionState/endTime').isNumber() && data.child('sessionState/endTime').val() > now + 120000 && !(data.child('sessionState/bailoutEnd').isNumber() && data.child('sessionState/bailoutEnd').val() <= now)) || (newData.child('sessionState/isActive').val() === true && newData.child('sessionState/guard').val() === 2 && newData.child('sessionState/endTime').isNumber() && newData.child('sessionState/endTime').val() >= data.child('sessionState/endTime').val() && (newData.child('config/focusActive').val() === true || data.child('config/focusActive').val() !== true) && newData.child('isLocked').val() === data.child('isLocked').val() && ((data.child('sessionState/bailoutEnd').exists() && newData.child('sessionState/bailoutEnd').val() === data.child('sessionState/bailoutEnd').val()) || (!data.child('sessionState/bailoutEnd').exists() && (!newData.child('sessionState/bailoutEnd').exists() || (newData.child('sessionState/bailoutEnd').isNumber() && newData.child('sessionState/bailoutEnd').val() >= now + 270000))))))",
         "config": {
           "theme": { ".validate": "newData.isString() && newData.val().matches(/^(operator|notebook|bento|botanical)$/)" },
           "themeAccent": { ".validate": "newData.isString() && newData.val().matches(/^(orange|sage|lavender|teal)$/)" },
@@ -19,7 +18,12 @@
             "quietEnd": { ".validate": "newData.isString() && newData.val().matches(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)" },
             "v": { ".validate": "newData.val() === 1" },
             "$other": { ".validate": false }
-          }
+          },
+          "username": { ".validate": "data.val() === newData.val() || (newData.isString() && newData.val().matches(/^[a-z0-9_]{1,20}$/) && newData.parent().parent().parent().parent().child('usernames/' + newData.val()).val() === $uid && (!data.exists() || !newData.parent().parent().parent().parent().child('usernames/' + data.val()).exists()))" }
+        },
+        "sessionState": {
+          "guard": { ".validate": "newData.val() === 2" },
+          "bailoutEnd": { ".validate": "newData.isNumber()" }
         },
 
         "sessionHistory": {
@@ -33,11 +37,18 @@
 
         "public": {
           ".read": "auth != null",
-          "userName": { ".validate": "newData.isString() && !newData.val().contains('@')" },
+          "userName": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9_]{1,20}$/)" },
           "$other": { ".validate": false }
         },
         "presence": {
-          ".read": "auth != null"
+          ".validate": "newData.parent().child('config').exists()",
+          ".read": "auth != null && (auth.uid === $uid || root.child('users/' + $uid + '/friends/' + auth.uid).exists())"
+        },
+        "friends": {
+          "$fid": {
+            ".write": "auth != null && auth.uid === $fid && !newData.exists()",
+            ".validate": "newData.val() === true && $fid !== $uid && auth.token.email_verified === true"
+          }
         },
         "openTabs": { ".validate": false, "$k": { ".validate": false } },
         "extension_state": {
@@ -52,7 +63,21 @@
       ".indexOn": ".value",
       "$name": {
         ".read": "auth != null",
-        ".write": "auth != null && ((!newData.exists() && (!data.exists() || data.val() === auth.uid)) || (newData.val() === auth.uid && (!data.exists() || data.val() === auth.uid) && $name.matches(/^[a-z0-9_]{1,20}$/)))"
+        ".write": "auth != null && ((!newData.exists() && (!data.exists() || data.val() === auth.uid)) || (newData.val() === auth.uid && (!data.exists() || data.val() === auth.uid) && $name.matches(/^[a-z0-9_]{1,20}$/) && (auth.token.email_verified === true || data.val() === auth.uid || (!root.child('users/' + auth.uid + '/config/username').exists() && !root.child('users/' + auth.uid + '/username').exists()))))"
+      }
+    },
+
+    "friendRequests": {
+      "$target": {
+        ".read": "auth != null && auth.uid === $target",
+        ".write": "auth != null && auth.uid === $target && !newData.exists()",
+        "$from": {
+          ".write": "auth != null && ((auth.uid === $from && !data.exists() && newData.exists() && auth.token.email_verified === true) || (!newData.exists() && (auth.uid === $target || auth.uid === $from)))",
+          ".validate": "$from !== $target && newData.hasChildren(['from', 'at']) && newData.child('from').val() === $from && newData.parent().parent().parent().child('users/' + $target + '/config').exists() && newData.parent().parent().parent().child('users/' + $from + '/friends/' + $target).val() === true",
+          "from": { ".validate": "newData.isString()" },
+          "at": { ".validate": "newData.val() === now" },
+          "$other": { ".validate": false }
+        }
       }
     },
 

@@ -73,8 +73,8 @@ async function check(name, expect, fn) {
   const carol = env.authenticatedContext("carol").database();
   const dave  = env.authenticatedContext("dave").database();
   const erin  = env.authenticatedContext("erin").database();
-  const frank = env.authenticatedContext("frank").database();
-  const gina  = env.authenticatedContext("gina").database();
+  const frank = env.authenticatedContext("frank", { email_verified: true }).database(); // 1.3.0 migrates only when verified (useHandleProfile.ts:154)
+  const gina  = env.authenticatedContext("gina", { email_verified: true }).database();
   const hb = () => ({ last_seen: Date.now(), version: "1.2.1", status: "online" });
 
   // ── uid WITH config ────────────────────────────────────────────────────────
