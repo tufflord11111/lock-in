@@ -165,7 +165,7 @@ fn h2_the_bail_out_day_comes_from_this_pc_not_the_webview() {
     let cmd = &src[src.find("fn arm_bailout(").unwrap()..];
     let cmd = &cmd[..cmd.find("\n}\n").unwrap()];
     assert!(!cmd.contains("local_date"), "arm_bailout still takes the webview's date");
-    assert!(cmd.contains("integrity::local_today()"));
+    assert!(cmd.contains("integrity::local_day(profile.clock.true_now(now))"));
 }
 
 #[test]

@@ -1,6 +1,7 @@
 mod companion;
 mod attest;
 mod browsers;
+mod clock;
 mod coverage;
 mod heartbeat;
 mod integrity;
@@ -105,6 +106,15 @@ struct LockProfile {
     /// owns every comparison that decides whether the fuse has burned down.
     #[serde(default)]
     bailout_used_date: Option<String>,
+    /// The UTC offset (minutes) when that bail-out was used. The day is also
+    /// checked in that zone, so moving the time zone across midnight doesn't
+    /// make a new day (1.3.1).
+    #[serde(default)]
+    bailout_used_offset_min: Option<i32>,
+    /// Catches the clock being changed (clock.rs). Deadlines move with a jump,
+    /// so a session lasts its planned time whatever the clock says.
+    #[serde(default)]
+    clock: clock::Watch,
     /// Keep running in the tray when the window is closed. A running session
     /// always hides, whatever this says.
     #[serde(default = "default_true")]
@@ -177,6 +187,27 @@ fn awake_in_gap(prev: u64, now: u64, session_end: Option<u64>) -> u64 {
 }
 
 impl LockProfile {
+    /// The clock was moved by `jump` ms. Every wall-clock time that measures
+    /// this session moves with it, so the session still lasts its planned
+    /// time, a Bail out fuse still takes five minutes, and the jump isn't
+    /// counted as time enforced (or as sleep).
+    fn shift_clock(&mut self, jump: i64) {
+        if jump == 0 || !self.focus_active {
+            return;
+        }
+        self.session_end_time = self.session_end_time.map(|t| clock::shifted(t, jump));
+        self.bailout_deadline = self.bailout_deadline.map(|t| clock::shifted(t, jump));
+        self.session_started_at = self.session_started_at.map(|t| clock::shifted(t, jump));
+        self.last_clock_check = self.last_clock_check.map(|t| clock::shifted(t, jump));
+    }
+
+    /// Look at the clocks; if the wall clock was changed, move the session with it.
+    fn watch_clock(&mut self, wall: u64, tick: u64) -> i64 {
+        let jump = self.clock.observe(wall, tick);
+        self.shift_clock(jump);
+        jump
+    }
+
     /// Called by the enforcer every tick, and when a session ends locally.
     fn note_clock(&mut self, now: u64) {
         if let (Some(prev), true) = (self.last_clock_check, self.focus_active) {
@@ -1033,6 +1064,13 @@ fn restore_profile(profile: &Arc<Mutex<LockProfile>>, path: &PathBuf, app: &taur
     };
     *p = restored;
 
+    // A clock moved while Lock-In was closed (and the PC didn't restart)
+    // moves the deadlines before they are judged.
+    let jump = p.watch_clock(now_millis(), clock::tick64());
+    if jump != 0 {
+        println!("[Clock] the clock moved {} ms while Lock-In was closed", jump);
+    }
+
     // Every rule for a restored profile lives in integrity::settle_restored.
     // Emits are inert at boot (no webview is listening yet) but keep every
     // stand-down on the same path; the pull probe on first auth covers it.
@@ -1627,8 +1665,11 @@ fn arm_bailout(
         .lock()
         .map_err(|e| format!("profile lock poisoned: {}", e))?;
     let fuse = bailout_fuse_ms(&app);
-    // The day is this PC's local date (H2), never one the webview sends.
-    let result = integrity::arm_bailout_at(&mut profile, now_millis(), &integrity::local_today(), fuse);
+    // The day is this PC's local date (H2), never one the webview sends, on
+    // the clock with any caught jump taken out (clock.rs).
+    let now = now_millis();
+    let (today, offset) = integrity::local_day(profile.clock.true_now(now));
+    let result = integrity::arm_bailout_at(&mut profile, now, &today, offset, fuse);
     if result.armed {
         persist_profile(&profile, &app_state.state_path);
         println!("[Enforcer] bail-out armed — fuse {} ms, deadline {:?}", fuse, result.deadline);
@@ -2301,6 +2342,8 @@ pub fn run() {
         session_end_time: None,
         bailout_deadline: None,
         bailout_used_date: None,
+        bailout_used_offset_min: None,
+        clock: clock::Watch::default(),
         close_to_tray: true,
         session_awake_ms: 0,
         session_objective: None,
@@ -2485,6 +2528,13 @@ pub fn run() {
                     // Session expiry — a session that survived a restart has no
                     // JS timer left to end it, so the enforcer ends it itself.
                     if let Ok(mut profile) = profile_for_sniper.lock() {
+                        // A changed clock moves the deadlines with it (clock.rs),
+                        // before anything is compared with them.
+                        let jump = profile.watch_clock(now_millis(), clock::tick64());
+                        if jump != 0 {
+                            println!("[Clock] the clock moved {} ms; the session's deadlines moved with it", jump);
+                            persist_profile(&profile, &sniper_state_path);
+                        }
                         // Before expiry, so the last stretch counts. Saved about
                         // every 30 s: an End task loses no more than that.
                         profile.note_clock(now_millis());
@@ -3063,6 +3113,141 @@ mod tests {
         assert_eq!((r.minutes, r.status.as_str(), r.ended_at), (2, "completed", 2 * MIN));
         assert_eq!((r.objective.as_str(), r.uid.as_deref()), ("Write", Some("uid1")));
         assert!(!p.focus_active);
+    }
+
+    /// The enforcer's tick with both clocks: `wall` is what the PC's clock says,
+    /// `tick` is GetTickCount64. Returns whether the session ended on this tick.
+    fn tick_clocks(p: &mut LockProfile, wall: u64, tick: u64) -> bool {
+        p.watch_clock(wall, tick);
+        p.note_clock(wall);
+        let deadline = match (p.session_end_time, p.bailout_deadline) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        if let Some(end) = deadline {
+            if p.focus_active && wall >= end {
+                p.end_session(end);
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn a_clock_moved_forward_doesnt_end_the_session_early() {
+        let mut p = started(30 * MIN);
+        // Ten real minutes, wall and tick together (tick started at 7 s here).
+        let mut t = 2_000;
+        while t <= 10 * MIN {
+            assert!(!tick_clocks(&mut p, t, t + 7_000));
+            t += 2_000;
+        }
+        // The clock is set two hours ahead: the session's old end is long past on it.
+        let jump = 2 * 60 * MIN;
+        assert!(!tick_clocks(&mut p, 10 * MIN + 2_000 + jump, 10 * MIN + 2_000 + 7_000), "not ended by the jump");
+        assert_eq!(p.session_end_time, Some(30 * MIN + jump), "the deadline moved with the clock");
+        // It ends after 30 real minutes, credited in full.
+        let mut ended_at = None;
+        let mut t = 10 * MIN + 4_000;
+        while t <= 31 * MIN {
+            if tick_clocks(&mut p, t + jump, t + 7_000) {
+                ended_at = Some(t);
+                break;
+            }
+            t += 2_000;
+        }
+        assert_eq!(ended_at, Some(30 * MIN));
+        let r = p.pending_records.last().unwrap();
+        assert_eq!((r.status.as_str(), r.minutes), ("completed", 30));
+    }
+
+    #[test]
+    fn a_clock_moved_back_doesnt_make_the_session_longer() {
+        // A session ending at 2 h; the clock is set back by 1 h at 1 h 10.
+        let h = 60 * MIN;
+        let mut p = started(2 * h);
+        let mut t = 2_000;
+        while t <= h + 10 * MIN {
+            assert!(!tick_clocks(&mut p, t, t));
+            t += 2_000;
+        }
+        assert!(!tick_clocks(&mut p, t - h, t));
+        assert_eq!(p.session_end_time, Some(h), "the deadline moved back by the hour");
+        // It ends at 2 h of real time, not 3.
+        let mut ended_at = None;
+        let mut t = t + 2_000;
+        while t <= 3 * h {
+            if tick_clocks(&mut p, t - h, t) {
+                ended_at = Some(t);
+                break;
+            }
+            t += 2_000;
+        }
+        assert_eq!(ended_at, Some(2 * h));
+    }
+
+    #[test]
+    fn sleep_across_the_deadline_still_ends_it_normally() {
+        let mut p = started(30 * MIN);
+        let mut t = 2_000;
+        while t <= 20 * MIN {
+            tick_clocks(&mut p, t, t);
+            t += 2_000;
+        }
+        // Asleep for an hour: GetTickCount64 counted it too, so no clock jump.
+        let woke = 20 * MIN + 60 * MIN;
+        assert!(tick_clocks(&mut p, woke, woke), "ends on the first tick after waking");
+        assert_eq!(p.clock.skew_ms, 0, "sleep isn't a clock change");
+        let r = p.pending_records.last().unwrap();
+        assert_eq!(r.ended_at, 30 * MIN, "at its own deadline, not moved");
+        // Ended at its deadline as usual; the sleep isn't credited, 20 minutes of 30.
+        assert_eq!((r.status.as_str(), r.minutes), ("completed", 20));
+    }
+
+    #[test]
+    fn a_time_zone_moved_across_midnight_gives_no_second_bail_out() {
+        use crate::clock::day_at;
+        // 2026-11-19 23:00 in Singapore (UTC+8) = 15:00 UTC.
+        let utc_15h = 1_795_100_400_000u64; // 2026-11-19T15:00:00Z
+        assert_eq!(day_at(utc_15h, 480), "2026-11-19");
+        let mut p = started(utc_15h + 60 * MIN);
+        let fuse = 5 * MIN;
+        let first = crate::integrity::arm_bailout_at(&mut p, utc_15h, &day_at(utc_15h, 480), 480, fuse);
+        assert!(first.armed);
+        // The fuse burns down; a new session starts.
+        p.end_session(utc_15h + fuse);
+        p.focus_active = true;
+        p.start_session(utc_15h + 6 * MIN, Some(utc_15h + 90 * MIN), None, Some("uid1".into()), false, false);
+        // Ten minutes later the zone is moved to UTC+10: it's 01:10 "tomorrow" there.
+        let now = utc_15h + 10 * MIN;
+        let there = day_at(now, 600);
+        assert_eq!(there, "2026-11-20");
+        let second = crate::integrity::arm_bailout_at(&mut p, now, &there, 600, fuse);
+        assert_eq!(second.refused.as_deref(), Some("used-today"), "still the 19th where it was used");
+        // Once it's the 20th in Singapore too, it's a new day.
+        let next_day = utc_15h + 61 * MIN;
+        let third = crate::integrity::arm_bailout_at(&mut p, next_day, &day_at(next_day, 600), 600, fuse);
+        assert!(third.armed, "{:?}", third.refused);
+    }
+
+    #[test]
+    fn a_clock_moved_a_day_ahead_gives_no_second_bail_out() {
+        use crate::clock::day_at;
+        let utc_15h = 1_795_100_400_000u64;
+        let mut p = started(utc_15h + 120 * MIN);
+        p.watch_clock(utc_15h, 1_000);
+        assert!(crate::integrity::arm_bailout_at(&mut p, utc_15h, &day_at(utc_15h, 480), 480, 5 * MIN).armed);
+        p.end_session(utc_15h + 5 * MIN);
+        p.focus_active = true;
+        p.start_session(utc_15h + 6 * MIN, Some(utc_15h + 60 * MIN), None, Some("uid1".into()), false, false);
+        // The clock is set a day ahead.
+        let day = 24 * 60 * MIN;
+        let wall = utc_15h + 7 * MIN + day;
+        p.watch_clock(wall, 1_000 + 7 * MIN);
+        let today = day_at(p.clock.true_now(wall), 480);
+        assert_eq!(today, "2026-11-19", "the day comes from the time that really passed");
+        let again = crate::integrity::arm_bailout_at(&mut p, wall, &today, 480, 5 * MIN);
+        assert_eq!(again.refused.as_deref(), Some("used-today"));
     }
 
     #[test]

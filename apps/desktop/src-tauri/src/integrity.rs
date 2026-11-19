@@ -244,8 +244,15 @@ pub(crate) fn forget_account(p: &mut LockProfile, uid: &str, now: u64) -> Result
     Ok(())
 }
 
-/// Today's local calendar date, "YYYY-MM-DD", from this PC's clock. The
+/// The local calendar date at `true_now` and this PC's UTC offset now. The
 /// one-bail-out-a-day rule uses this, never a date the webview sends.
+pub(crate) fn local_day(true_now: u64) -> (String, i32) {
+    let offset = crate::clock::utc_offset_min();
+    (crate::clock::day_at(true_now, offset), offset)
+}
+
+/// Today's local calendar date, "YYYY-MM-DD", from this PC's clock.
+#[cfg(test)]
 pub(crate) fn local_today() -> String {
     // SAFETY: GetLocalTime only writes the SYSTEMTIME it returns.
     let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
@@ -266,8 +273,9 @@ pub fn scrub_webview2_env() {
     }
 }
 
-/// arm_bailout's rule, for a given local calendar day and fuse length.
-pub(crate) fn arm_bailout_at(p: &mut LockProfile, now: u64, today: &str, fuse_ms: u64) -> BailoutResult {
+/// arm_bailout's rule, for a given local calendar day, UTC offset (minutes)
+/// and fuse length.
+pub(crate) fn arm_bailout_at(p: &mut LockProfile, now: u64, today: &str, offset_min: i32, fuse_ms: u64) -> BailoutResult {
     // A fuse already burning is reported, never restarted: restarting it would
     // be a way to extend the session, which is the opposite of the point.
     if let Some(deadline) = p.bailout_deadline {
@@ -283,12 +291,19 @@ pub(crate) fn arm_bailout_at(p: &mut LockProfile, now: u64, today: &str, fuse_ms
     if !p.focus_active {
         return BailoutResult { armed: false, deadline: None, refused: Some("no-session".to_string()), remaining_ms: None };
     }
-    if p.bailout_used_date.as_deref() == Some(today) {
+    // Still that day in the zone it was used in: a time zone moved across
+    // midnight is not a new day.
+    let same_day_there = match (&p.bailout_used_date, p.bailout_used_offset_min) {
+        (Some(used), Some(off)) => crate::clock::day_at(p.clock.true_now(now), off) == *used,
+        _ => false,
+    };
+    if p.bailout_used_date.as_deref() == Some(today) || same_day_there {
         return BailoutResult { armed: false, deadline: None, refused: Some("used-today".to_string()), remaining_ms: None };
     }
     let deadline = now + fuse_ms;
     p.bailout_deadline = Some(deadline);
     p.bailout_used_date = Some(today.to_string());
+    p.bailout_used_offset_min = Some(offset_min);
     BailoutResult { armed: true, deadline: Some(deadline), refused: None, remaining_ms: Some(fuse_ms) }
 }
 
