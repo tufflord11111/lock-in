@@ -8,6 +8,8 @@ import { logUiEvent } from "../uiEventLog";
 import { reportEngineFailure } from "../engineHealth";
 import type { EnforcerState } from "../components/EnforcerDisarmPanel";
 import { standDownAction } from "./standDown";
+import { SESSION_GUARD, endWithOneRetry } from "./b2";
+import { serverNow } from "../serverTime";
 import { isSessionRunningRefusal, serverSessionToRearm } from "./sessionGuards";
 import {
   useCallback,
@@ -88,6 +90,9 @@ export function useFocusSession(
   /** Rust re-armed this PC's session from Firebase (M7): the block lists must reach it again. */
   onRearmed?: () => void
 ) {
+  // The server's sessionState, for a refused end write's one retry (B2).
+  const readSession = () =>
+    userId ? get(ref(db, `users/${userId}/sessionState`)).then((s) => s.val()) : Promise.resolve(null);
   const [isActive, setIsActive] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const [taskLabel, setTaskLabel] = useState("");
@@ -349,7 +354,8 @@ export function useFocusSession(
             updates[`users/${userId}/sessionState`] = { isActive: false, originDeviceId: deviceId };
             updates[`users/${userId}/config/focusActive`] = false;
           }
-          const write = update(ref(db), updates);
+          // Retried once if the rules refuse the clear (a clock ahead of the server's).
+          const write = endWithOneRetry(() => update(ref(db), updates), readSession, serverNow);
           guardWrite(
             write,
             "Couldn't save your last session's minutes. Lock-In will keep trying, so nothing is lost."
@@ -445,7 +451,8 @@ export function useFocusSession(
 
     let write: Promise<void>;
     try {
-      write = update(ref(db), updates);
+      // Retried once if the rules refuse it: a clock ahead of the server's (1.3.1 B2).
+      write = endWithOneRetry(() => update(ref(db), updates), readSession, serverNow);
     } catch (err) {
       // update() validates synchronously and throws before returning a
       // promise, which guardWrite would never see.
@@ -558,6 +565,7 @@ export function useFocusSession(
           update(ref(db), {
             [`users/${userId}/sessionState`]: {
               isActive: true,
+              guard: SESSION_GUARD, // Web Guard and the rules hold it to its end (1.3.1 B2)
               startedAt, // lets this PC re-arm the session if its state file is lost (M7)
               endTime,
               objective: label.trim(),
@@ -737,10 +745,15 @@ export function useFocusSession(
         logUiEvent("reconcile-write", userId);
         // One atomic write: the two flags go together or not at all.
         guardWrite(
-          update(ref(db), {
-            [`users/${userId}/config/focusActive`]: false,
-            [`users/${userId}/sessionState/isActive`]: false,
-          }),
+          endWithOneRetry(
+            () =>
+              update(ref(db), {
+                [`users/${userId}/config/focusActive`]: false,
+                [`users/${userId}/sessionState/isActive`]: false,
+              }),
+            readSession,
+            serverNow
+          ),
           "Couldn't clear a session that ended while you were offline. Your browser extension may keep blocking sites."
         );
       },

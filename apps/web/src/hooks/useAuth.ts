@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { auth, db } from "@lock-in/firebase";
-import { bootSnapshot, clearSnapshot, forgetBootSnapshot } from "../snapshot";
+import { bootSnapshot, clearSnapshot, forgetAccountLocally, forgetBootSnapshot, setSnapshotOwner } from "../snapshot";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -168,6 +168,10 @@ export function useAuth() {
           void clearSnapshot();
         }
 
+        // Only the account signed in now may have a snapshot written (B2 M6).
+        setSnapshotOwner(u?.uid ?? null);
+        // Signed out, here or elsewhere: nothing of the account stays on this PC.
+        if (!u) void forgetAccountLocally();
         setUser(u);
         setEmailVerified(u?.emailVerified ?? false);
 
@@ -395,8 +399,7 @@ export function useAuth() {
 
   const logout = async () => {
     try {
-      forgetBootSnapshot();
-      await clearSnapshot();
+      await forgetAccountLocally();
       await signOut(auth);
     } catch (err) {
       console.error("[Auth] Logout failed:", err);

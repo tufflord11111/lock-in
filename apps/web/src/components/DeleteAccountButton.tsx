@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { auth, db } from "@lock-in/firebase";
-import { ref, get, update, query, orderByValue, equalTo } from "firebase/database";
+import { ref, get, update, query, orderByValue, equalTo, onDisconnect } from "firebase/database";
 import type { DataSnapshot } from "firebase/database";
 import {
   signOut,
@@ -10,6 +10,13 @@ import {
   EmailAuthProvider,
 } from "firebase/auth";
 import { guardWrite, reportWriteFailure } from "../writeFailures";
+import { DELETE_DURING_SESSION, deleteCleanupUpdates, guardedSessionLive } from "../hooks/b2";
+import { serverNow } from "../serverTime";
+import { forgetAccountLocally } from "../snapshot";
+import { invoke } from "@tauri-apps/api/core";
+
+const isTauri =
+  typeof window !== "undefined" && !!(window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 
 /**
  * F6 — account deletion.
@@ -75,6 +82,37 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
     setBusy(true);
     setError(null);
     try {
+      // Not during a session (1.3.1 B2): the rules refuse the delete while a
+      // guarded one runs, and Rust won't forget the lists it is enforcing.
+      const [session, enforcer] = await Promise.all([
+        get(ref(db, `users/${userId}/sessionState`)).then((s) => s.val()).catch(() => null),
+        isTauri
+          ? invoke<{ focus_active?: boolean; bailout_deadline?: number | null }>("get_enforcer_state").catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      const rustBusy =
+        enforcer?.focus_active === true ||
+        (typeof enforcer?.bailout_deadline === "number" && enforcer.bailout_deadline > Date.now());
+      if (guardedSessionLive(session, serverNow()) || rustBusy) {
+        setError(DELETE_DURING_SESSION);
+        setBusy(false);
+        return;
+      }
+
+      // Presence's onDisconnect would write users/{uid}/presence back after
+      // the delete, the moment this app disconnects (L4).
+      await onDisconnect(ref(db, `users/${userId}/presence`)).cancel().catch((err) =>
+        console.warn("[LOCK-IN] delete: presence onDisconnect cancel failed:", err)
+      );
+
+      // Out of the lists of everyone this account added, and its friend
+      // requests both ways. Best effort and separate: the rules before 1.3.1
+      // refuse these paths, and that must not stop the delete itself.
+      const friends = await get(ref(db, `users/${userId}/friends`)).then((s) => s.val() ?? {}).catch(() => ({}));
+      await update(ref(db), deleteCleanupUpdates(userId, Object.keys(friends as Record<string, unknown>))).catch((err) =>
+        console.warn("[LOCK-IN] delete: friends clean-up refused:", err)
+      );
+
       // Every handle this account owns, straight from the index. The rules
       // permit exactly this query shape (orderByValue + equalTo own uid).
       const owned = await get(
@@ -102,6 +140,9 @@ export function DeleteAccountButton({ userId }: { userId: string }) {
         return;
       }
 
+      // Nothing of the account left on this PC: snapshot.json, cached
+      // settings, and Rust's lists and unsent records (M6).
+      await forgetAccountLocally(userId);
       await removeAuthUser();
     } catch (err) {
       setError(String((err as { message?: string })?.message ?? err));

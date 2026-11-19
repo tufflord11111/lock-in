@@ -105,8 +105,50 @@ export async function readSnapshot(): Promise<Snapshot | null> {
 }
 
 /** Fire-and-forget. A failed snapshot write must never affect the UI. */
+// ── Whose snapshot may be written (1.3.1 B2, M6) ─────────────────────────────
+// The writer's last write on unmount used to land after sign-out had cleared
+// the file, recreating snapshot.json for an account nobody was signed in to.
+let owner: string | null = null;
+
+/** The signed-in account, from useAuth. null once signed out. */
+export function setSnapshotOwner(uid: string | null): void {
+  owner = uid;
+}
+
+/** Only the account signed in right now may have its snapshot written. */
+export function mayWriteSnapshot(snapshotUid: string, signedIn: string | null): boolean {
+  return signedIn !== null && snapshotUid === signedIn;
+}
+
+/** Other things this PC keeps for the signed-in account, cleared with the snapshot. */
+export const ACCOUNT_LOCAL_KEYS = ["parrot.settings"];
+
+/**
+ * Sign-out and Delete account: no snapshot.json, nothing cached for the
+ * account. With a uid (Delete account), Rust also forgets the account's lists,
+ * approvals and unsent records (forget_account; refused during a session).
+ */
+export async function forgetAccountLocally(deletedUid?: string): Promise<void> {
+  owner = null;
+  forgetBootSnapshot();
+  for (const key of ACCOUNT_LOCAL_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      /* storage unavailable: nothing was kept there */
+    }
+  }
+  await clearSnapshot();
+  if (deletedUid && isTauri) {
+    await invoke("forget_account", { uid: deletedUid }).catch((err) =>
+      console.warn("[LOCK-IN] forget_account failed:", err)
+    );
+  }
+}
+
 export function writeSnapshot(snapshot: Snapshot): void {
   if (!isTauri) return;
+  if (!mayWriteSnapshot(snapshot.uid, owner)) return;
   invoke("write_snapshot", { json: JSON.stringify({ ...snapshot, savedAt: Date.now() }) }).catch((err) =>
     console.warn("[LOCK-IN] snapshot write failed:", err)
   );
@@ -118,6 +160,7 @@ export function writeSnapshot(snapshot: Snapshot): void {
  * someone else's dashboard.
  */
 export async function clearSnapshot(): Promise<void> {
+  owner = null;
   if (!isTauri) return;
   try {
     await invoke("clear_snapshot");

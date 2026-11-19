@@ -3,6 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { HoldButton } from "./HoldButton";
 import { useCopy } from "../theme/copy";
 import { logUiEvent } from "../uiEventLog";
+import { ref, set } from "firebase/database";
+import { db } from "@lock-in/firebase";
+import { bailoutEndFor, isPermissionDenied } from "../hooks/b2";
+import { serverNow, serverOffset } from "../serverTime";
 
 type BailoutResult = {
   armed: boolean;
@@ -29,6 +33,24 @@ function clock(ms: number): string {
 }
 
 const today = () => new Date().toLocaleDateString("en-CA");
+
+/**
+ * Tell Web Guard and the rules when the fuse burns down (1.3.1 B2), in server
+ * time. The rules take it once, and only at least 4.5 minutes out; a write that
+ * arrived late (queued offline) is refused, so it is sent once more from the
+ * server's now. Rust's own fuse is unaffected either way.
+ */
+async function writeBailoutEnd(uid: string, bailoutEnd: number, deadline: number): Promise<void> {
+  const at = ref(db, `users/${uid}/sessionState/bailoutEnd`);
+  try {
+    await set(at, bailoutEnd);
+  } catch (err) {
+    if (!isPermissionDenied(err)) return console.warn("[LOCK-IN] bailoutEnd write failed:", err);
+    await set(at, serverNow() + Math.max(0, deadline - Date.now()) + 1_000).catch((e) =>
+      console.warn("[LOCK-IN] bailoutEnd refused twice; sites stay blocked until the session's end:", e)
+    );
+  }
+}
 
 /** "5 minutes" / "30 seconds" — the fuse length, said the way a person would. */
 function humanFuse(ms: number): string {
@@ -88,6 +110,7 @@ export function BailOut({ userId, className = "" }: { userId?: string; className
         setDeadline(res.deadline ?? null);
         setUsedToday(true);
         logUiEvent("bailout-armed", userId);
+        if (userId && typeof res.deadline === "number") void writeBailoutEnd(userId, bailoutEndFor(res.deadline, serverOffset()), res.deadline);
         return;
       }
       if (res.refused === "already-burning") setDeadline(res.deadline ?? null);

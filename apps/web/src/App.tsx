@@ -23,6 +23,7 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { ThePack } from "./screens/ThePack";
 import { useAuth } from "./hooks/useAuth";
 import { useHandleProfile, reserveHandle, asHandleError, HandleTakenError } from "./hooks/useHandleProfile";
+import { publicNameToWrite } from "./hooks/b2";
 import { ThemeProvider, useTheme, useAccountTheme, useThemeToken, THEMES } from "./theme/ThemeProvider";
 import { useCopy, daypart, weekday } from "./theme/copy";
 import { useLockInStats } from "./hooks/useLockInStats";
@@ -290,13 +291,18 @@ function AppInner() {
   // is how every account's name became "Operator". It now waits for the real
   // value from config/ and only mirrors it; config/ itself is written only by
   // registration and the handle reservation, never from here.
+  //
+  // The rules take only a handle-shaped name there (1.3.1 B2, L3). An older
+  // name that isn't one is replaced by the handle; with neither, nothing is
+  // written. A refusal is logged, never shown: this runs on every launch.
   useEffect(() => {
     if (!user?.uid || profile.userName == null) return;
-    guardWrite(
-      update(ref(db), { [`users/${user.uid}/public/userName`]: profile.userName }),
-      "Couldn't update the name your friends see. They may still see your old name."
+    const name = publicNameToWrite(profile.userName, profile.handle);
+    if (name === null) return;
+    update(ref(db), { [`users/${user.uid}/public/userName`]: name }).catch((err) =>
+      console.warn("[LOCK-IN] public/userName sync refused:", err)
     );
-  }, [profile.userName, user?.uid]);
+  }, [profile.userName, profile.handle, user?.uid]);
 
   // Stable per-install id — same one sessionState uses. Stamped onto every
   // blockedApps entry this device creates, so the enforcer can auto-approve

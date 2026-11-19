@@ -120,6 +120,8 @@ export function useHandleProfile(uid: string | undefined, emailVerified: boolean
   // showed "Operator" until the listener fired — which offline is never.
   const [userName, setUserName] = useState<string | null>(() => bootSnapshot()?.handle ?? null);
   const [usernameSet, setUsernameSet] = useState<boolean | null>(null);
+  // The reserved handle (config/username), lowercase. Friends' fallback name (B2 L3).
+  const [handle, setHandle] = useState<string | null>(null);
   const [status, setStatus] = useState<HandleStatus>("checking");
   const [handleError, setHandleError] = useState<string | null>(null);
 
@@ -129,6 +131,7 @@ export function useHandleProfile(uid: string | undefined, emailVerified: boolean
   useEffect(() => {
     setUserName(bootSnapshot()?.uid === uid ? bootSnapshot()?.handle ?? null : null);
     setUsernameSet(null);
+    setHandle(null);
     if (!uid) return;
     const u1 = onValue(
       ref(db, `users/${uid}/config/userName`),
@@ -140,9 +143,15 @@ export function useHandleProfile(uid: string | undefined, emailVerified: boolean
       (s) => setUsernameSet(s.val() === true),
       (err) => console.error("[LOCK-IN] config/usernameSet listener error:", err)
     );
+    const u3 = onValue(
+      ref(db, `users/${uid}/config/username`),
+      (s) => setHandle(typeof s.val() === "string" ? s.val() : null),
+      (err) => console.error("[LOCK-IN] config/username listener error:", err)
+    );
     return () => {
       u1();
       u2();
+      u3();
     };
   }, [uid]);
 
@@ -232,5 +241,5 @@ export function useHandleProfile(uid: string | undefined, emailVerified: boolean
 
   const clearHandleError = useCallback(() => setHandleError(null), []);
 
-  return { userName, usernameSet, status, handleError, setHandleError, clearHandleError };
+  return { userName, handle, usernameSet, status, handleError, setHandleError, clearHandleError };
 }

@@ -30,6 +30,7 @@
     "read_snapshot",
     "write_snapshot",
     "clear_snapshot",
+    "forget_account",
     "is_store_build",
     "companion_set_enabled",
     "companion_show_main",

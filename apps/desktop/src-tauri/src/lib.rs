@@ -1938,6 +1938,17 @@ fn clear_all_blocks(app: tauri::AppHandle, app_state: State<AppState>) -> Result
     ))
 }
 
+// ─── IPC Command: forget_account ─────────────────────────────────────────────
+/// Delete account (B2 M6): drop this account's lists, approvals and unsent
+/// records from enforcer_state.json. Refused while a session runs.
+#[tauri::command]
+fn forget_account(app_state: State<AppState>, uid: String) -> Result<(), String> {
+    let mut profile = app_state.profile.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
+    integrity::forget_account(&mut profile, &uid, now_millis())?;
+    persist_profile(&profile, &app_state.state_path);
+    Ok(())
+}
+
 // ─── IPC Command: confirm_pending_permanent ──────────────────────────────────
 // F4: promote locally-approved pending permanent blocks into the enforced set.
 #[tauri::command]
@@ -2296,7 +2307,7 @@ pub fn run() {
         })
         // Every one is also listed in app_commands.in, and only a window whose
         // capability grants it can call it: "main" alone (see build.rs).
-        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, rearm_from_server, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, is_store_build, companion_set_enabled, companion_show_main, companion_ready, companion_set_hitbox, companion_set_dragging, companion_interaction_ended, companion_state, #[cfg(debug_assertions)] companion_log_menu, #[cfg(debug_assertions)] companion_debug_log])
+        .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, rearm_from_server, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, forget_account, is_store_build, companion_set_enabled, companion_show_main, companion_ready, companion_set_hitbox, companion_set_dragging, companion_interaction_ended, companion_state, #[cfg(debug_assertions)] companion_log_menu, #[cfg(debug_assertions)] companion_debug_log])
         .setup(move |app| {
             let handle = app.handle().clone();
 

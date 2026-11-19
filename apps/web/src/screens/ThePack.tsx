@@ -5,11 +5,13 @@ import { ref, onValue, get, child } from "firebase/database";
 import { useFriends, FriendAddError } from "../hooks/useFriends";
 import { useCopy } from "../theme/copy";
 import { reportWriteFailure } from "../writeFailures";
+import { PACK_TEXT, inviteText } from "../hooks/b2";
 
 interface FriendStatus {
   id: string;
   name: string;
-  status: "online" | "offline" | "locked-in";
+  /** "waiting": you added them, they have not added you, so their status is theirs to share (B2). */
+  status: "online" | "offline" | "locked-in" | "waiting";
   lastChanged: number;
 }
 
@@ -36,8 +38,59 @@ export function ThePack({ userId }: ThePackProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [addSuccess, setAddSuccess] = useState(false);
 
-  const { addFriend } = useFriends(userId);
+  const { addFriend, addBack, dismissRequest } = useFriends(userId);
   const t = useCopy();
+  // People who added you and wait for you to add back: { uid, name }.
+  const [requests, setRequests] = useState<{ id: string; name: string }[]>([]);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  const [myHandle, setMyHandle] = useState<string | null>(null);
+
+  useEffect(() => {
+    get(ref(db, `users/${userId}/config/username`))
+      .then((s) => setMyHandle(typeof s.val() === "string" ? s.val() : null))
+      .catch(() => setMyHandle(null));
+  }, [userId]);
+
+  // Friend requests to you (1.3.1 B2). The rules before 1.3.1 refuse this
+  // read: then there are simply none to show.
+  useEffect(() => {
+    const names: Record<string, string | undefined> = {};
+    const offNames = new Map<string, () => void>();
+    let ids: string[] = [];
+    const publish = () => setRequests(ids.map((id) => ({ id, name: names[id] || id })));
+    const off = onValue(
+      ref(db, `friendRequests/${userId}`),
+      (snap) => {
+        ids = Object.keys((snap.val() ?? {}) as Record<string, unknown>);
+        for (const [id, offName] of offNames) {
+          if (!ids.includes(id)) {
+            offName();
+            offNames.delete(id);
+          }
+        }
+        for (const id of ids) {
+          if (offNames.has(id)) continue;
+          offNames.set(
+            id,
+            onValue(
+              ref(db, `users/${id}/public`),
+              (p) => {
+                names[id] = p.val()?.userName;
+                publish();
+              },
+              () => {}
+            )
+          );
+        }
+        publish();
+      },
+      () => setRequests([])
+    );
+    return () => {
+      off();
+      for (const offName of offNames.values()) offName();
+    };
+  }, [userId]);
 
   useEffect(() => {
     const friendsRef = ref(db, `users/${userId}/friends`);
@@ -50,13 +103,15 @@ export function ThePack({ userId }: ThePackProps) {
     const perFriend = new Map<string, () => void>();
     const presence: Record<string, { state?: string; lastChanged?: number } | null> = {};
     const names: Record<string, string | undefined> = {};
+    // Presence refused: they haven't added you back (B2).
+    const waiting: Record<string, boolean> = {};
 
     const publish = () =>
       setFriends(
         Array.from(perFriend.keys()).map((fId) => ({
           id: fId,
           name: names[fId] || fId,
-          status: ((presence[fId]?.state as FriendStatus["status"]) || "offline"),
+          status: waiting[fId] ? "waiting" : ((presence[fId]?.state as FriendStatus["status"]) || "offline"),
           lastChanged: presence[fId]?.lastChanged || 0,
         }))
       );
@@ -70,6 +125,7 @@ export function ThePack({ userId }: ThePackProps) {
           .map(([key, value]) => (typeof value === "string" ? value : key))
           .filter((id) => typeof id === "string" && id.length > 0)
       );
+      setFriendIds(new Set(friendIds));
 
       for (const [fId, off] of perFriend) {
         if (!friendIds.has(fId)) {
@@ -77,6 +133,7 @@ export function ThePack({ userId }: ThePackProps) {
           perFriend.delete(fId);
           delete presence[fId];
           delete names[fId];
+          delete waiting[fId];
         }
       }
 
@@ -84,10 +141,19 @@ export function ThePack({ userId }: ThePackProps) {
         if (perFriend.has(fId)) continue;
         // public/userName is the ONLY field of another user's readable by a
         // friend. config is owner-only — it carries their email.
-        const offPresence = onValue(ref(db, `users/${fId}/presence`), (pSnap) => {
-          presence[fId] = pSnap.val();
-          publish();
-        });
+        const offPresence = onValue(
+          ref(db, `users/${fId}/presence`),
+          (pSnap) => {
+            waiting[fId] = false;
+            presence[fId] = pSnap.val();
+            publish();
+          },
+          () => {
+            // Refused: only people they've added see their status.
+            waiting[fId] = true;
+            publish();
+          }
+        );
         const offName = onValue(ref(db, `users/${fId}/public`), (pubSnap) => {
           names[fId] = pubSnap.val()?.userName;
           publish();
@@ -193,8 +259,8 @@ export function ThePack({ userId }: ThePackProps) {
   };
 
   const handleCopy = () => {
-    const inviteText = ` Join me on Lock-In — the hardcore focus vault for Windows.\n\nClick to download and add me: https://lockinme.com?uid=${userId}`;
-    navigator.clipboard.writeText(inviteText);
+    // A handle to add, never a uid (B2).
+    navigator.clipboard.writeText(inviteText(myHandle));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -218,7 +284,25 @@ export function ThePack({ userId }: ThePackProps) {
     [friends]
   );
   
+  const waitingFriends = useMemo(() => friends.filter((f) => f.status === "waiting"), [friends]);
+
   const sortedFriends = useMemo(() => [...activeFriends, ...onlineFriends, ...offlineFriends], [activeFriends, onlineFriends, offlineFriends]);
+
+  // A request from someone already in your Pack has nothing left to ask.
+  const openRequests = useMemo(() => requests.filter((r) => !friendIds.has(r.id)), [requests, friendIds]);
+  useEffect(() => {
+    for (const r of requests) if (friendIds.has(r.id)) void dismissRequest(r.id).catch(() => {});
+  }, [requests, friendIds]);
+
+  const handleRequest = async (id: string, accept: boolean) => {
+    try {
+      if (accept) await addBack(id);
+      else await dismissRequest(id);
+    } catch (err) {
+      if (err instanceof FriendAddError) reportWriteFailure(err.message, undefined, "error");
+      else reportWriteFailure("Couldn't answer that request. Check your connection and try again.", err);
+    }
+  };
 
   return (
     <div className="h-full overflow-y-auto pt-8 -mt-8 pb-40 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -269,6 +353,34 @@ export function ThePack({ userId }: ThePackProps) {
         
         {/* LEFT COLUMN: LIVE STATUS */}
         <div className="flex-1 flex flex-col min-w-0">
+          {/* Friend requests: they added you (B2). */}
+          {openRequests.length > 0 && (
+            <div className="flex flex-col gap-3 mb-8" aria-label="Friend requests">
+              {openRequests.map((r) => (
+                <div
+                  key={r.id}
+                  className="flex items-center justify-between gap-3 py-3 px-4 rounded-lg bg-highlight border-1 border-ink shadow-[shadow:var(--shadow-1)]"
+                >
+                  <span className="text-sm font-bold text-ink">{PACK_TEXT.request(r.name)}</span>
+                  <div className="flex gap-2 shrink-0">
+                    <button
+                      onClick={() => void handleRequest(r.id, true)}
+                      className="bg-ink text-surface-inverse border-1 border-ink px-3 py-1.5 rounded-md font-bold text-xs active:translate-y-[2px] transition-all"
+                    >
+                      {PACK_TEXT.addBack}
+                    </button>
+                    <button
+                      onClick={() => void handleRequest(r.id, false)}
+                      className="bg-surface text-ink border-1 border-ink px-3 py-1.5 rounded-md font-bold text-xs active:translate-y-[2px] transition-all"
+                    >
+                      {PACK_TEXT.dismiss}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Active Operators */}
           <div className="relative isolate mb-4">
             <Sticker slot="pack.online" />
@@ -336,6 +448,17 @@ export function ThePack({ userId }: ThePackProps) {
               </div>
             ))}
             
+            {/* You added them; they haven't added you. No status. */}
+            {waitingFriends.map((friend) => (
+              <div
+                key={friend.id}
+                className="flex items-center justify-between py-3 px-4 rounded-lg bg-surface border-1 border-ink/30 shadow-none border-dashed opacity-70"
+              >
+                <span className="text-base font-bold text-ink/60 capitalize tracking-tight">{friend.name}</span>
+                <div className="text-ink/50 font-bold text-[10px]">{PACK_TEXT.waiting}</div>
+              </div>
+            ))}
+
             {visibleFriends < sortedFriends.length && (
               <button 
                 onClick={handleShowMoreFriends}

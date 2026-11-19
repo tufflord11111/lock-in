@@ -334,3 +334,45 @@ fn m7_a_server_session_that_already_ended_here_is_not_re_armed() {
     rearm_from_server(&mut r, &server(T0 - 5 * MIN, T0 + 90 * MIN), T0 + MIN).unwrap();
     assert_eq!(r.session_end_time, Some(T0 + 25 * MIN));
 }
+
+// ── B2 M6: Delete account leaves no local copy of the account's lists ────────
+
+#[test]
+fn m6_delete_account_forgets_this_accounts_lists_and_records() {
+    let mut p = armed();
+    p.end_session(T0 + 25 * MIN);
+    p.web_blacklist = set(&["youtube.com"]);
+    p.exe_pending = set(&["steam"]);
+    p.permanent_pending = set(&["roblox"]);
+    p.pending_records.push(SessionRecord {
+        ended_at: T0 - MIN, minutes: 5, status: "completed".into(), objective: "Other's".into(), uid: Some("uid2".into()),
+    });
+    p.pending_records.push(SessionRecord {
+        ended_at: T0 + 25 * MIN, minutes: 25, status: "completed".into(), objective: "Write".into(), uid: Some("uid1".into()),
+    });
+    forget_account(&mut p, "uid1", T0 + 30 * MIN).unwrap();
+    assert!(p.exe_approved.is_empty() && p.exe_blacklist.is_empty() && p.exe_pending.is_empty());
+    assert!(p.web_blacklist.is_empty() && p.permanent_exe.is_empty() && p.permanent_pending.is_empty());
+    assert!(p.session_objective.is_none() && p.session_uid.is_none());
+    // Another account's unsent record is left for its owner.
+    assert_eq!(p.pending_records.len(), 1);
+    assert_eq!(p.pending_records[0].uid.as_deref(), Some("uid2"));
+    // Not a disarm: the next session starts normally.
+    assert!(!p.disarm_latch);
+    let saved = serde_json::to_string(&p).unwrap();
+    for word in ["discord", "steam", "fortnite", "youtube.com", "roblox", "Write"] {
+        assert!(!saved.contains(word), "{word} still in enforcer_state.json");
+    }
+}
+
+#[test]
+fn m6_forget_account_is_refused_while_a_session_runs() {
+    let mut p = armed();
+    assert!(forget_account(&mut p, "uid1", T0 + MIN).is_err());
+    assert!(p.focus_active);
+    assert_eq!(p.permanent_exe, set(&["fortnite"]));
+    // Nor while a fuse burns.
+    let mut q = armed();
+    q.bailout_deadline = Some(T0 + 6 * MIN);
+    assert!(forget_account(&mut q, "uid1", T0 + 2 * MIN).is_err());
+}

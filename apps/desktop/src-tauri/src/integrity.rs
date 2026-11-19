@@ -225,6 +225,25 @@ pub(crate) fn clear_all(p: &mut LockProfile, now: u64) -> Result<(usize, usize),
     Ok(super::wipe_all_blocks(p))
 }
 
+/// Delete account (1.3.1 B2, M6): forget everything this PC holds for the
+/// account: its block lists, its approvals, and its unsent session records.
+/// Refused while a session runs or a fuse burns (the rules refuse the delete
+/// then too). Not a disarm: the next session starts normally. Other accounts'
+/// unsent records stay for their owners.
+pub(crate) fn forget_account(p: &mut LockProfile, uid: &str, now: u64) -> Result<(), String> {
+    if p.focus_active || p.bailout_deadline.is_some_and(|d| d > now) {
+        return Err(SESSION_RUNNING.to_string());
+    }
+    let latch = p.disarm_latch;
+    super::wipe_all_blocks(p);
+    p.disarm_latch = latch;
+    p.web_blacklist.clear();
+    p.session_objective = None;
+    p.session_uid = None;
+    p.pending_records.retain(|r| r.uid.as_deref() != Some(uid));
+    Ok(())
+}
+
 /// Today's local calendar date, "YYYY-MM-DD", from this PC's clock. The
 /// one-bail-out-a-day rule uses this, never a date the webview sends.
 pub(crate) fn local_today() -> String {

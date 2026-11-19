@@ -38,6 +38,7 @@
     "allow-read-snapshot",
     "allow-write-snapshot",
     "allow-clear-snapshot",
+    "allow-forget-account",
     "allow-is-store-build",
     "allow-companion-set-enabled",
     "allow-companion-show-main",
