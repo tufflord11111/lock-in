@@ -35,10 +35,17 @@ if (!root) {
 // waiting on a Firebase that may be 24 s away, or unreachable entirely. One
 // local file read; it resolves in single-digit milliseconds, and a failure
 // just means no snapshot and the old boot path.
-await loadBootSnapshot();
+try {
+  await loadBootSnapshot();
 
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+} finally {
+  // The [•] loader in index.html stays up until here: the boot is done (or
+  // failed) and React has its first render queued. index.html also finishes
+  // it on any uncaught error, so it can never outlast the boot.
+  (window as Window & { lockInLoaderFinish?: () => void }).lockInLoaderFinish?.();
+}
