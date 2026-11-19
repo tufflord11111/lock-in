@@ -446,15 +446,18 @@ function getBlockUrl() {
   return chrome.runtime.getURL("block.html");
 }
 
-// [•] toolbar icon: red dot while locked, grey dot (the manifest default) idle.
+// [•] toolbar icon: closed brackets and a red dot while locked; the idle set
+// (the manifest default) has its brackets further out and shorter, and a
+// smaller grey dot, so the state is not colour alone. No badge: at 16 px it
+// covered the mark. The title carries the state in words, for hover and
+// screen readers.
 const ICON_LOCKED = { 16: "icon16.png", 32: "icon32.png", 48: "icon48.png", 128: "icon128.png" };
 const ICON_IDLE = { 16: "icon16-idle.png", 32: "icon32-idle.png", 48: "icon48-idle.png", 128: "icon128-idle.png" };
 
 function updateBadge() {
   const locked = isLockedNow();
-  chrome.action.setBadgeText({ text: locked ? "LOCK" : "" });
-  chrome.action.setBadgeBackgroundColor({ color: locked ? "#FF0000" : "#002855" });
   chrome.action.setIcon({ path: locked ? ICON_LOCKED : ICON_IDLE }).catch(() => {});
+  chrome.action.setTitle({ title: locked ? "Lock-In: locked in" : "Lock-In: idle" }).catch(() => {});
 }
 
 // ─── Blocking Rules ───────────────────────────────────────────────────────────
@@ -602,7 +605,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // ─── Keep-Alive Alarm ─────────────────────────────────────────────────────────
 chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  // The badge and rules otherwise change only on a snapshot, and endTime passing
+  // The icon and rules otherwise change only on a snapshot, and endTime passing
   // produces none. sessionEnd/unlockEnd land on time; keepAlive (about every
   // 30 s) is the backstop for a missed one.
   hydrating.then(() => {
