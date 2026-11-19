@@ -2291,6 +2291,36 @@ fn open_web_guard_store(browser: Option<String>) -> Result<(), String> {
     }
 }
 
+/// L9: where a page's new-window request may go: an https URL, to the system
+/// browser. Anything else (file:, ms-settings:, http:, javascript:…) goes nowhere.
+fn new_window_target(url: &tauri::Url) -> Option<String> {
+    (url.scheme() == "https").then(|| url.to_string())
+}
+
+/// L9: every webview's new-window handler. A link that asks for a new window (a
+/// calendar event's "more details", a target=_blank) never becomes a WebView2
+/// window inside Lock-In, with its access; an https one opens in the system
+/// browser instead.
+pub(crate) fn new_window_request<R: tauri::Runtime>(
+    url: tauri::Url,
+    _features: tauri::webview::NewWindowFeatures,
+) -> tauri::webview::NewWindowResponse<R> {
+    match new_window_target(&url) {
+        Some(target) => {
+            use windows::core::{w, HSTRING, PCWSTR};
+            use windows::Win32::UI::Shell::ShellExecuteW;
+            use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+            // SAFETY: the strings outlive the call; ShellExecuteW only reads them.
+            let code = unsafe { ShellExecuteW(None, w!("open"), &HSTRING::from(target.as_str()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
+            if !shell_execute_succeeded(code.0 as isize) {
+                println!("[Window] the system browser didn't open a new-window link (code {})", code.0 as isize);
+            }
+        }
+        None => println!("[Window] refused a new window for a {} URL", url.scheme()),
+    }
+    tauri::webview::NewWindowResponse::Deny
+}
+
 /// True in the Microsoft Store (MSIX) build. The webview asks before touching
 /// anything the Store owns — the updater above all.
 #[tauri::command]
@@ -2521,6 +2551,22 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![sync_lock_state, update_enforcement, check_sniper, resolve_shortcut, get_running_apps, sync_blocklist, sync_permanent_exe, toggle_autostart, get_autostart_state, get_enforcer_state, clear_disarm_latch, classify_block_entry, clear_all_blocks, confirm_pending_permanent, reject_pending_permanent, confirm_pending_exe, reject_pending_exe, note_local_exe, append_ui_event, is_dev_mode, arm_bailout, ack_session_record, rearm_from_server, lockdown_status, lockdown_set_online, set_close_to_tray, open_web_guard_store, read_snapshot, write_snapshot, clear_snapshot, forget_account, is_store_build, companion_set_enabled, companion_show_main, companion_ready, companion_set_hitbox, companion_set_dragging, companion_interaction_ended, companion_state, #[cfg(debug_assertions)] companion_log_menu, #[cfg(debug_assertions)] companion_debug_log])
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // ── The main window ────────────────────────────────────────────
+            // Built here from its config entry ("create": false there), where
+            // Tauri would have built it just before setup, so it can carry the
+            // new-window handler (L9). Everything below finds it as before.
+            let main_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("tauri.conf.json has no main window")?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &main_config)?
+                .on_new_window(new_window_request)
+                .build()?;
 
             // ── Restore persisted enforcer state ───────────────────────────
             // MUST complete before the sniper thread starts, otherwise the
@@ -3698,6 +3744,35 @@ mod tests {
         let endpoints = conf["plugins"]["updater"]["endpoints"].as_array().unwrap();
         assert!(endpoints.iter().all(|e| e.as_str().unwrap().starts_with("https://github.com/")));
         assert!(!csp_directives()["connect-src"].iter().any(|s| s.contains("github")));
+    }
+
+    #[test]
+    fn l9_only_https_goes_to_the_system_browser() {
+        let url = |s: &str| tauri::Url::parse(s).unwrap();
+        assert_eq!(
+            super::new_window_target(&url("https://calendar.google.com/calendar/event?eid=x")),
+            Some("https://calendar.google.com/calendar/event?eid=x".to_string())
+        );
+        for s in ["http://example.com/", "file:///C:/Windows/System32/calc.exe", "ms-settings:privacy", "javascript:alert(1)", "tauri://localhost/", "data:text/html,x"] {
+            assert_eq!(super::new_window_target(&url(s)), None, "{s}");
+        }
+    }
+
+    #[test]
+    fn l9_every_webview_turns_new_windows_away() {
+        // main is built in setup, not from the config, so it can carry the handler.
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["app"]["windows"].as_array().unwrap().len(), 1);
+        assert_eq!(conf["app"]["windows"][0]["create"], false);
+        assert!(conf["app"]["windows"][0].get("label").is_none_or(|l| l == "main"));
+        let src = include_str!("lib.rs");
+        let setup = &src[src.find(".setup(move |app| {").unwrap()..];
+        let built = setup.find("WebviewWindowBuilder::from_config(").expect("main isn't built in setup");
+        let first_main = setup.find("get_webview_window(\"main\")").unwrap();
+        assert!(built < first_main, "main is built after setup first looks for it");
+        assert!(setup[built..first_main].contains(".on_new_window(new_window_request)"));
+        let companion = include_str!("companion.rs");
+        assert!(companion.contains(".on_new_window(crate::new_window_request)"), "the parrot's window");
     }
 
     #[test]

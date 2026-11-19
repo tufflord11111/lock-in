@@ -559,6 +559,7 @@ fn build_overlay(app: &AppHandle) -> tauri::Result<()> {
         .resizable(false)
         .visible(false)
         .devtools(false)
+        .on_new_window(crate::new_window_request)
         .build()?;
     keep_from_activating(&window)?;
     window.set_ignore_cursor_events(true)?;

@@ -144,6 +144,11 @@ export function PerformanceLog({ userId }: PerformanceLogProps) {
         {calendarSrc ? (
           <iframe
             src={calendarSrc}
+            // Google's own scripts and cookies run; it may open an event in a
+            // new window (the desktop app hands that to the system browser),
+            // but not navigate this page, submit forms or raise dialogs (L9).
+            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            referrerPolicy="no-referrer"
             style={{ width: '100%', height: '500px', border: '2px solid var(--ink-2)', borderRadius: '8px' }}
             frameBorder="0"
             scrolling="no"
