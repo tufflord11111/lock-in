@@ -87,6 +87,16 @@ To see the counts while you test: from `C:\dev\lock-in-sec\apps\desktop\src-taur
 16. **Micro kill ≤ 3 s.** Block Notepad, start a Micro session, open Notepad 5 times: each is closed within 3 s.
 17. **Lock-In never kills itself.** Block `app`, `lock`, `msedge` and `msedgewebview2` as app names; start a session. Lock-In's window and tray stay alive for the whole session; Edge (msedge.exe) is closed if open.
 
+## Audit fixes that only show in the running app (M10, L9, M4)
+
+18. **Sync survives sleep (M10).** Start a 25-minute session. Sleep the laptop (Start → Power → Sleep) for 2 minutes and wake it. Within a minute of waking: the Pack shows you as in a session, and the dashboard's session and today's minutes match the phone or the web app. The session keeps running and blocking. If either looks stale, check the devtools console for a CSP error naming a `*.firebasedatabase.app` host. Bail out or let it run out.
+19. **Calendar links leave Lock-In (L9).** On the screen with the embedded Google Calendar, click an event, then its link (or "Open in Google Calendar"). It opens in the default browser. No window, popup or blank frame opens inside Lock-In, and the calendar keeps working afterwards.
+20. **Both launches start normally (main window built in `setup`).**
+    - Quit from the tray and start Lock-In by hand: the dashboard opens, shown and focused, with the tray icon.
+    - Turn on launch at startup in Settings, then sign out of Windows and back in (or run `Lock-In.exe --silently`): the dashboard appears without taking focus from what you opened, the tray icon is there, and the parrot shows.
+    - In both cases there's exactly one Lock-In window, no blank window, and no error dialog.
+21. **Cleared blocks wait for approval (M4).** Settings → Clear All Blocks. On the web app or another PC signed in to the same account, add an app block (e.g. `notepad.exe`). On this laptop the approval banner names it. Notepad stays usable until you approve it. Approve it and Notepad is closed during the next session. Then add a block on this laptop: it applies at once with no banner.
+
 ## Clean up
 
-18. Delete `DEV_MODE` and `DEV_EXTENSION_ID` from `%APPDATA%\com.lockin.app`, remove the unpacked Web Guard, and put the clock and time zone back to automatic.
+22. Delete `DEV_MODE` and `DEV_EXTENSION_ID` from `%APPDATA%\com.lockin.app`, remove the unpacked Web Guard, and put the clock and time zone back to automatic.
