@@ -22,9 +22,9 @@ test("beats go to loopback only", () => {
 });
 
 test("the beat carries this profile's id and how many windows Web Guard sees", () => {
-  const body = beatBody({ browser: "chrome", version: "1.2.7", incognitoAllowed: true, uid: "u1", profileId: "p1", windows: 3, locked: true, hostAccess: true });
-  assert.deepEqual(body, { locked: true, hostAccess: true, browser: "chrome", version: "1.2.7", incognitoAllowed: true, uid: "u1", profileId: "p1", windows: 3 });
-  const bad = beatBody({ browser: "edge", version: "1.2.7", incognitoAllowed: undefined, uid: undefined, profileId: 5, windows: -1 });
+  const body = beatBody({ browser: "chrome", version: "1.3.1", incognitoAllowed: true, uid: "u1", profileId: "p1", windows: 3, locked: true, hostAccess: true });
+  assert.deepEqual(body, { locked: true, hostAccess: true, browser: "chrome", version: "1.3.1", incognitoAllowed: true, uid: "u1", profileId: "p1", windows: 3 });
+  const bad = beatBody({ browser: "edge", version: "1.3.1", incognitoAllowed: undefined, uid: undefined, profileId: 5, windows: -1 });
   assert.equal(bad.incognitoAllowed, false);
   assert.equal(bad.uid, null);
   assert.equal(bad.profileId, null);

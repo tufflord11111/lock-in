@@ -40,18 +40,18 @@ pub struct BeatBody {
     pub incognito_allowed: bool,
     /// The account Web Guard is signed in to. Signed out, it blocks nothing.
     pub uid: Option<String>,
-    /// A random id Web Guard keeps per browser profile (1.2.7+). None from older
+    /// A random id Web Guard keeps per browser profile (1.3.1+). None from older
     /// copies, whose beats count for their whole browser instance.
     #[serde(default)]
     pub profile_id: Option<String>,
-    /// How many windows this copy of Web Guard can see (1.2.7+): its profile's,
+    /// How many windows this copy of Web Guard can see (1.3.1+): its profile's,
     /// plus Incognito's when it's allowed there.
     #[serde(default)]
     pub windows: Option<u32>,
-    /// Web Guard is blocking session sites right now (1.2.7+).
+    /// Web Guard is blocking session sites right now (1.3.1+).
     #[serde(default)]
     pub locked: Option<bool>,
-    /// Web Guard can act on every site (1.2.7+). False when its site access was
+    /// Web Guard can act on every site (1.3.1+). False when its site access was
     /// cut to "on click" or a few sites in the browser's extension settings.
     #[serde(default)]
     pub host_access: Option<bool>,

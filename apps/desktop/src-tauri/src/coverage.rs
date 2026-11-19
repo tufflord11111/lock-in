@@ -2,7 +2,7 @@
 //!
 //! A browser is covered when each of its instances (one per user-data-dir,
 //! attest.rs) has a fresh beat for this session's account, and, from Web Guard
-//! 1.2.7 on, its beats together see at least as many windows as Windows shows
+//! 1.3.1 on, its beats together see at least as many windows as Windows shows
 //! for that instance. A Guest window, a second profile without Web Guard, or
 //! an Incognito window Web Guard isn't allowed in is a window no beat counts,
 //! so the browser isn't covered and lockdown warns and closes it as usual.
@@ -67,11 +67,11 @@ pub fn brand(instances: &[Instance], beats: &[Beat], uid: Option<&str>, now: u64
             return_first(&mut gap, Gap::Incognito);
         }
         // Told about the session by the reply to its last beat, and still not
-        // blocking: it can't be relied on (1.2.7 locks as soon as it's told).
+        // blocking: it can't be relied on (1.3.1 locks as soon as it's told).
         if fresh.iter().any(|b| b.told_active && b.locked == Some(false)) {
             return_first(&mut gap, Gap::NotLocked);
         }
-        // Web Guard before 1.2.7 doesn't count windows: the check needs every beat to.
+        // Web Guard before 1.3.1 doesn't count windows: the check needs every beat to.
         if fresh.iter().all(|b| b.windows.is_some()) {
             let seen: u32 = fresh.iter().map(|b| b.windows.unwrap_or(0)).sum();
             if inst.windows > seen {
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn web_guard_before_1_2_7_counts_for_its_instance_without_a_window_check() {
+    fn web_guard_before_1_3_1_counts_for_its_instance_without_a_window_check() {
         let v = brand(&[Instance { root: 10, windows: 3 }], &[beat(10, 1_000, "u1", None, None)], Some("u1"), 2_000, FRESH);
         assert_eq!(v.gap, None);
     }
