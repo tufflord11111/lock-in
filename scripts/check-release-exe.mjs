@@ -8,8 +8,11 @@
  *
  *   node scripts/check-release-exe.mjs [exe ...]
  *
+ * It also fails an exe that still holds a build path under C:\Users\ (the
+ * builder's Windows user name): release builds go through remap-build.mjs.
+ *
  * With no arguments it checks target/release/app.exe (honouring CARGO_TARGET_DIR).
- * Searches both 8-bit and UTF-16LE text. Exit 1 on any hit or missing file.
+ * Searches both 8-bit and UTF-16LE text, any case. Exit 1 on any hit or missing file.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -41,11 +44,20 @@ for (const exe of exes) {
       if (at !== -1) hits.push(`${word} (${label}) at byte ${at}`);
     }
   }
+  // Build paths: any case, both encodings.
+  const lower = Buffer.from(bytes.toString("latin1").toLowerCase(), "latin1");
+  let paths = 0;
+  for (const needle of [Buffer.from("c:\\users\\", "latin1"), Buffer.from("c:\\users\\", "utf16le")]) {
+    for (let at = lower.indexOf(needle); at !== -1; at = lower.indexOf(needle, at + 1)) paths++;
+  }
   if (hits.length) {
     console.error(`check-release-exe: FAIL ${exe}\n  ${hits.join("\n  ")}\n  Was it built with --features dev-mode? Release builds must not be.`);
     failed = true;
+  } else if (paths > 0) {
+    console.error(`check-release-exe: FAIL ${exe}\n  ${paths} build path(s) under C:\\Users\\ — build through scripts/remap-build.mjs.`);
+    failed = true;
   } else {
-    console.log(`check-release-exe: ok ${exe} (no ${FORBIDDEN.join(", ")})`);
+    console.log(`check-release-exe: ok ${exe} (no ${FORBIDDEN.join(", ")}, no C:\\Users\\ paths)`);
   }
 }
 process.exit(failed ? 1 : 0);

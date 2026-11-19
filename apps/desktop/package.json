@@ -5,9 +5,9 @@
   "scripts": {
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build": "tauri build && node ../../scripts/check-release-exe.mjs",
-    "pack:msix": "tauri build --no-bundle --config src-tauri/tauri.store.conf.json -- --no-default-features --features store && node ../../scripts/stage-msix.mjs && node ../../scripts/check-release-exe.mjs ./src-tauri/dist/Lock-In.exe && winapp pack ./src-tauri/dist --manifest ./src-tauri/Package.appxmanifest --cert ./src-tauri/devcert.pfx",
-    "build:dev": "tauri build --no-bundle -- --features dev-mode"
+    "build": "node ../../scripts/remap-build.mjs tauri build && node ../../scripts/check-release-exe.mjs",
+    "pack:msix": "node ../../scripts/remap-build.mjs tauri build --no-bundle --config src-tauri/tauri.store.conf.json -- --no-default-features --features store && node ../../scripts/stage-msix.mjs && node ../../scripts/check-release-exe.mjs ./src-tauri/dist/Lock-In.exe && winapp pack ./src-tauri/dist --manifest ./src-tauri/Package.appxmanifest --cert ./src-tauri/devcert.pfx",
+    "build:dev": "node ../../scripts/remap-build.mjs tauri build --no-bundle -- --features dev-mode"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1"
