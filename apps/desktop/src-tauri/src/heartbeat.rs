@@ -20,8 +20,9 @@ pub const PORT: u16 = 47823;
 /// Web Guard's id on the Chrome Web Store. Edge and Brave install from there, so
 /// they send the same one.
 pub const WEB_GUARD_EXTENSION_ID: &str = "pcmcaccnegefcjhdabjjfhaakjfeocea";
-/// The extension beats about every 30 s, so this tolerates one missed beat.
-pub const FRESH_MS: u64 = 60_000;
+/// Web Guard beats every 15 s while awake and its alarm wakes it about every 30 s,
+/// so a beat older than this means it is gone: disabled, removed or blocked.
+pub const FRESH_MS: u64 = 35_000;
 
 const MAX_REQUEST_BYTES: usize = 8 * 1024;
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
@@ -476,12 +477,12 @@ mod tests {
     }
 
     #[test]
-    fn freshness_reads_the_clock_and_goes_stale_at_60_s() {
+    fn freshness_reads_the_clock_and_goes_stale_at_35_s() {
         let store = BeatStore::default();
         assert!(!store.is_fresh("chrome", Some("u1"), 1_000));
         store.record(body("chrome", Some("u1")), 1, 1_000, false);
-        assert!(store.is_fresh("chrome", Some("u1"), 60_999));
-        assert!(!store.is_fresh("chrome", Some("u1"), 61_000));
+        assert!(store.is_fresh("chrome", Some("u1"), 35_999));
+        assert!(!store.is_fresh("chrome", Some("u1"), 36_000));
         assert!(!store.is_fresh("edge", Some("u1"), 1_000));
     }
 

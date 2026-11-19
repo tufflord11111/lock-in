@@ -41,20 +41,40 @@ function redirectRule(id, sites) {
   };
 }
 
-/** Permanent blocks always apply; session blocks only while locked. */
-export function buildRules({ locked, sessionSites, permanentSites }) {
+export const SESSION_ARCHIVE_RULE_ID = 2;
+export const PERMANENT_ARCHIVE_RULE_ID = 1001;
+
+/** A blocked site's pages inside an archive, by URL pattern (mirrors.js archivePattern). */
+function archiveRule(id, pattern) {
+  if (typeof pattern !== "string" || !pattern) return null;
+  return {
+    id,
+    priority: 1,
+    action: { type: "redirect", redirect: { extensionPath: "/block.html" } },
+    condition: { regexFilter: pattern, isUrlFilterCaseSensitive: false, resourceTypes: ["main_frame", "sub_frame"] },
+  };
+}
+
+/**
+ * Permanent blocks always apply; session blocks only while locked. The site
+ * lists already include their mirrors (mirrors.js withMirrors); the archive
+ * patterns are optional.
+ */
+export function buildRules({ locked, sessionSites, permanentSites, sessionArchive = null, permanentArchive = null }) {
   return [
     locked ? redirectRule(SESSION_RULE_ID, sessionSites) : null,
+    locked ? archiveRule(SESSION_ARCHIVE_RULE_ID, sessionArchive) : null,
     redirectRule(PERMANENT_RULE_ID, permanentSites),
+    archiveRule(PERMANENT_ARCHIVE_RULE_ID, permanentArchive),
   ].filter(Boolean);
 }
 
-/** Same ids blocking the same domains. The action never varies. */
+/** Same ids blocking the same domains and patterns. The action never varies. */
 export function sameRules(existing, wanted) {
   const shape = (rules) =>
     JSON.stringify(
       rules
-        .map((r) => [r.id, [...(r.condition?.requestDomains ?? [])].sort()])
+        .map((r) => [r.id, [...(r.condition?.requestDomains ?? [])].sort(), r.condition?.regexFilter ?? null])
         .sort((a, b) => a[0] - b[0])
     );
   return shape(existing) === shape(wanted);

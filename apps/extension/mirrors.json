@@ -1,0 +1,25 @@
+{
+  "_comment": "Copies of a blocked site that would otherwise get round the block. Data, not code: edit this file, not mirrors.js. bySite: blocking the key also blocks these domains (and their subdomains). translateGoog: also block the site through Google Translate's proxy (youtube-com.translate.goog and its www-/m- forms). archives: also block a blocked site's pages inside these archives (web.archive.org/web/<date>/<site>/...). The Invidious list is the public instances known on 19 Nov 2026; instances come and go, so refresh it with each Web Guard release.",
+  "version": 1,
+  "bySite": {
+    "youtube.com": [
+      "youtube-nocookie.com",
+      "yewtu.be",
+      "inv.nadeko.net",
+      "invidious.nerdvpn.de",
+      "invidious.privacyredirect.com",
+      "invidious.jing.rocks",
+      "invidious.protokolla.fi",
+      "invidious.fdn.fr",
+      "iv.datura.network",
+      "iv.melmac.space",
+      "inv.tux.pizza",
+      "vid.puffyan.us",
+      "yt.artemislena.eu",
+      "invidious.f5.si",
+      "invidious.materialio.us"
+    ]
+  },
+  "translateGoog": true,
+  "archives": ["web.archive.org"]
+}

@@ -2,6 +2,8 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, onValue, update, set, forceWebSockets } from "firebase/database";
 import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extension";
 import { buildRules, sameRules } from "./dnrRules.js";
+import { withMirrors, archivePattern } from "./mirrors.js";
+import MIRRORS from "./mirrors.json";
 import { browserFromBrands, BEAT_URL, beatBody, WINDOW_TYPES } from "./beat.js";
 import { isLocked, signOutClears } from "./lockState.js";
 import { nextHold, holdUntil, nextDesktopHold, laterHoldUntil } from "./sessionHold.js";
@@ -431,6 +433,9 @@ function beatShortly() {
   beatSoon = setTimeout(beatToDesktop, 300);
 }
 chrome.windows.onCreated.addListener(beatShortly);
+// The app counts a beat older than 35 s as gone. The keepAlive alarm (about
+// every 30 s) wakes the worker; while it is awake it also beats every 15 s.
+setInterval(beatToDesktop, 15_000);
 chrome.windows.onRemoved.addListener(beatShortly);
 
 // Open-tab upload (F5) has been removed entirely: nothing enumerates tabs or
@@ -462,10 +467,24 @@ function armExpiryAlarm(name, when) {
 async function reconcileRules() {
   await hydrating;
   const lists = enforcedLists();
+  // Each blocked site with its mirrors (mirrors.json): youtube-nocookie.com
+  // and Invidious for YouTube, any site through translate.goog, and its pages
+  // inside web.archive.org.
+  // updateDynamicRules rejects the whole call on one bad rule, so an archive
+  // pattern Chrome won't take (a very long list) is left out, never sent.
+  const usable = async (pattern) => {
+    if (!pattern) return null;
+    const ok = await chrome.declarativeNetRequest.isRegexSupported({ regex: pattern, isCaseSensitive: false })
+      .then((r) => r?.isSupported === true, () => false);
+    if (!ok) console.warn("[Lock-In] archive pattern too large; archive pages not covered this time");
+    return ok ? pattern : null;
+  };
   const wanted = buildRules({
     locked: isLockedNow(),
-    sessionSites: lists.sites,
-    permanentSites: lists.permanent,
+    sessionSites: withMirrors(lists.sites, MIRRORS),
+    permanentSites: withMirrors(lists.permanent, MIRRORS),
+    sessionArchive: await usable(archivePattern(lists.sites, MIRRORS)),
+    permanentArchive: await usable(archivePattern(lists.permanent, MIRRORS)),
   });
   const existing = await chrome.declarativeNetRequest.getDynamicRules();
   if (!sameRules(existing, wanted)) {
@@ -497,6 +516,17 @@ chrome.runtime.onInstalled.addListener(() => {
   applyRules();
   beatToDesktop();
 });
+
+/** The same decision as the rules: a site, one of its mirrors, or its archived pages. */
+function isBlockedWithMirrors(url, sites) {
+  if (isDomainBlocked(url, withMirrors(sites, MIRRORS))) return true;
+  const pattern = archivePattern(sites, MIRRORS);
+  try {
+    return pattern !== null && new RegExp(pattern, "i").test(url);
+  } catch {
+    return false;
+  }
+}
 
 function isDomainBlocked(url, blockList) {
   try {
@@ -539,12 +569,12 @@ function guardNavigation(tabId, url) {
   try {
     const lists = enforcedLists();
     // Always block permanent sites
-    if (isDomainBlocked(url, lists.permanent)) {
+    if (isBlockedWithMirrors(url, lists.permanent)) {
       chrome.tabs.update(tabId, { url: getBlockUrl() });
       return;
     }
     // Block session sites only when locked
-    if (isLockedNow() && isDomainBlocked(url, lists.sites)) {
+    if (isLockedNow() && isBlockedWithMirrors(url, lists.sites)) {
       chrome.tabs.update(tabId, { url: getBlockUrl() });
     }
   } catch (_) {}

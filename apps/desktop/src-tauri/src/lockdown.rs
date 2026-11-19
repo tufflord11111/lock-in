@@ -495,6 +495,35 @@ mod tests {
     }
 
     #[test]
+    fn web_guard_disabled_mid_session_is_closed_within_about_47_s_with_the_real_window() {
+        // Last beat at 0, then Web Guard is turned off. FRESH_MS (35 s) to go
+        // stale, the 10 s warning, then 2 s to force.
+        let mut t = Tracker::default();
+        let mut got = Vec::new();
+        let mut now = 1_000;
+        while now <= 60_000 {
+            let tick = Tick {
+                now,
+                lockdown: false,
+                blocks_sites: true,
+                online: true,
+                running: &["chrome"],
+                last_beat: &|_| Some(0),
+                fresh_ms: crate::heartbeat::FRESH_MS,
+            };
+            got.extend(t.tick(&tick).into_iter().map(|a| (now, a)));
+            now += 1_000;
+        }
+        assert_eq!(crate::heartbeat::FRESH_MS, 35_000);
+        // (It never really exits here, so it keeps being closed after that.)
+        assert_eq!(got[..3].to_vec(), vec![
+            (35_000, Action::Warn { browser: "chrome", lost_web_guard: true }),
+            (45_000, Action::SoftClose { browser: "chrome" }),
+            (47_000, Action::ForceClose { browser: "chrome" }),
+        ]);
+    }
+
+    #[test]
     fn a_new_session_starts_clean() {
         let mut t = Tracker::default();
         run(&mut t, 0, 12_000, &["firefox"], &no_beats);
