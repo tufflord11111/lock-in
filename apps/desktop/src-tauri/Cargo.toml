@@ -27,7 +27,9 @@ sysinfo = "0.30"
 tauri-plugin-autostart = { version = "2", optional = true }
 tauri-plugin-dialog = "2.2.0"
 tauri-plugin-single-instance = "2"
-tauri-plugin-updater = { version = "2", optional = true }
+# No "zip": update bundles are signed -setup.exe files, never .zip, and the
+# updater 2.x pins zip 4 (RUSTSEC-2026-0367 and others; fixed in zip 9).
+tauri-plugin-updater = { version = "2", optional = true, default-features = false, features = ["rustls-tls", "system-proxy"] }
 # Lockdown: find and close browser windows. Store autostart adds
 # Windows.ApplicationModel.StartupTask (needs package identity) through the feature.
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_SystemInformation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Com", "Win32_System_Threading", "Win32_Storage_FileSystem", "UI_Notifications", "Data_Xml_Dom", "Foundation"] }

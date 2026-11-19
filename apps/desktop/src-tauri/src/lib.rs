@@ -3776,6 +3776,31 @@ mod tests {
     }
 
     #[test]
+    fn l13_no_zip_crate_and_patched_tls() {
+        // The updater's zip feature extracts .zip update bundles; ours are signed
+        // -setup.exe files (latest.json for 1.3.0 names Lock-In_1.3.0_x64-setup.exe).
+        // tauri-plugin-updater 2.x pins zip 4, under RUSTSEC-2026-0367/0368/0369/0429/0545/0548.
+        let lock = include_str!("../Cargo.lock");
+        let version_of = |name: &str| -> Vec<String> {
+            lock.split("[[package]]")
+                .filter(|p| p.contains(&format!("\nname = \"{name}\"\n")))
+                .filter_map(|p| p.split("\nversion = \"").nth(1).map(|v| v[..v.find('"').unwrap()].to_string()))
+                .collect()
+        };
+        assert!(version_of("zip").is_empty(), "zip is back: {:?}", version_of("zip"));
+        let at_least = |v: &str, min: [u64; 3]| {
+            let n: Vec<u64> = v.split(['.', '-']).take(3).map(|x| x.parse().unwrap_or(0)).collect();
+            n.as_slice() >= min.as_slice()
+        };
+        for v in version_of("rustls") {
+            assert!(at_least(&v, [0, 23, 46]), "rustls {v}");
+        }
+        for v in version_of("rustls-webpki") {
+            assert!(at_least(&v, [0, 103, 16]), "rustls-webpki {v}");
+        }
+    }
+
+    #[test]
     fn silent_launch_is_only_the_exact_flag() {
         assert!(is_silent_launch(&["app.exe", "--silently"]));
         assert!(!is_silent_launch(&["app.exe"]));

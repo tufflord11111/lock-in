@@ -5,3 +5,13 @@ allowBuilds:
   '@firebase/util': true
   esbuild: true
   protobufjs: true
+
+# 1.3.1 L13: firebase's Node-only transitive deps (Firestore's gRPC, the
+# database's Node websocket), each held inside the range its parent declares.
+# grpc-js stays on 1.9.x: Firestore pins ~1.9.0, and the <1.13.6 advisories
+# need a version outside that.
+overrides:
+  protobufjs: ^7.6.6
+  '@protobufjs/utf8': ^1.1.2
+  websocket-driver: ^0.7.5
+  '@grpc/grpc-js@~1.9': ~1.9.16
