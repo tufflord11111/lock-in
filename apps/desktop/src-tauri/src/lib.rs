@@ -8,6 +8,7 @@ mod integrity;
 pub use integrity::scrub_webview2_env;
 mod lockdown;
 mod notify;
+mod tray_state;
 
 use companion::*;
 use std::collections::HashSet;
@@ -953,6 +954,9 @@ fn now_millis() -> u64 {
 /// site that stands the enforcer down, so the React countdown can never keep
 /// running for a session Rust has already stopped enforcing.
 fn emit_stood_down(app: &tauri::AppHandle, reason: &str, retained_targets: usize) {
+    // Every true→false transition passes through here, so this is the one
+    // place the tray goes back to idle.
+    tray_state::set_locked(app, false);
     let _ = app.emit(
         "enforcer-stood-down",
         StoodDownPayload {
@@ -1398,6 +1402,7 @@ fn update_enforcement(
                     "🔒 ENFORCER ARMED: Active = {}, remote = {}, approved targets = {:?}, end_time = {}",
                     is_active, remote, profile.exe_blacklist, end
                 );
+                tray_state::set_locked(&app, true);
             } else {
                 // Session ending. exe_blacklist is standing config and is NOT
                 // cleared — enforcer_active gates whether it is used, and
@@ -2647,7 +2652,7 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let parrot_item = companion::tray_item(&handle)?;
             let tray_menu = Menu::with_items(app, &[&open_item, &parrot_item, &quit_item])?;
-            let mut tray = TrayIconBuilder::with_id("main")
+            let mut tray = TrayIconBuilder::with_id(tray_state::TRAY_ID)
                 .tooltip("Lock-In")
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
@@ -2667,7 +2672,11 @@ pub fn run() {
                         show_main_window(tray.app_handle());
                     }
                 });
-            if let Some(icon) = app.default_window_icon() {
+            // A session restored from disk starts the tray locked.
+            let restored_active = profile_for_setup.lock().map(|p| p.focus_active).unwrap_or(false);
+            if let Some(icon) = tray_state::initial(restored_active) {
+                tray = tray.icon(icon);
+            } else if let Some(icon) = app.default_window_icon() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
