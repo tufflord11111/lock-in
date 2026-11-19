@@ -1,4 +1,4 @@
-# Chrome Web Store submission — Lock-In Web Guard 1.2.6
+# Chrome Web Store submission — Lock-In Web Guard 1.3.1
 
 Everything the developer dashboard asks for on this update, in one place.
 Paste each block into the matching field.
@@ -8,9 +8,9 @@ Paste each block into the matching field.
 | | |
 |---|---|
 | Item | Lock-In Web Guard (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
-| Version | 1.2.6 |
-| Zip | `apps/extension/lock-in-extension-v1.2.6.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
-| SHA256 | `48DBE77154E0B6B5A8C974C2BC6A9A4AA9FF28AD0B03F1AB450A9E398EC28D96` (110,589 bytes, 2026-11-19) |
+| Version | 1.3.1 |
+| Zip | `apps/extension/lock-in-extension-v1.3.1.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
+| SHA256 | not built yet: build `dist/` and the zip after the rebrand, then fill this in (the 1.2.6 zip of 2026-11-19 was never uploaded and is superseded) |
 | Permissions | `storage`, `webNavigation`, `alarms`, `declarativeNetRequestWithHostAccess` |
 | Host permissions | `<all_urls>` |
 
@@ -62,12 +62,19 @@ For the reviewer's "what's new", and for your own record:
   hours in a day, the extension blocked sites with no session running. Nothing showed or
   explained it. Blocking now follows sessions only.
 
-- **1.2.6** — a session started by Lock-In 1.3.1 keeps blocking until its end time,
+- **1.3.1** — a session started by Lock-In 1.3.1 keeps blocking until its end time,
   or until its Bail out countdown has run out, even if the account's session flags
   are switched off in the meantime; a new session can start at any time. While a
   session runs, its blocked sites only grow (removals wait for its end), and
   signing out of the extension or into another account mid-session keeps that
   session's blocks until it ends. No new permission.
+
+- **1.3.1** also: blocking YouTube also blocks youtube-nocookie.com and known Invidious
+  sites, and any blocked site is also blocked through Google Translate's proxy and in
+  the Wayback Machine (web.archive.org); the list is a data file in the package. It also
+  blocks for a session that the Lock-In desktop app on the same PC reports in its reply
+  to the 127.0.0.1 check-in, even if Firebase can't be reached. No new permission.
+  (1.2.6 was built but never uploaded; its changes ship in 1.3.1.)
 
 **Review:** a new permission plus `web_accessible_resources` means a full review.
 Plan on days. `declarativeNetRequestWithHostAccess` adds no install warning of
