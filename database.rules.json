@@ -61,6 +61,18 @@
           }
         },
 
+        "androidSessionHistory": {
+          "$entry": {
+            "minutes": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+            "bailedOut": { ".validate": "newData.isBoolean()" },
+            "status": { ".validate": "newData.isString()" },
+            "reason": { ".validate": "newData.isString()" },
+            "device": { ".validate": "newData.isString()" },
+            "timestamp": { ".validate": "newData.isNumber()" },
+            ".validate": "!newData.hasChild('bailedOut') || (newData.child('bailedOut').val() === true && newData.child('minutes').val() === 0)"
+          }
+        },
+
         "public": {
           ".read": "auth != null",
           "userName": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9_]{1,20}$/)" },
