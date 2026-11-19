@@ -14,7 +14,7 @@ Lock-In is still an ordinary Windows app: End task or uninstalling stops it.
 Changes:
 - Fixed: a program on this PC could pretend to be Web Guard and keep a browser open. Lock-In now checks with Windows that each Web Guard check-in really comes from that browser.
 - Fixed: a Guest window, a second browser profile, or a browser started with its own profile folder stayed open without Web Guard. Lock-In now checks each one; a window Web Guard can't see gets the usual 10-second warning, and the browser closes.
-- Browsers whose Web Guard isn't allowed in Incognito, or whose site access is limited, now get the same warning and close. The warning says which setting to change.
+- A browser with an Incognito window open gets the same warning and closes, unless Web Guard is allowed in Incognito there. Web Guard not being allowed in Incognito doesn't close a browser with no Incognito window open. A browser whose Web Guard has limited site access gets the warning and closes. The warning says which setting to change.
 - If Web Guard stops answering during a session, the warning now comes after 35 seconds instead of 60.
 - Web Guard 1.3.1: blocking YouTube also blocks youtube-nocookie.com and known Invidious sites; any blocked site is also blocked through Google Translate's proxy and in the Wayback Machine (web.archive.org). The list is a data file, updated with each release.
 - Web Guard 1.3.1 also blocks for a session Lock-In on this PC tells it about, even if it can't reach Firebase.

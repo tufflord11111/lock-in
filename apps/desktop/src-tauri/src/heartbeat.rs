@@ -151,15 +151,13 @@ impl BeatStore {
         }
     }
 
-    /// A fresh beat for this account from a Web Guard that can block in every
-    /// window: allowed in Incognito, and with access to every site. What the
-    /// Start dialog asks; lockdown asks coverage.rs, per instance.
+    /// A fresh beat for this account from a Web Guard with access to every
+    /// site. What the Start dialog asks; lockdown asks coverage.rs, per
+    /// instance. Not being allowed in Incognito doesn't count against it: only
+    /// an Incognito window actually open does, and the window count sees that.
     pub fn protects(&self, browser: &str, uid: Option<&str>, now: u64) -> bool {
         self.all(browser).iter().any(|b| {
-            b.counts_for(uid)
-                && now.saturating_sub(b.at) < FRESH_MS
-                && b.incognito_allowed
-                && b.host_access != Some(false)
+            b.counts_for(uid) && now.saturating_sub(b.at) < FRESH_MS && b.host_access != Some(false)
         })
     }
 
@@ -622,7 +620,7 @@ mod tests {
         let mut no_incognito = body("edge", Some("u1"));
         no_incognito.incognito_allowed = false;
         store.record(no_incognito, 2, 1_000, false);
-        assert!(!store.protects("edge", Some("u1"), 2_000));
+        assert!(store.protects("edge", Some("u1"), 2_000), "Incognito access off alone keeps it open");
         let mut few_sites = body("brave", Some("u1"));
         few_sites.host_access = Some(false);
         store.record(few_sites, 3, 1_000, false);

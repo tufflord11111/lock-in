@@ -23,8 +23,10 @@ pub enum Gap {
     NoBeat,
     /// Web Guard's site access is cut to some sites or "on click".
     SiteAccess,
-    /// Web Guard isn't allowed in Incognito, so those windows are unblocked.
-    Incognito,
+    /// More windows than Web Guard can see, and its Web Guard isn't allowed
+    /// in Incognito: an Incognito window is the likely one. Web Guard not
+    /// allowed in Incognito with no Incognito window open is no gap at all.
+    UnseenIncognito,
     /// Web Guard was told this session is live and still says it isn't blocking.
     NotLocked,
     /// More windows than Web Guard can see.
@@ -63,9 +65,6 @@ pub fn brand(instances: &[Instance], beats: &[Beat], uid: Option<&str>, now: u64
         if fresh.iter().any(|b| b.host_access == Some(false)) {
             return_first(&mut gap, Gap::SiteAccess);
         }
-        if fresh.iter().any(|b| !b.incognito_allowed) {
-            return_first(&mut gap, Gap::Incognito);
-        }
         // Told about the session by the reply to its last beat, and still not
         // blocking: it can't be relied on (1.3.1 locks as soon as it's told).
         if fresh.iter().any(|b| b.told_active && b.locked == Some(false)) {
@@ -75,7 +74,10 @@ pub fn brand(instances: &[Instance], beats: &[Beat], uid: Option<&str>, now: u64
         if fresh.iter().all(|b| b.windows.is_some()) {
             let seen: u32 = fresh.iter().map(|b| b.windows.unwrap_or(0)).sum();
             if inst.windows > seen {
-                return_first(&mut gap, Gap::UnseenWindows);
+                // Not allowed in Incognito: Web Guard's count leaves Incognito
+                // windows out, so an open one shows up here.
+                let unseen = if fresh.iter().any(|b| !b.incognito_allowed) { Gap::UnseenIncognito } else { Gap::UnseenWindows };
+                return_first(&mut gap, unseen);
             }
         }
     }
@@ -104,7 +106,7 @@ impl Grace {
                 self.since.remove(browser);
                 v.at
             }
-            Some(Gap::UnseenWindows) => {
+            Some(Gap::UnseenWindows) | Some(Gap::UnseenIncognito) => {
                 let since = *self.since.entry(browser).or_insert(now);
                 if now.saturating_sub(since) < WINDOW_GRACE_MS { v.at } else { None }
             }
@@ -189,13 +191,33 @@ mod tests {
     }
 
     #[test]
-    fn web_guard_not_allowed_in_incognito_leaves_the_browser_uncovered() {
+    fn incognito_access_off_and_no_incognito_window_stays_open() {
+        // Web Guard isn't allowed in Incognito, but only its one normal window is open.
         let mut b = beat(10, 1_000, "u1", Some("p1"), Some(1));
         b.incognito_allowed = false;
         let v = brand(&[Instance { root: 10, windows: 1 }], &[b], Some("u1"), 2_000, FRESH);
-        assert_eq!(v.gap, Some(Gap::Incognito));
-        // And there is no grace for it.
-        assert_eq!(Grace::default().last_beat("chrome", v, 2_000), None);
+        assert_eq!(v, Verdict { at: Some(1_000), gap: None });
+        assert_eq!(Grace::default().last_beat("chrome", v, 2_000), Some(1_000));
+    }
+
+    #[test]
+    fn incognito_access_off_and_an_incognito_window_open_is_warned_and_closed() {
+        // Web Guard counts its 1 normal window (Incognito ones are left out of
+        // chrome.windows.getAll when it isn't allowed there); Windows shows 2.
+        let mut b = beat(10, 1_000, "u1", Some("p1"), Some(1));
+        b.incognito_allowed = false;
+        let v = brand(&[Instance { root: 10, windows: 2 }], &[b], Some("u1"), 2_000, FRESH);
+        assert_eq!(v.gap, Some(Gap::UnseenIncognito));
+        let mut g = Grace::default();
+        assert_eq!(g.last_beat("chrome", v, 2_000), Some(1_000), "held back for the grace");
+        assert_eq!(g.last_beat("chrome", v, 2_000 + WINDOW_GRACE_MS), None, "then uncovered: warned, then closed");
+    }
+
+    #[test]
+    fn incognito_access_on_and_an_incognito_window_open_stays_open() {
+        // Allowed in Incognito, Web Guard's count includes the Incognito window.
+        let v = brand(&[Instance { root: 10, windows: 2 }], &[beat(10, 1_000, "u1", Some("p1"), Some(2))], Some("u1"), 2_000, FRESH);
+        assert_eq!(v.gap, None);
     }
 
     #[test]

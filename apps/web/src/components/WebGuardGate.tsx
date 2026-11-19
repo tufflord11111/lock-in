@@ -113,7 +113,7 @@ export function WebGuardGate({
         )}
         {incognitoGaps.length > 0 && (
           <p className="text-xs font-bold text-ink/70 mb-3">
-            Web Guard isn't allowed in Incognito in {list(incognitoGaps)}, so it closes during the session too. To keep it open, turn on "Allow in Incognito" for Lock-In Web Guard in its extension settings.
+            Web Guard isn't allowed in Incognito in {list(incognitoGaps)}. If an Incognito window is open during this session, that browser is closed after a warning. To keep Incognito windows open, turn on "Allow in Incognito" for Lock-In Web Guard in its extension settings.
           </p>
         )}
         <div className="flex flex-col gap-2 mt-2">

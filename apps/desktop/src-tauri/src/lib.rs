@@ -712,8 +712,8 @@ fn lockdown_warning(browser: &str, lost_web_guard: bool, wrong_account: bool, ga
             Some(coverage::Gap::UnseenWindows) => {
                 return format!("{name} has a window Web Guard can't see: a Guest window, another profile, or an Incognito window. Closing {name} in 10 seconds. Save anything you've typed.{after}");
             }
-            Some(coverage::Gap::Incognito) => {
-                return format!("Web Guard isn't allowed in {name}'s Incognito windows, so they aren't blocked. Closing {name} in 10 seconds. Save anything you've typed. To keep it open, turn on \"Allow in Incognito\" for Lock-In Web Guard in {name}'s extension settings.{after}");
+            Some(coverage::Gap::UnseenIncognito) => {
+                return format!("{name} has a window Web Guard can't see, most likely an Incognito window: Web Guard isn't allowed in Incognito. Closing {name} in 10 seconds. Save anything you've typed. To keep Incognito windows open during sessions, turn on \"Allow in Incognito\" for Lock-In Web Guard in {name}'s extension settings.{after}");
             }
             Some(coverage::Gap::SiteAccess) => {
                 return format!("Web Guard can't reach every site in {name}: its site access is limited. Closing {name} in 10 seconds. Save anything you've typed. To keep it open, set Lock-In Web Guard's site access to \"On all sites\" in {name}'s extension settings.{after}");
@@ -3047,8 +3047,8 @@ mod tests {
     #[test]
     fn incognito_and_site_access_gaps_say_how_to_fix_them() {
         use crate::coverage::Gap;
-        let m = lockdown_warning("edge", false, false, Some(Gap::Incognito));
-        assert!(m.contains("isn't allowed in Edge's Incognito windows") && m.contains("Allow in Incognito"), "{m}");
+        let m = lockdown_warning("edge", false, false, Some(Gap::UnseenIncognito));
+        assert!(m.starts_with("Edge has a window Web Guard can't see, most likely an Incognito window") && m.contains("Allow in Incognito"), "{m}");
         let m = lockdown_warning("chrome", false, false, Some(Gap::SiteAccess));
         assert!(m.contains("site access is limited") && m.contains("On all sites"), "{m}");
         let m = lockdown_warning("brave", false, false, Some(Gap::NotLocked));
