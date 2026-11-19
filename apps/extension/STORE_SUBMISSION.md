@@ -1,4 +1,4 @@
-# Chrome Web Store submission — Lock-In Web Guard 1.2.5
+# Chrome Web Store submission — Lock-In Web Guard 1.2.6
 
 Everything the developer dashboard asks for on this update, in one place.
 Paste each block into the matching field.
@@ -8,9 +8,9 @@ Paste each block into the matching field.
 | | |
 |---|---|
 | Item | Lock-In Web Guard (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
-| Version | 1.2.5 |
-| Zip | `apps/extension/lock-in-extension-v1.2.5.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
-| SHA256 | `B03254E289543F7B5912C8924A9F0FA0F848E28FD906C75CA74AC11466B5DF82` (110,610 bytes, 2026-11-04) |
+| Version | 1.2.6 |
+| Zip | `apps/extension/lock-in-extension-v1.2.6.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
+| SHA256 | `48DBE77154E0B6B5A8C974C2BC6A9A4AA9FF28AD0B03F1AB450A9E398EC28D96` (110,589 bytes, 2026-11-19) |
 | Permissions | `storage`, `webNavigation`, `alarms`, `declarativeNetRequestWithHostAccess` |
 | Host permissions | `<all_urls>` |
 
@@ -61,6 +61,13 @@ For the reviewer's "what's new", and for your own record:
 - **1.2.5** also removes a hidden daily limit: once the Lock-In app had been open for 6
   hours in a day, the extension blocked sites with no session running. Nothing showed or
   explained it. Blocking now follows sessions only.
+
+- **1.2.6** — a session started by Lock-In 1.3.1 keeps blocking until its end time,
+  or until its Bail out countdown has run out, even if the account's session flags
+  are switched off in the meantime; a new session can start at any time. While a
+  session runs, its blocked sites only grow (removals wait for its end), and
+  signing out of the extension or into another account mid-session keeps that
+  session's blocks until it ends. No new permission.
 
 **Review:** a new permission plus `web_accessible_resources` means a full review.
 Plan on days. `declarativeNetRequestWithHostAccess` adds no install warning of

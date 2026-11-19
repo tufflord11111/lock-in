@@ -4,6 +4,7 @@ import { getAuth, onAuthStateChanged, signOut } from "firebase/auth/web-extensio
 import { buildRules, sameRules } from "./dnrRules.js";
 import { browserFromBrands, BEAT_URL } from "./beat.js";
 import { isLocked, signOutClears } from "./lockState.js";
+import { nextHold, holdUntil } from "./sessionHold.js";
 import { sessionSiteList, permanentSiteList, freezeSessionSites, effectiveSites } from "./sessionSites.js";
 
 // ─── Firebase Config ──────────────────────────────────────────────────────────
@@ -63,6 +64,9 @@ let focusActive = false;
 let sessionEndTime = null;
 // emergencyUnlock.expiry (epoch ms), or null.
 let unlockExpiry = null;
+// A guarded (1.3.1) session seen earlier: blocks until it ends, whatever the
+// flags say later (sessionHold.js). { endTime, bailoutEnd, seenNoFuseAt } or null.
+let sessionHold = null;
 let activeDynamicBlacklist = [...STATIC_BLACKLIST];
 // The running session's lists as they were at its start plus anything added,
 // { endTime, sites, permanent }, or null. Removals wait for the session's end.
@@ -99,6 +103,7 @@ const hydrating = (async () => {
         frozenSession = g.frozenSession;
       }
       if (g.signOutPending === true) signOutPending = true;
+      if (holdUntil(g.sessionHold) !== null) sessionHold = g.sessionHold;
       console.log("[Lock-In] hydrated guard state from storage", {
         sites: activeDynamicBlacklist.length,
         permanent: permanentBlocklist.length,
@@ -128,6 +133,9 @@ function persistGuardState() {
     unlockExpiry,
     frozenSession,
     signOutPending,
+    sessionHold,
+    // The popup decides from this copy too (isLocked reads holdUntil).
+    holdUntil: holdUntil(sessionHold),
     savedAt: Date.now(),
   };
   chrome.storage.local.set({ [PERSIST_KEY]: payload }).catch((err) =>
@@ -158,7 +166,20 @@ function startLockInSession(uid) {
 
   detachFirebase();
   // Another account's blocks must not carry over to this one.
-  if (storedUid && storedUid !== uid) stopLockInSession();
+  // A guarded session's blocks stay until it ends, even across a switch to
+  // another account (B2): only its hold and its frozen lists carry over.
+  if (storedUid && storedUid !== uid) {
+    const held = holdUntil(sessionHold) !== null && Date.now() < holdUntil(sessionHold) ? sessionHold : null;
+    const frozen = held ? frozenSession : null;
+    stopLockInSession();
+    if (held) {
+      sessionHold = held;
+      frozenSession = frozen;
+      persistGuardState();
+      updateBadge();
+      applyRules();
+    }
+  }
   activeUid = uid;
 
   // 1. Firebase Listener: users/{id} (full lock state + session blocklist)
@@ -190,6 +211,7 @@ function startLockInSession(uid) {
     focusActive = data.config?.focusActive === true;
     sessionEndTime =
       typeof data.sessionState?.endTime === "number" ? data.sessionState.endTime : null;
+    sessionHold = nextHold(sessionHold, data, Date.now());
 
     // DEFAULT_BLOCKS + customBlocks - removedDefaults, plus the session's own
     // blockedUrls, and while a session runs, everything it started with
@@ -199,7 +221,7 @@ function startLockInSession(uid) {
     frozenSession = freezeSessionSites(
       frozenSession,
       { sites: activeDynamicBlacklist, permanent: permanentBlocklist },
-      { focusActive, endTime: sessionEndTime },
+      heldSession(),
       Date.now()
     );
 
@@ -277,6 +299,7 @@ function stopLockInSession() {
   permanentBlocklist = [];
   frozenSession = null;
   signOutPending = false;
+  sessionHold = null;
   storedUid = null;
   chrome.storage.local.remove(PERSIST_KEY).catch(() => {});
   updateBadge();
@@ -285,7 +308,17 @@ function stopLockInSession() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function lockInputs() {
-  return { manualLock, focusActive, sessionEndTime, unlockExpiry };
+  return { manualLock, focusActive, sessionEndTime, unlockExpiry, holdUntil: holdUntil(sessionHold) };
+}
+
+/** The session the lists are frozen for: the held one while it lasts, else the flags. */
+function heldSession() {
+  const until = holdUntil(sessionHold);
+  if (until !== null && Date.now() < until) {
+    const end = focusActive && typeof sessionEndTime === "number" ? Math.max(until, sessionEndTime) : until;
+    return { focusActive: true, endTime: end };
+  }
+  return { focusActive, endTime: sessionEndTime };
 }
 
 /** The lists to enforce right now, with whatever the running session holds. */
@@ -368,7 +401,8 @@ async function reconcileRules() {
     });
     console.log("[Lock-In] blocking rules now:", wanted.map((r) => r.id));
   }
-  armExpiryAlarm("sessionEnd", focusActive ? sessionEndTime : null);
+  const session = heldSession();
+  armExpiryAlarm("sessionEnd", session.focusActive ? session.endTime : null);
   armExpiryAlarm("unlockEnd", unlockExpiry);
 }
 

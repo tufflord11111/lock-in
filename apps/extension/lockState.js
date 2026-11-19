@@ -6,12 +6,15 @@
  * a session's endTime passes, and it must lift offline too.
  *
  * A session with no endTime locks for as long as focusActive is true.
+ * holdUntil: when a guarded session seen earlier ends, whatever the flags say now.
  */
-export function isLocked({ manualLock, focusActive, sessionEndTime, unlockExpiry }, now) {
+export function isLocked({ manualLock, focusActive, sessionEndTime, unlockExpiry, holdUntil }, now) {
   if (typeof unlockExpiry === "number" && now < unlockExpiry) return false;
   const sessionLive =
     focusActive === true && (typeof sessionEndTime !== "number" || now < sessionEndTime);
-  return manualLock === true || sessionLive;
+  // A guarded (1.3.1) session seen earlier stays locked until it ends (sessionHold.js).
+  const held = typeof holdUntil === "number" && now < holdUntil;
+  return manualLock === true || sessionLive || held;
 }
 
 /**

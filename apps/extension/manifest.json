@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Lock-In Web Guard",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "Enforces your lock-in sessions by blocking distracting sites.",
   "permissions": [
     "storage",
