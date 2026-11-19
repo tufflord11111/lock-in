@@ -290,9 +290,11 @@ fn default_lock_mode() -> String {
 /// How long the bail-out fuse burns. Long enough that bailing out is a
 /// decision rather than a reflex, short enough to be a real escape hatch.
 const BAILOUT_FUSE_MS: u64 = 5 * 60 * 1000;
-/// Test builds with DEV_MODE shorten it so the whole path can be exercised in a test run.
+/// Test builds with DEV_MODE burn the same five minutes: the rules refuse a
+/// bailoutEnd under now + 270 s (1.3.1 B2), so a shorter dev fuse would end the
+/// session in Rust while Firebase still held it.
 #[cfg(feature = "dev-mode")]
-const BAILOUT_FUSE_DEV_MS: u64 = 30 * 1000;
+const BAILOUT_FUSE_DEV_MS: u64 = 5 * 60 * 1000;
 
 /// How long a fuse armed now burns. Without the dev-mode feature it is always
 /// BAILOUT_FUSE_MS: no file, setting or variable can change it.
@@ -2970,9 +2972,28 @@ mod tests {
 
     #[cfg(feature = "dev-mode")]
     #[test]
-    fn a_dev_mode_test_build_shortens_the_fuse_only_with_the_file() {
-        assert_eq!(super::fuse_ms_for(|| true), 30 * 1000);
+    fn a_dev_mode_build_burns_the_same_five_minute_fuse() {
+        // The rules refuse a bailoutEnd under now + 270 s (1.3.1 B2), so a shorter
+        // dev fuse would be refused in Firebase while Rust ended the session.
+        assert_eq!(super::fuse_ms_for(|| true), 5 * 60 * 1000);
         assert_eq!(super::fuse_ms_for(|| false), 5 * 60 * 1000);
+    }
+
+    /// The shortest fuse database.rules.json accepts when Bail out is armed.
+    fn rules_min_fuse_ms() -> u64 {
+        let rules = include_str!("../../../../database.rules.json");
+        let key = "newData.child('sessionState/bailoutEnd').val() >= now + ";
+        let at = rules.find(key).expect("the rules' bailoutEnd minimum") + key.len();
+        let digits: String = rules[at..].chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse().unwrap()
+    }
+
+    #[test]
+    fn every_build_arms_a_fuse_the_rules_accept() {
+        let min = rules_min_fuse_ms();
+        assert_eq!(min, 270_000);
+        assert!(super::fuse_ms_for(|| true) >= min, "dev-mode fuse under the rules' minimum");
+        assert!(super::fuse_ms_for(|| false) >= min);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 Run everything signed in to the **test account** (lockintest10), never your real one. Commands are PowerShell. Tick each line; a failure is a stop, not a note.
 
-Expected times assume DEV_MODE: the Bail out fuse is 30 s and the 2-minute Micro session is shown.
+Expected times assume DEV_MODE: the 2-minute Micro session is shown. The Bail out fuse is 5 minutes in DEV_MODE too (the rules refuse a shorter one), so Bail out steps use a 25-minute session, which the fuse ends first.
 
 ## Setup
 
@@ -68,7 +68,7 @@ To see the counts while you test: from `C:\dev\lock-in-sec\apps\desktop\src-taur
 
 ## Clocks (item 4)
 
-9. **Time zone across midnight: no second bail-out.** Settings → Time & language → Date & time: turn off *Set time zone automatically*. Pick a zone where it's about 23:50. Start a Micro session and Bail out (30 s fuse); let it burn down. Pick a zone a few hours ahead (now "tomorrow"). Start a Micro session and hold Bail out: **"You've already bailed out today."** Put the zone back to automatic.
+9. **Time zone across midnight: no second bail-out.** Settings → Time & language → Date & time: turn off *Set time zone automatically*. Pick a zone where it's about 23:50. Start a 25-minute session and Bail out; let the 5-minute fuse burn down. Pick a zone a few hours ahead (now "tomorrow"). Start a 25-minute session and hold Bail out: **"You've already bailed out today."** Put the zone back to automatic.
 10. **Clock forward doesn't end the session early** (needs admin). Start a 25-minute session with a blocked app (e.g. Notepad). Turn off *Set time automatically* and set the clock 2 hours ahead. Expect: the session keeps running, the countdown shows the same minutes left as before (no toast every second), Notepad is still closed within 3 s of opening, and the session ends 25 real minutes after it started, recorded **completed**. Put the clock back to automatic.
 11. **Sleep across the deadline ends it normally.** Start a Micro session. Sleep the laptop (Start → Power → Sleep) for 4 minutes and wake it. The session ends on wake, at its own end time; History shows it completed with the minutes before sleep only.
 
@@ -80,7 +80,7 @@ To see the counts while you test: from `C:\dev\lock-in-sec\apps\desktop\src-taur
 ## Records (unchanged paths still work)
 
 14. **Normal end writes to Firebase.** A Micro session that runs out: History shows it completed, and `sessionHistory` and `history/<today>` gain it.
-15. **Bail out writes to Firebase.** A Micro session, Bail out, wait 30 s: History shows it bailed out with 0 minutes; `sessionHistory` has `status: "bailed-out", bailedOut: true`.
+15. **Bail out writes to Firebase.** A 25-minute session, Bail out, wait the 5 minutes: History shows it bailed out with 0 minutes; `sessionHistory` has `status: "bailed-out", bailedOut: true`.
 
 ## Basics
 
