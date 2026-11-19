@@ -8,6 +8,7 @@ import { useLockInStats } from "../hooks/useLockInStats";
 import { bootSnapshot } from "../snapshot";
 import { BailOut } from "../components/BailOut";
 import { HoldButton } from "../components/HoldButton";
+import { LockMark } from "../components/LockMark";
 import { Sticker } from "../theme/stickers";
 import { ref, onValue } from "firebase/database";
 
@@ -410,6 +411,15 @@ export function Dashboard({
       {/* TIMER UNIT */}
             <section className={`${bento ? "bg-surface-dark card-inverse" : "bg-surface"} border-1 border-ink rounded-3xl px-8 py-8 shadow-[shadow:var(--shadow-3)] flex flex-col items-center justify-center text-center relative isolate`}>
               <Sticker slot="session" />
+              {/* One mark across idle and running, so starting a session
+                  snaps it to locked instead of remounting it. */}
+              <LockMark
+                state={isActive ? "locked" : "idle"}
+                tone={bento ? "cream" : "ink"}
+                size={44}
+                className="mb-6"
+                title={isActive ? "Locked in" : "Not locked in"}
+              />
               {isActive ? (
                 <div className="animate-in zoom-in-95 duration-500 w-full flex flex-col items-center">
                   <p className="text-[10px] font-black label-plain tracking-[0.5em] text-ink mb-6 animate-pulse">{t("session.running")}</p>

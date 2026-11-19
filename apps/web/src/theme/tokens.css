@@ -78,6 +78,13 @@
    Colours that are not part of a theme's identity: validation states and a
    few one-offs. A theme may override any of them, but none has to. */
 :root {
+  /* Brand kit (lockin-brand/README.md). The same in every theme. */
+  --li-ink: #2B2033;
+  --li-cream: #F6F1E7;
+  --li-red: #D9372B;
+  --li-grey: #8E8E96;
+  --li-dark: #1F1B24;
+
   --danger-50-rgb: 254 242 242;
   --danger-100-rgb: 254 226 226;
   --danger-200-rgb: 254 202 202;

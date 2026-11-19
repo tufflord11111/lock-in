@@ -1,0 +1,48 @@
+/* [•] mark. Colours are the brand tokens in theme/tokens.css. */
+.lockmark { display: inline-block; flex: none; overflow: visible; }
+.lockmark-ink { --lm-ink: var(--li-ink); }
+.lockmark-cream { --lm-ink: var(--li-cream); }
+
+.lockmark .lm-c {
+  fill: none;
+  stroke: var(--lm-ink);
+  stroke-width: 8;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+  transform-box: view-box;
+}
+.lm-tl { --x: -16px; --y: -16px; }
+.lm-tr { --x: 16px; --y: -16px; }
+.lm-br { --x: 16px; --y: 16px; }
+.lm-bl { --x: -16px; --y: 16px; }
+
+.lockmark .lm-dot {
+  fill: var(--li-grey);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: fill 0.2s ease;
+}
+.lockmark-locked .lm-dot { fill: var(--li-red); }
+
+/* idle -> locked: the brackets snap in, the dot pops red. */
+.lockmark-locked .lm-c { animation: lm-snap 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) both; }
+.lockmark-locked .lm-dot { animation: lm-dot 0.4s both; }
+@keyframes lm-snap {
+  from { transform: translate(var(--x), var(--y)); opacity: 0.35; }
+  to { transform: translate(0, 0); opacity: 1; }
+}
+@keyframes lm-dot {
+  0% { fill: var(--li-grey); transform: scale(0.6); }
+  60% { fill: var(--li-red); transform: scale(1.25); }
+  100% { fill: var(--li-red); transform: scale(1); }
+}
+
+/* Wordmark: tall brackets and the outlined "lock in". */
+.lockmark-word .lm-wb { fill: none; stroke: var(--lm-ink); stroke-width: 11; stroke-linejoin: miter; }
+.lockmark-word .lm-wt { fill: var(--lm-ink); }
+.lockmark-word.lockmark-locked .lm-dot { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lockmark .lm-c,
+  .lockmark .lm-dot { animation: none !important; transition: none; }
+}

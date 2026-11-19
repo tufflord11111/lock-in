@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Sticker } from "../theme/stickers";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Shield, Zap, User, Mail, Key, RotateCcw, ArrowLeft, CheckCircle } from "lucide-react";
+import { Shield, Zap, User, Mail, Key, RotateCcw, ArrowLeft, CheckCircle } from "lucide-react";
+import { LockMark, LockWordmark } from "../components/LockMark";
 import { parseAuthError } from "../hooks/useAuth";
 import { EnforcerDisarmPanel } from "../components/EnforcerDisarmPanel";
 import { useCopy } from "../theme/copy";
@@ -179,10 +180,10 @@ export function Login({ onLogin, onRegister, onForgotPassword }: LoginProps) {
         <div className="flex items-center gap-4 mb-4">
           <div className="relative isolate w-12 h-12 bg-ink rounded-auth-field flex items-center justify-center">
             <Sticker slot="login" />
-            <Lock className="text-surface-inverse" size={24} />
+            <LockMark state="idle" tone="cream" size={30} />
           </div>
-          <h1 className="text-4xl font-black text-ink tracking-tighter label-plain italic leading-none">
-            Lock-In
+          <h1 className="leading-none" aria-label="lock in">
+            <LockWordmark state="idle" height={34} />
           </h1>
         </div>
         <p className="text-ink/60 font-bold leading-tight label-plain text-xs tracking-wider">

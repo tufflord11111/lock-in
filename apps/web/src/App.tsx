@@ -41,6 +41,7 @@ import { useDisarmRecovery } from "./hooks/useDisarmRecovery";
 import { getDeviceId } from "./deviceId";
 import { guardWrite, reportWriteFailure } from "./writeFailures";
 import { WriteFailureToasts } from "./components/WriteFailureToasts";
+import { LockMark } from "./components/LockMark";
 import { awaitWriteOrQueue } from "./offlineWrite";
 import { reportEngineFailure } from "./engineHealth";
 import { Login } from "./screens/Login";
@@ -745,6 +746,8 @@ function AppInner() {
         >
           <div className="max-w-[1600px] mx-auto w-full px-10 pt-10 pb-8">
             <div className="flex justify-between items-start gap-8">
+              <div className="flex items-start gap-5 min-w-0">
+              <LockMark state={isActive ? "locked" : "idle"} tone="cream" size={44} title={isActive ? "Locked in" : "Lock-In"} />
               <div className="min-w-0">
                 <h1
                   className="tracking-tight truncate"
@@ -762,6 +765,7 @@ function AppInner() {
                     {t("header.sub", { weekday: weekday(), daypart: daypart() })}
                   </p>
                 )}
+              </div>
               </div>
 
               <div className="flex items-center gap-8 shrink-0">
@@ -821,6 +825,7 @@ function AppInner() {
       <header className="shrink-0 px-10 py-8 border-b border-ink/5 bg-surface-inverse/50 backdrop-blur-2xl z-20">
         <div className="flex justify-between items-center max-w-[1600px] mx-auto w-full">
           <div className="flex items-center gap-6">
+            <LockMark state={isActive ? "locked" : "idle"} size={40} title={isActive ? "Locked in" : "Lock-In"} />
             <div className="flex flex-col">
               <p className="text-[9px] font-black label-plain tracking-[0.3em] text-ink/30 mb-1">
                 {t("header.greeting", { handle: userName, weekday: weekday(), daypart: daypart() })}
