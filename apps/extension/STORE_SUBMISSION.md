@@ -10,7 +10,7 @@ Paste each block into the matching field.
 | Item | Lock-In Web Guard (`pcmcaccnegefcjhdabjjfhaakjfeocea`) |
 | Version | 1.3.1 |
 | Zip | `apps/extension/lock-in-extension-v1.3.1.zip` (built from `dist/`, not committed — `*.zip` is git-ignored) |
-| SHA256 | not built yet: build `dist/` and the zip after the rebrand, then fill this in (the 1.2.6 zip of 2026-11-19 was never uploaded and is superseded) |
+| SHA256 | `160b788293ae1287f0ad24c269b762167a2f7f3a4937dd58e27b11a9365becba` (85,363 bytes; built 2026-11-20 after the rebrand; copy in `C:\dev\parrot-builds\1.3.1\`. The 1.2.6 zip of 2026-11-19 was never uploaded and is superseded) |
 | Permissions | `storage`, `webNavigation`, `alarms`, `declarativeNetRequestWithHostAccess` |
 | Host permissions | `<all_urls>` |
 
