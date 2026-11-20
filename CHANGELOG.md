@@ -17,9 +17,9 @@ Changes:
 - A browser with an Incognito window open gets the same warning and closes, unless Web Guard is allowed in Incognito there. Web Guard not being allowed in Incognito doesn't close a browser with no Incognito window open. A browser whose Web Guard has limited site access gets the warning and closes. The warning says which setting to change.
 - If Web Guard stops answering during a session, the warning now comes after 35 seconds instead of 60.
 - Web Guard 1.3.1: blocking YouTube also blocks youtube-nocookie.com and known Invidious sites; any blocked site is also blocked through Google Translate's proxy and in the Wayback Machine (web.archive.org). The list is a data file, updated with each release.
-- Web Guard 1.3.1 also blocks for a session Lock-In on this PC tells it about, even if it can't reach Firebase.
+- Web Guard 1.3.1 also learns about a session from Lock-In on the same PC, not only from your account in Firebase.
 - Fixed: moving the PC's clock forward ended a session and its Bail out early, and changing the time zone across midnight gave a second bail-out the same day. Sleep is unaffected.
-- Fixed: a running session's block lists could be shortened mid-session; removals now wait for the session's end. Sessions started by this version can't be switched off from the account's data in Firebase; they end at their own end or when Bail out's five minutes are up.
+- Fixed: a running session's block lists could be shortened mid-session; removals now wait for the session's end. Changing the account's data in Firebase no longer ends a session started by this version. It ends at its own end, when Bail out's five minutes are up, or if Lock-In is stopped with End task or uninstalled.
 - The Pack: adding someone sends them a request; they see it and can add you back. Your online status is visible only to people you've added.
 - Delete account waits until no session is running, and removes you from your friends' lists.
 - Lock-In Pro isn't built. There's now a "Pro — not available yet" row in Settings, and once after your first completed session a card asks whether you'd like to hear when it is. Nothing is sold; blocking, sessions of any length, Bail out, history and the weekly goal stay free.
