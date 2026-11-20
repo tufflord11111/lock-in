@@ -75,3 +75,44 @@ pub fn set_locked(app: &AppHandle, locked: bool) {
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_four_tray_icons_decode() {
+        for light in [false, true] {
+            for locked in [false, true] {
+                assert!(image(light, locked).is_some(), "light={} locked={}", light, locked);
+            }
+        }
+    }
+
+    /// The tray follows the Rust session state (focus_active), not React's:
+    /// every false→true site sets it locked, the one stand-down funnel sets it
+    /// idle, and a session restored from disk builds it locked.
+    #[test]
+    fn tray_follows_every_session_transition() {
+        let src = include_str!("lib.rs").replace("\r\n", "\n");
+        let body = |start: &str| {
+            let at = src.find(start).unwrap_or_else(|| panic!("{} not found", start));
+            let rest = &src[at..];
+            rest[..rest.find("\n}\n").unwrap()].to_string()
+        };
+        assert!(body("fn emit_stood_down(").contains("tray_state::set_locked(app, false);"));
+        let update = body("fn update_enforcement(");
+        let armed = update.find("ENFORCER ARMED").unwrap();
+        let stood = update.find("ENFORCER STOOD DOWN").unwrap();
+        assert!(update[armed..stood].contains("tray_state::set_locked(&app, true);"));
+        let rearm = body("fn rearm_from_server(");
+        assert!(rearm.contains("if rearmed {") && rearm.contains("tray_state::set_locked(&app, true);"));
+        // Stand-downs never touch the tray except through emit_stood_down.
+        assert_eq!(src.matches("tray_state::set_locked(").count(), 3);
+        let setup = &src[src.find(".setup(move |app| {").unwrap()..];
+        let restored = setup.find("restore_profile(&profile_for_setup").unwrap();
+        let built = setup.find("TrayIconBuilder::with_id(tray_state::TRAY_ID)").unwrap();
+        assert!(restored < built, "the tray is built before the restored state is known");
+        assert!(setup[built..].contains("tray_state::initial(restored_active)"));
+    }
+}

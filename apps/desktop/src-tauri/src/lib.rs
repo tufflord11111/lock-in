@@ -2106,6 +2106,8 @@ fn rearm_from_server(
         println!("🔒 ENFORCER RE-ARMED from the server session, until {:?}", profile.session_end_time);
         log_ui_event(&app, "session-rearmed");
         persist_profile(&profile, &app_state.state_path);
+        // The other false→true transition besides update_enforcement.
+        tray_state::set_locked(&app, true);
     }
     Ok(rearmed)
 }
