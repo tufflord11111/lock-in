@@ -43,3 +43,45 @@ describe("index.html's CSP (also applied inside the desktop app)", () => {
     }
   });
 });
+
+// The [•] loader runs before React. It must work under this CSP and Tauri's:
+// no inline <script> (Tauri adds hashes and nonces to its header CSP, which
+// switches off 'unsafe-inline'), no eval. It is a same-origin classic script
+// that runs before the deferred app module.
+describe("the loading screen under the 1.3.1 CSP", () => {
+  const scripts = (page: string) => [...page.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+  const loader = readFileSync(new URL("../public/loader.js", import.meta.url), "utf8");
+  const tauriCsp: string = JSON.parse(
+    readFileSync(new URL("../../desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8")
+  ).app.security.csp;
+
+  it("has no inline script in index.html or parrot.html", () => {
+    const parrot = readFileSync(new URL("../parrot.html", import.meta.url), "utf8");
+    for (const page of [html, parrot]) {
+      const found = scripts(page);
+      expect(found.length).toBeGreaterThan(0);
+      for (const [, attrs, body] of found) {
+        expect(attrs).toMatch(/\ssrc="\/[^"]+"/);
+        expect(body.trim()).toBe("");
+      }
+    }
+  });
+
+  it("loads /loader.js from the same origin, as a classic script before the app module", () => {
+    const srcs = scripts(html).map(([, attrs]) => attrs);
+    const at = srcs.findIndex((a) => a.includes('src="/loader.js"'));
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(srcs[at]).not.toMatch(/type=|async|defer/);
+    expect(at).toBeLessThan(srcs.findIndex((a) => a.includes('src="/src/main.tsx"')));
+    expect(html.indexOf('id="li-loader"')).toBeLessThan(html.indexOf('src="/loader.js"'));
+    expect(directives.get("script-src")).toContain("'self'");
+    expect(tauriCsp).toMatch(/script-src 'self'/);
+  });
+
+  it("needs no eval, and neither CSP allows it", () => {
+    expect(loader).toContain("window.lockInLoaderFinish");
+    expect(loader).not.toMatch(/\beval\s*\(|new Function|setTimeout\(\s*['"`]|setInterval\(\s*['"`]/);
+    expect(csp).not.toContain("unsafe-eval");
+    expect(tauriCsp).not.toContain("unsafe-eval");
+  });
+});
