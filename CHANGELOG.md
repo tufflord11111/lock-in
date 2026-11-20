@@ -25,6 +25,10 @@ Changes:
 - Lock-In Pro isn't built. There's now a "Pro — not available yet" row in Settings, and once after your first completed session a card asks whether you'd like to hear when it is. Nothing is sold; blocking, sessions of any length, Bail out, history and the weekly goal stay free.
 - Optional, off unless you turn it on in Settings: share your hours-lost answers, focus minutes, focus days and how often you bail out, counted only in totals and averages, to help find out whether Lock-In helps. If it's on, the hours-lost question comes back once, two weeks later.
 - The app's file no longer contains the Windows user name of the PC it was built on.
+- New [•] lock in icon, for the app, Web Guard and the phone app.
+- The tray icon shows whether a session is running: a red dot while one is, a grey dot when not. It is drawn for a light or dark taskbar, as Windows is set when Lock-In starts and when a session starts or ends.
+- Web Guard's toolbar icon shows the same, in place of the LOCK badge, and hovering it says "locked in" or "idle".
+- A new loading screen shows while Lock-In starts.
 
 ## [1.3.0] — 2026-11-16
 
