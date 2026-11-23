@@ -29,6 +29,8 @@ import { useCopy, daypart, weekday } from "./theme/copy";
 import { useLockInStats } from "./hooks/useLockInStats";
 import { useSnapshotWriter } from "./hooks/useSnapshotWriter";
 import { useReachable } from "./hooks/useReachable";
+import { useSyncWatchdog } from "./hooks/useSyncWatchdog";
+import { SIGN_OUT_DURING_SESSION, signOutAllowed } from "./signOutGuard";
 import { useExtensionPresence } from "./hooks/useExtensionPresence";
 import { useSessionSites } from "./hooks/useSessionSites";
 import { bootSnapshot } from "./snapshot";
@@ -324,7 +326,9 @@ function AppInner() {
   // Sync blockedApps for Rust process killer.
   const stats = useLockInStats(user?.uid);
   useSnapshotWriter(user?.uid);
-  const { reachable, checking: reachabilityChecking, retry: retryReachable } = useReachable();
+  const { reachable, settled: reachabilitySettled, checking: reachabilityChecking, retry: retryReachable } = useReachable();
+  // A database connection that stays down while its host answers gets cycled.
+  useSyncWatchdog(user?.uid, reachabilitySettled && reachable);
   const [blockedApps, setBlockedApps] = useState<string[]>(() => bootSnapshot()?.blockedApps ?? []);
   // Raw {key: exe}, as Rust is sent it.
   const [blockedAppsRaw, setBlockedAppsRaw] = useState<Record<string, string>>(() => bootSnapshot()?.blockedAppsRaw ?? {});
@@ -498,6 +502,16 @@ function AppInner() {
     () => setRearmNonce((n) => n + 1)
   );
 
+  // Refused while a session runs, like the tray's Quit (signOutGuard.ts). The
+  // buttons are disabled too; this covers any other path to it.
+  const guardedLogout = useCallback(() => {
+    if (!signOutAllowed(isActive)) {
+      reportWriteFailure(SIGN_OUT_DURING_SESSION, undefined, "info");
+      return;
+    }
+    void logout();
+  }, [isActive, logout]);
+
   // A session that blocks websites, started while Web Guard is quiet or another
   // browser is open: ask first. Unreachable, the Firebase heartbeat can't be read,
   // so a quiet extension proves nothing, and the extension blocks offline from
@@ -629,7 +643,7 @@ function AppInner() {
         email={user.email ?? ""}
         onCheckStatus={reloadUser}
         onResend={resendVerificationEmail}
-        onLogout={logout}
+        onLogout={guardedLogout}
         sendFailed={verificationSendFailed}
       />
     );
@@ -794,8 +808,10 @@ function AppInner() {
                   </p>
                 </div>
                 <button
-                  onClick={logout}
-                  className="px-4 py-2 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
+                  onClick={guardedLogout}
+                  disabled={!signOutAllowed(isActive)}
+                  title={signOutAllowed(isActive) ? undefined : SIGN_OUT_DURING_SESSION}
+                  className="px-4 py-2 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ border: "1px solid var(--header-muted)", color: "var(--header-ink)" }}
                 >
                   {t("signout")}
@@ -856,8 +872,10 @@ function AppInner() {
               </span>
             )}
             <button 
-              onClick={logout}
-              className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-action-sm shadow-[shadow:var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all"
+              onClick={guardedLogout}
+              disabled={!signOutAllowed(isActive)}
+              title={signOutAllowed(isActive) ? undefined : SIGN_OUT_DURING_SESSION}
+              className="px-4 py-2 border-1 border-ink bg-surface text-ink font-black text-[9px] label-action-sm shadow-[shadow:var(--shadow-1)] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {t("signout")}
             </button>

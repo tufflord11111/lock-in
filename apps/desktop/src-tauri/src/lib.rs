@@ -1831,6 +1831,8 @@ const UI_EVENTS: &[&str] = &[
     "local-stop-refused",
     "session-rearmed",
     "stood-down-ignored",
+    // useSyncWatchdog cycled a database connection stuck while its host answered.
+    "sync-reconnect",
 ];
 
 /// Epoch milliseconds → "YYYY-MM-DDTHH:MM:SS.mmmZ" (UTC), without a date crate.

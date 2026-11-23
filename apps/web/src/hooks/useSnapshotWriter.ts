@@ -9,6 +9,7 @@ import {
   writeSnapshot,
   type Snapshot,
 } from "../snapshot";
+import { SnapshotDraft } from "../snapshotGate";
 
 /**
  * Keeps snapshot.json current while the app is online.
@@ -17,35 +18,44 @@ import {
  * written out debounced. These are the same paths the screens already listen
  * to, so being online costs one extra read each and nothing while offline —
  * where no listener fires at all and the snapshot simply stays as it was.
+ *
+ * Nothing is written until the server has answered for config and blockedApps
+ * in this run, and never with a missing or empty config (snapshotGate.ts).
+ * After an in-app sign-out and sign-in, the first answer used to put a
+ * near-empty snapshot on disk.
  */
 const DEBOUNCE_MS = 1500;
 
 export function useSnapshotWriter(userId: string | undefined): void {
-  const draft = useRef<Snapshot | null>(null);
+  const draft = useRef<SnapshotDraft | null>(null);
   const timer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!userId) return;
 
-    draft.current = { ...(bootSnapshot() ?? emptySnapshot(userId)), uid: userId };
+    // Only this account's boot snapshot may seed the draft.
+    const boot = bootSnapshot();
+    const previous = boot?.uid === userId ? boot : null;
+    draft.current = new SnapshotDraft({ ...(previous ?? emptySnapshot(userId)), uid: userId });
+    const writeIfReady = () => {
+      if (draft.current?.writable()) writeSnapshot(draft.current.snapshot);
+    };
 
     const flush = () => {
       if (timer.current) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => {
-        if (draft.current) writeSnapshot(draft.current);
-      }, DEBOUNCE_MS);
+      timer.current = window.setTimeout(writeIfReady, DEBOUNCE_MS);
     };
 
-    const patch = (fn: (s: Snapshot) => void) => {
+    const patch = (path: string, fn: (s: Snapshot) => void) => {
       if (!draft.current) return;
-      fn(draft.current);
+      draft.current.apply(path, fn);
       flush();
     };
 
     const listen = (path: string, apply: (value: unknown, s: Snapshot) => void) =>
       onValue(
         ref(db, `users/${userId}/${path}`),
-        (snap) => patch((s) => apply(snap.val(), s)),
+        (snap) => patch(path, (s) => apply(snap.val(), s)),
         () => {
           /* a refused or failed read leaves the previous snapshot in place */
         }
@@ -102,7 +112,8 @@ export function useSnapshotWriter(userId: string | undefined): void {
       subs.forEach((u) => u());
       if (timer.current) window.clearTimeout(timer.current);
       // One last write on unmount, so quitting right after a change keeps it.
-      if (draft.current) writeSnapshot(draft.current);
+      writeIfReady();
+      draft.current = null;
     };
   }, [userId]);
 }
