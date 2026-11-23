@@ -42,6 +42,8 @@
       .li-done .li-dot{animation:li-dotin .4s forwards}
       .li-done .li-ring{animation:li-ring1 .5s .2s forwards}
       .li-done{animation:li-fade .3s .5s forwards;pointer-events:none}
+      /* tokens.css pauses animations while the window is unfocused; the finish must still play */
+      #li-loader.li-done,#li-loader.li-done *{animation-play-state:running!important}
       @keyframes li-in{from{transform:translate(var(--x),var(--y));opacity:.35}to{transform:translate(0,0);opacity:1}}
       @keyframes li-dotin{0%{fill:var(--li-grey);transform:scale(.6)}60%{fill:var(--li-red);transform:scale(1.25)}100%{fill:var(--li-red);transform:scale(1)}}
       @keyframes li-ring1{0%{transform:scale(1);opacity:.6}100%{transform:scale(2.6);opacity:0}}

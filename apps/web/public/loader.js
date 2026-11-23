@@ -22,6 +22,10 @@ window.lockInLoaderFinish = function () {
   el.addEventListener('animationend', function (e) {
     if (e.animationName === 'li-fade') el.remove();
   });
+  // The fade is a CSS animation, and animations can stop: tokens.css pauses
+  // them in an unfocused window, which is how a --silently launch comes up.
+  // A timer still runs there, so the loader goes once the fade (0.8 s) is due.
+  setTimeout(function () { el.remove(); }, 1000);
 };
 window.addEventListener('error', window.lockInLoaderFinish, true);
 window.addEventListener('unhandledrejection', window.lockInLoaderFinish);
